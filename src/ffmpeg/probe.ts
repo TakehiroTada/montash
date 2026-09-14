@@ -7,14 +7,12 @@
  * - `durationFrames()` は ADR-09 の `duration_f = floor(duration_s * num/den)`
  */
 import { MontashError } from "../cli/errors.ts";
+import type { Fps } from "../core/time.ts";
+
+export type { Fps } from "../core/time.ts";
+
 import type { Binaries } from "./locate.ts";
 import { runFfprobeJson } from "./run.ts";
-
-// TODO(core/time): `src/core/time.ts`（別担当が並行実装中）の Fps に差し替える。ここでは同形のローカル定義。
-export interface Fps {
-  num: number;
-  den: number;
-}
 
 export interface VideoSummary {
   codec: string;

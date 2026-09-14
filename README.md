@@ -43,6 +43,30 @@ AI（LLM）が人間のプロンプト指示を受けて **CLI コマンドだ�
 | 12 | [docs/12-tech-decisions.md](docs/12-tech-decisions.md) | 技術選定の決定記録（Bun / yargs / chokidar / React+canvas / 整数フレーム / libass）と実機検証結果 | 実装の前提 |
 | 13 | [docs/13-open-issues.md](docs/13-open-issues.md) | 未解決の懸念一覧（要決定事項・技術リスク・進め方）と推奨対応 | 着手前の合意 |
 
+## 現在実行できる編集（M1）
+
+プロジェクト作成・履歴管理に加え、素材取り込み、プロキシ生成、カット範囲の指定と映像／音声のリンク配置、MP4 書き出しまで実装済みです。
+
+```bash
+bun install
+bun run dev init ./my-edit --fps 29.97 --resolution 1920x1080
+bun run dev -C ./my-edit import ./raw/clip_a.mp4 ./raw/clip_b.mp4 --proxy
+bun run dev -C ./my-edit assets list --json
+bun run dev -C ./my-edit clip add --asset clip_a --in 1 --duration 3 --at end
+bun run dev -C ./my-edit clip add --asset clip_b --in=-2 --at end
+bun run dev -C ./my-edit timeline show --json
+bun run dev -C ./my-edit commit -m "2本の素材から必要な区間を結合"
+bun run dev -C ./my-edit render --preset youtube-1080p -o ./my-edit/out/edit.mp4 --dry-run
+bun run dev -C ./my-edit render --preset youtube-1080p -o ./my-edit/out/edit.mp4
+bun run dev -C ./my-edit render verify ./my-edit/out/edit.mp4 --json
+```
+
+`--in/--out/--duration` は秒・タイムコード・`f:17` 形式を受け付けます。`--in=-2` は素材末尾から2秒。`--dry-run` はプロジェクト・履歴・ID・出力を書き換えません。パスはコマンド実行時のカレントディレクトリ基準です。
+
+現在のレンダーは1本の映像トラックのカット結合、画像、空白区間、複数音声トラックに対応します。プリセットは `youtube-1080p` と `web-preview`。30／29.97／59.94fpsでカット位置・フレーム数をテストし、書き出し時にも映像フレーム数と音声尺を自動検証します。
+
+トランジション、テキスト合成、クリップの移動・トリム、ループ、重なり部分の上書き／リップル挿入、サムネイル・波形、自動プレビュー生成は今後の実装です。音量正規化もM3予定で、現在は警告を出して素材の音量を保持します。Web画面はサーバー・タイムライン・履歴表示の土台があり、動画プレビューの接続はM2で進めます。
+
 ## クイックスタート（想定される利用イメージ）
 
 ```bash
@@ -82,14 +106,17 @@ bun run doctor                              # = montash doctor
 
 # 3. 開発
 bun run dev                                 # CLI を bun で直接実行（bun src/cli/index.ts ...）
-bun run dev:web                             # Bun.serve + HTML import（HMR）で Web UI を開発
+bun run dev -C ./my-edit serve --dev         # 作成済みプロジェクトで Web UI を開発（HMR）
 bun test                                    # 単体テスト
 bun run lint                                # Biome（lint + format チェック）。bun run lint:fix で自動修正
 bun run check                               # typecheck + lint + test（CI と同じ）
-bun run build && bun run compile            # web/dist を生成し、OS 別の単一バイナリ dist/montash-<os>-<arch> を作成
+bun run build:web                           # Web UI を web/dist に生成
+bun run compile                             # 現在の OS 向け CLI を dist/montash にコンパイル
 ```
 
 技術スタック: TypeScript（strict）/ Bun / yargs / zod / `Bun.serve` / chokidar 4 / React 19 + zustand + canvas / ffmpeg / Biome（lint・format）。選定理由と実機検証は [docs/12-tech-decisions.md](docs/12-tech-decisions.md)。
+
+コンパイル版にWeb資産を埋め込む配布ビルドは未実装です。Web UI の開発・確認には上記の `bun run dev ... serve` を使用してください。
 
 ## 用語
 
