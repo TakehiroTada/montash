@@ -65,7 +65,7 @@ bun run dev -C ./my-edit render verify ./my-edit/out/edit.mp4 --json
 
 現在のレンダーは1本の映像トラックのカット結合、画像、空白区間、複数音声トラックに対応します。プリセットは `youtube-1080p` と `web-preview`。30／29.97／59.94fpsでカット位置・フレーム数をテストし、書き出し時にも映像フレーム数と音声尺を自動検証します。
 
-トランジション、テキスト合成、クリップの移動・トリム、ループ、重なり部分の上書き／リップル挿入、サムネイル・波形、自動プレビュー生成は今後の実装です。音量正規化もM3予定で、現在は警告を出して素材の音量を保持します。Web画面はサーバー・タイムライン・履歴表示の土台があり、動画プレビューの接続はM2で進めます。
+トランジション、テキスト合成、クリップの移動・トリム、ループ、重なり部分の上書き／リップル挿入、サムネイル・波形、自動プレビュー生成は今後の実装です。音量正規化もM3予定で、現在は警告を出して素材の音量を保持します。Web画面の履歴表示は実際のHEAD・pending・コミット・タグに追従し、履歴ノードのクリックと `[` / `]` で移動できます。動画プレビューの接続はM2で進めます。
 
 ## クイックスタート（想定される利用イメージ）
 
@@ -108,6 +108,8 @@ bun run doctor                              # = montash doctor
 bun run dev                                 # CLI を bun で直接実行（bun src/cli/index.ts ...）
 bun run dev -C ./my-edit serve --dev         # 作成済みプロジェクトで Web UI を開発（HMR）
 bun test                                    # 単体テスト
+bunx playwright install --with-deps chromium # ブラウザE2E用（初回）
+bash tests/workflows/run-all.sh              # W-01〜W-16の実装済み手順を検証
 bun run lint                                # Biome（lint + format チェック）。bun run lint:fix で自動修正
 bun run check                               # typecheck + lint + test（CI と同じ）
 bun run build:web                           # Web UI を web/dist に生成

@@ -24,7 +24,7 @@ describe("GET /api/*", () => {
     expect(await res.json()).toEqual(SAMPLE_PROJECT);
   });
 
-  test("/api/status has the docs/06 §3.2 shape (stubbed head / preview)", async () => {
+  test("/api/status has the docs/06 §3.2 shape (no history or preview yet)", async () => {
     const res = await fetch(`${srv.url}/api/status`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -34,7 +34,7 @@ describe("GET /api/*", () => {
     expect(body.server).toMatchObject({ version: expect.any(String), read_only: false });
   });
 
-  test("/api/history returns a stub and parses ops.jsonl when present", async () => {
+  test("/api/history returns empty history and parses ops.jsonl when present", async () => {
     let body = (await (await fetch(`${srv.url}/api/history`)).json()) as {
       ops: unknown[];
       commits: unknown[];
@@ -48,7 +48,10 @@ describe("GET /api/*", () => {
       `${JSON.stringify({ id: "o_0001", actor: "ai" })}\n{broken\n${JSON.stringify({ id: "o_0002" })}\n`,
     );
     body = (await (await fetch(`${srv.url}/api/history`)).json()) as typeof body;
-    expect(body.ops).toEqual([{ id: "o_0001", actor: "ai" }, { id: "o_0002" }]);
+    expect(body.ops).toEqual([
+      { id: "o_0001", actor: "ai", commit: null },
+      { id: "o_0002", commit: null },
+    ]);
   });
 
   test("/api/cli/allowlist returns the default allowlist", async () => {
