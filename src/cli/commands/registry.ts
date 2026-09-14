@@ -7,6 +7,7 @@ import { doctor } from "./doctor.ts";
 import { init } from "./init.ts";
 import { projectSet, projectShow } from "./project.ts";
 import { schema } from "./schema.ts";
+import { serve } from "./serve.ts";
 import { validate } from "./validate.ts";
 
 // 各コマンドは固有の Args 型を持つため、レジストリでは共通型に寄せる（実行時は yargs が引数を検証する）
@@ -28,6 +29,7 @@ export const commands: ReadonlyArray<AnySpec> = [
   // トラック / クリップ / タイムライン                                 → M1/M2
   // トランジション / テキスト / オーバーレイ / 音声 / 字幕             → M3/M4
   // プレビュー: serve, preview *                                      → M2
+  spec(serve),
   // 出力: render *                                                    → M1
   // 履歴: status, log, show, diff, blame, commit, checkout, undo, redo, revert, reset, tag, history *, ids rebuild → M1/M4
   // AI 支援: batch, explain                                           → M4
