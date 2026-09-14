@@ -41,7 +41,8 @@ const DECIMAL_ALIASES: ReadonlyArray<{ decimal: Fps; preset: Fps }> = [
   { decimal: { num: 2997, den: 50 }, preset: FPS_PRESETS["59.94"]! }, // 59.94 = 5994/100
 ];
 
-const FPS_HINT = 'Accepted fps: presets 23.976 / 24 / 25 / 29.97 / 30 / 50 / 59.94 / 60, a decimal ("29.97"), or a rational "30000/1001".';
+const FPS_HINT =
+  'Accepted fps: presets 23.976 / 24 / 25 / 29.97 / 30 / 50 / 59.94 / 60, a decimal ("29.97"), or a rational "30000/1001".';
 
 // ---------------------------------------------------------------------------
 // 整数演算ヘルパ
@@ -121,7 +122,11 @@ function describe(v: unknown): string {
 /** `{ num, den }` を検証し、互いに素に正規化する（project.json から読んだ値の検証にも使う） */
 export function makeFps(num: unknown, den: unknown): Fps {
   if (!isPositiveInt(num) || !isPositiveInt(den)) {
-    throw new MontashError("E_INVALID_FPS", `fps must be a ratio of positive integers (got ${describe(num)}/${describe(den)})`, { hint: FPS_HINT });
+    throw new MontashError(
+      "E_INVALID_FPS",
+      `fps must be a ratio of positive integers (got ${describe(num)}/${describe(den)})`,
+      { hint: FPS_HINT },
+    );
   }
   const g = gcd(num, den);
   return { num: num / g, den: den / g };
@@ -156,7 +161,8 @@ export function parseFps(input: string | number): Fps {
   if (ratio) {
     const num = Number(ratio[1]);
     const den = Number(ratio[2]);
-    if (!isPositiveInt(num) || !isPositiveInt(den)) throw invalid("numerator and denominator must be positive integers");
+    if (!isPositiveInt(num) || !isPositiveInt(den))
+      throw invalid("numerator and denominator must be positive integers");
     return matchAlias(makeFps(num, den));
   }
 
@@ -347,10 +353,14 @@ export function resnapFrames(f: number, from: Fps, to: Fps): number {
 /** 非負の safe integer であることを確認して返す。`field` はエラーメッセージ用のフィールド名 */
 export function assertFrames(f: unknown, field: string): number {
   if (typeof f !== "number" || !Number.isSafeInteger(f) || f < 0) {
-    throw new MontashError("E_INVALID_TIME", `${field} must be a non-negative integer number of frames (got ${describe(f)})`, {
-      hint: "Time fields are stored as integer frames at the project fps (e.g. start_f: 375).",
-      detail: { field, value: typeof f === "number" || typeof f === "string" ? f : describe(f) },
-    });
+    throw new MontashError(
+      "E_INVALID_TIME",
+      `${field} must be a non-negative integer number of frames (got ${describe(f)})`,
+      {
+        hint: "Time fields are stored as integer frames at the project fps (e.g. start_f: 375).",
+        detail: { field, value: typeof f === "number" || typeof f === "string" ? f : describe(f) },
+      },
+    );
   }
   return f;
 }

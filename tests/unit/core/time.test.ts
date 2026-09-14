@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { MontashError } from "../../../src/cli/errors.ts";
 import {
-  FPS_PRESETS,
   assertFrames,
+  FPS_PRESETS,
+  type Fps,
   fpsEquals,
   fpsLabel,
   frameDurationSeconds,
   framesToFrameTimecode,
   framesToMillis,
   framesToSamples,
-  framesToSecString,
   framesToSeconds,
+  framesToSecString,
   framesToTimecode,
   makeFps,
   parseFps,
@@ -18,7 +19,6 @@ import {
   roundDiv,
   samplesToFrames,
   secondsToFrames,
-  type Fps,
 } from "../../../src/core/time.ts";
 
 const NTSC30 = FPS_PRESETS["29.97"]!;

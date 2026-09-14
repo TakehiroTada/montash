@@ -14,8 +14,8 @@
  * 値はすべて yargs から文字列で受け取る（docs/12 ADR-04）。`--in -10` は "-10" として relative になる
  * （負の絶対値は存在しないので仕様どおり。`--in=-10` の `=` 形式は yargs 側の話でここでは区別しない）。
  */
-import { fpsLabel, secondsToFrames, type Fps } from "../core/time.ts";
-import { MontashError, warning, type Warning } from "./errors.ts";
+import { type Fps, fpsLabel, secondsToFrames } from "../core/time.ts";
+import { MontashError, type Warning, warning } from "./errors.ts";
 
 export type TimeInput =
   | { kind: "absolute"; frames: number }
@@ -169,7 +169,12 @@ export function parseTimeInput(raw: string, fps: Fps, options: ParseTimeOptions 
   const sign = text[0];
   if (sign === "+" || sign === "-") {
     if (!opts.allowRelative) {
-      throw invalidTime(text, "relative (signed) values are not accepted here", opts, "Absolute times cannot be negative.");
+      throw invalidTime(
+        text,
+        "relative (signed) values are not accepted here",
+        opts,
+        "Absolute times cannot be negative.",
+      );
     }
     const mag = parseMagnitude(text.slice(1), fps);
     if (!mag) throw invalidTime(text, `expected "${sign}<seconds>" or "${sign}f:<frames>"`, opts);
@@ -192,7 +197,12 @@ export function parseTimeInput(raw: string, fps: Fps, options: ParseTimeOptions 
 }
 
 /** 丸めが生じていれば W_SNAPPED を組み立てる（docs/04 §1.3: `{ input, frame, seconds }`） */
-function snappedWarning(input: string, mag: Magnitude, fps: Fps, suggest: string): { warning: Warning } | Record<never, never> {
+function snappedWarning(
+  input: string,
+  mag: Magnitude,
+  fps: Fps,
+  suggest: string,
+): { warning: Warning } | Record<never, never> {
   if (!mag.snapped) return {};
   return {
     warning: warning(
@@ -200,7 +210,13 @@ function snappedWarning(input: string, mag: Magnitude, fps: Fps, suggest: string
       `${JSON.stringify(input)} is not on a frame boundary at ${fpsLabel(fps)} fps; snapped to frame ${mag.frames} (${formatSeconds(mag.snapped.exactSeconds)} s)`,
       {
         hint: `Use ${suggest} to refer to this exact frame and avoid re-rounding.`,
-        detail: { input, frame: mag.frames, seconds: mag.snapped.exactSeconds, requested_seconds: mag.snapped.seconds, suggest },
+        detail: {
+          input,
+          frame: mag.frames,
+          seconds: mag.snapped.exactSeconds,
+          requested_seconds: mag.snapped.seconds,
+          suggest,
+        },
       },
     ),
   };
@@ -233,11 +249,16 @@ export function resolveAbsolute(parsed: ParsedTime, ctx: ResolveContext): number
       frames = v.frames;
       break;
     case "relative":
-      if (ctx.current === undefined) throw fail("a relative value needs a current value to apply to", "Use an absolute time (12.5, 00:00:12.500 or f:375).");
+      if (ctx.current === undefined)
+        throw fail(
+          "a relative value needs a current value to apply to",
+          "Use an absolute time (12.5, 00:00:12.500 or f:375).",
+        );
       frames = ctx.current + v.deltaFrames;
       break;
     case "end":
-      if (ctx.end === undefined) throw fail('"end" is not available in this context', "Use an absolute time (12.5, 00:00:12.500 or f:375).");
+      if (ctx.end === undefined)
+        throw fail('"end" is not available in this context', "Use an absolute time (12.5, 00:00:12.500 or f:375).");
       frames = ctx.end + v.offsetFrames;
       break;
     case "timeline":
@@ -245,11 +266,17 @@ export function resolveAbsolute(parsed: ParsedTime, ctx: ResolveContext): number
       frames = ctx.timelineLength;
       break;
     case "samples":
-      throw fail("a sample count is not a frame position", "Sample notation (s:-960) is only valid for `audio offset --by`.");
+      throw fail(
+        "a sample count is not a frame position",
+        "Sample notation (s:-960) is only valid for `audio offset --by`.",
+      );
   }
   if (!Number.isSafeInteger(frames)) throw fail("result is out of range");
   if (frames < 0) {
-    throw fail(`result is negative (${frames} frames at ${fpsLabel(ctx.fps)} fps)`, "The resolved time must be at or after frame 0.");
+    throw fail(
+      `result is negative (${frames} frames at ${fpsLabel(ctx.fps)} fps)`,
+      "The resolved time must be at or after frame 0.",
+    );
   }
   return frames;
 }

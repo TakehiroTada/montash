@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MontashError } from "../../../src/cli/errors.ts";
-import { parseTimeInput, resolveAbsolute, type ParsedTime } from "../../../src/cli/time-input.ts";
+import { type ParsedTime, parseTimeInput, resolveAbsolute } from "../../../src/cli/time-input.ts";
 import { FPS_PRESETS } from "../../../src/core/time.ts";
 
 const NTSC30 = FPS_PRESETS["29.97"]!;
@@ -134,16 +134,34 @@ describe("parseTimeInput — end / timeline / samples", () => {
 });
 
 describe("parseTimeInput — invalid input", () => {
-  test.each(["abc", "f:1.5", "12:99", "", "   ", "f:", "f:-3", "12.5s", "1:2:3:4", "99:00", "00:60:00", "12,5", "1e3", "+", "-", "+-1", "--1", "f:+3", "12:30:", ":30"])(
-    "%j → E_INVALID_TIME with accepted-format hint",
-    (bad) => {
-      const e = catchError(() => parseTimeInput(bad, FPS30, ALL));
-      expect(e.code).toBe("E_INVALID_TIME");
-      expect(e.hint).toContain("Accepted time formats");
-      expect(e.hint).toContain("f:375");
-      expect(e.detail?.input).toBe(bad);
-    },
-  );
+  test.each([
+    "abc",
+    "f:1.5",
+    "12:99",
+    "",
+    "   ",
+    "f:",
+    "f:-3",
+    "12.5s",
+    "1:2:3:4",
+    "99:00",
+    "00:60:00",
+    "12,5",
+    "1e3",
+    "+",
+    "-",
+    "+-1",
+    "--1",
+    "f:+3",
+    "12:30:",
+    ":30",
+  ])("%j → E_INVALID_TIME with accepted-format hint", (bad) => {
+    const e = catchError(() => parseTimeInput(bad, FPS30, ALL));
+    expect(e.code).toBe("E_INVALID_TIME");
+    expect(e.hint).toContain("Accepted time formats");
+    expect(e.hint).toContain("f:375");
+    expect(e.detail?.input).toBe(bad);
+  });
   test("hint lists only the forms allowed in this context", () => {
     const e = catchError(() => parseTimeInput("abc", FPS30, { allowSamples: true, allowTimeline: true }));
     expect(e.hint).toContain("s:-960");
@@ -172,8 +190,12 @@ describe("resolveAbsolute", () => {
     expect(resolveAbsolute(parseTimeInput("end", FPS30), { fps: FPS30, end: 900 })).toBe(900);
     expect(resolveAbsolute(parseTimeInput("end-3", FPS30), { fps: FPS30, end: 900 })).toBe(810);
     expect(resolveAbsolute(parseTimeInput("end-f:10", FPS30), { fps: FPS30, end: 900 })).toBe(890);
-    expect(catchError(() => resolveAbsolute(parseTimeInput("end-3", FPS30), { fps: FPS30 })).code).toBe("E_INVALID_TIME");
-    expect(catchError(() => resolveAbsolute(parseTimeInput("end-3", FPS30), { fps: FPS30, end: 10 })).code).toBe("E_INVALID_TIME");
+    expect(catchError(() => resolveAbsolute(parseTimeInput("end-3", FPS30), { fps: FPS30 })).code).toBe(
+      "E_INVALID_TIME",
+    );
+    expect(catchError(() => resolveAbsolute(parseTimeInput("end-3", FPS30), { fps: FPS30, end: 10 })).code).toBe(
+      "E_INVALID_TIME",
+    );
   });
   test("timeline needs timelineLength", () => {
     const p = parseTimeInput("timeline", FPS30, { allowTimeline: true });
