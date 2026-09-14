@@ -169,7 +169,7 @@ montash doctor [--json] [--fix-hints]
 出力: `ffmpeg`/`ffprobe` のパスとバージョン、**機能検出の結果**（ADR-15。必須: `libx264` `aac` `xfade` `concat` `overlay` `loudnorm` `sidechaincompress`／推奨: `subtitles`（libass） `drawtext`／任意: `libx265` HW エンコーダ）、テキストエンジン判定（`libass` / `drawtext` フォールバック）、Bun バージョン、OS/WSL 判定、既定フォントディレクトリと CJK フォントの有無、ファイル監視モード（chokidar / poll）。
 
 - ffmpeg の可否は **バージョンではなく必須機能の有無**で判定する。4.4 未満は `E_FFMPEG_OUTDATED`、6.0 未満は `W_FFMPEG_BEST_EFFORT`、必須機能欠落は `E_FFMPEG_FEATURE_MISSING`（欠落一覧と `hint`: `bash scripts/install-deps.sh --static`）。
-- バイナリの探索順: `--ffmpeg-path` / `MONTASH_FFMPEG` → `PATH` → `~/.local/share/montash/ffmpeg/bin`（`install-deps.sh` の static ビルド置き場）。
+- バイナリの探索順: `--ffmpeg-path` / `MONTASH_FFMPEG` → `~/.local/share/montash/ffmpeg/bin`（`install-deps.sh` が static ビルド／Homebrew `ffmpeg-full` をここに置く。montash 管理の ffmpeg を最優先）→ `PATH` → Homebrew keg-only の `ffmpeg-full`（`/opt/homebrew/opt/ffmpeg-full/bin` 等）。
 - 不足項目には `hint`（例: `bash scripts/install-deps.sh --with-fonts`）。`--fix-hints` は `scripts/install-deps.sh --check --json` を実行して結果を統合する。
 
 ### `montash schema` — AI 支援
