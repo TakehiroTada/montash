@@ -163,9 +163,7 @@ function registerNode(y: Argv, node: GroupNode, runner: LeafRunner): void {
 }
 
 function registerLeaf(y: Argv, spec: AnyCommandSpec, runner: LeafRunner, asDefault = false): void {
-  const sig = asDefault
-    ? ["$0", ...commandSignature(spec).split(" ").slice(1)].join(" ")
-    : commandSignature(spec);
+  const sig = asDefault ? ["$0", ...commandSignature(spec).split(" ").slice(1)].join(" ") : commandSignature(spec);
   y.command(
     sig,
     spec.summary,
@@ -225,7 +223,10 @@ export function toSchema(spec: AnyCommandSpec): CommandSchema {
     ...(spec.description !== undefined ? { description: spec.description } : {}),
     workflows: spec.workflows ?? [],
     mutates: spec.mutates ?? false,
-    positionals: (spec.positionals ?? []).map((p) => ({ ...p, type: p.type ?? "string" })),
+    positionals: (spec.positionals ?? []).map((p) => ({
+      ...p,
+      type: p.type ?? "string",
+    })),
     options,
     examples: spec.examples ?? [],
   };
@@ -253,11 +254,18 @@ export function toToolDefinition(spec: AnyCommandSpec, format: "anthropic-tools"
     };
     if (o.required) required.push(name);
   }
-  const inputSchema = { type: "object", properties, ...(required.length ? { required } : {}) };
+  const inputSchema = {
+    type: "object",
+    properties,
+    ...(required.length ? { required } : {}),
+  };
   const name = `montash_${s.path.replace(/[ -]/g, "_")}`;
   const description = [s.summary, s.description].filter(Boolean).join("\n");
   if (format === "openai-tools") {
-    return { type: "function", function: { name, description, parameters: inputSchema } };
+    return {
+      type: "function",
+      function: { name, description, parameters: inputSchema },
+    };
   }
   return { name, description, input_schema: inputSchema };
 }

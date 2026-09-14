@@ -57,7 +57,10 @@ export function detectActor(env: NodeJS.ProcessEnv, isTTY: boolean): Actor {
   return isTTY ? "human" : "ai";
 }
 
-export function createContext(globals: GlobalOptions, opts: { cwd?: string; env?: NodeJS.ProcessEnv; isTTY?: boolean } = {}): CommandContext {
+export function createContext(
+  globals: GlobalOptions,
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; isTTY?: boolean } = {},
+): CommandContext {
   const cwd = opts.cwd ?? process.cwd();
   const env = opts.env ?? process.env;
   const isTTY = opts.isTTY ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);

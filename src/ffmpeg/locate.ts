@@ -18,11 +18,31 @@ export const RECOMMENDED_FFMPEG = "6.0";
 
 /** 必須（無いと render 不可） */
 export const REQUIRED_ENCODERS = ["libx264", "aac"] as const;
-export const REQUIRED_FILTERS = ["xfade", "concat", "overlay", "loudnorm", "sidechaincompress", "fps", "trim", "adelay", "amix"] as const;
+export const REQUIRED_FILTERS = [
+  "xfade",
+  "concat",
+  "overlay",
+  "loudnorm",
+  "sidechaincompress",
+  "fps",
+  "trim",
+  "adelay",
+  "amix",
+] as const;
 /** 推奨（無いと機能制限） */
 export const RECOMMENDED_FILTERS = ["subtitles", "drawtext"] as const;
 /** 任意（あれば使う） */
-export const OPTIONAL_ENCODERS = ["libx265", "h264_videotoolbox", "hevc_videotoolbox", "h264_nvenc", "h264_vaapi", "h264_qsv", "prores_ks", "libmp3lame", "libopus"] as const;
+export const OPTIONAL_ENCODERS = [
+  "libx265",
+  "h264_videotoolbox",
+  "hevc_videotoolbox",
+  "h264_nvenc",
+  "h264_vaapi",
+  "h264_qsv",
+  "prores_ks",
+  "libmp3lame",
+  "libopus",
+] as const;
 
 export interface Binaries {
   ffmpeg: string;
@@ -38,14 +58,22 @@ function pairIn(dir: string): { ffmpeg: string; ffprobe: string } | null {
   return existsSync(f) && existsSync(p) ? { ffmpeg: f, ffprobe: p } : null;
 }
 
-export function locateBinaries(opts: { ffmpegPath?: string; ffprobePath?: string; env?: NodeJS.ProcessEnv } = {}): Binaries {
+export function locateBinaries(
+  opts: { ffmpegPath?: string; ffprobePath?: string; env?: NodeJS.ProcessEnv } = {},
+): Binaries {
   const env = opts.env ?? process.env;
   const explicitFfmpeg = opts.ffmpegPath ?? env.MONTASH_FFMPEG;
   const explicitFfprobe = opts.ffprobePath ?? env.MONTASH_FFPROBE;
   if (explicitFfmpeg) {
     const ffprobe = explicitFfprobe ?? siblingFfprobe(explicitFfmpeg);
-    if (!existsSync(explicitFfmpeg)) throw new MontashError("E_FFMPEG_NOT_FOUND", `ffmpeg not found at ${explicitFfmpeg}`, { hint: "Check --ffmpeg-path / MONTASH_FFMPEG." });
-    if (!ffprobe || !existsSync(ffprobe)) throw new MontashError("E_FFMPEG_NOT_FOUND", `ffprobe not found next to ${explicitFfmpeg}`, { hint: "Pass --ffprobe-path / MONTASH_FFPROBE." });
+    if (!existsSync(explicitFfmpeg))
+      throw new MontashError("E_FFMPEG_NOT_FOUND", `ffmpeg not found at ${explicitFfmpeg}`, {
+        hint: "Check --ffmpeg-path / MONTASH_FFMPEG.",
+      });
+    if (!ffprobe || !existsSync(ffprobe))
+      throw new MontashError("E_FFMPEG_NOT_FOUND", `ffprobe not found next to ${explicitFfmpeg}`, {
+        hint: "Pass --ffprobe-path / MONTASH_FFPROBE.",
+      });
     return { ffmpeg: explicitFfmpeg, ffprobe, source: "explicit" };
   }
   const home = pairIn(join(STATIC_FFMPEG_HOME, "bin"));
@@ -127,7 +155,11 @@ export async function inspectFfmpeg(binaries: Binaries): Promise<FfmpegInfo> {
   const reqEnc = has(encoders, REQUIRED_ENCODERS);
   const reqFlt = has(filters, REQUIRED_FILTERS);
   const rec = has(filters, RECOMMENDED_FILTERS);
-  const textEngine: FfmpegInfo["textEngine"] = filters.has("subtitles") ? "libass" : filters.has("drawtext") ? "drawtext" : "none";
+  const textEngine: FfmpegInfo["textEngine"] = filters.has("subtitles")
+    ? "libass"
+    : filters.has("drawtext")
+      ? "drawtext"
+      : "none";
   return {
     binaries,
     version,
@@ -135,7 +167,10 @@ export async function inspectFfmpeg(binaries: Binaries): Promise<FfmpegInfo> {
     bestEffort: !versionGte(version, RECOMMENDED_FFMPEG),
     encoders,
     filters,
-    required: { present: [...reqEnc.present, ...reqFlt.present], missing: [...reqEnc.missing, ...reqFlt.missing] },
+    required: {
+      present: [...reqEnc.present, ...reqFlt.present],
+      missing: [...reqEnc.missing, ...reqFlt.missing],
+    },
     recommended: rec,
     optional: OPTIONAL_ENCODERS.filter((n) => encoders.has(n)),
     textEngine,

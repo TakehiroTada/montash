@@ -22,6 +22,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: typecheck
         run: bun run typecheck
+      - name: lint (biome)
+        run: bun run lint
       - name: unit tests
         run: bun test
       - name: install ffmpeg (scripts/install-deps.sh)

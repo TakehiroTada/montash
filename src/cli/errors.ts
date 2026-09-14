@@ -38,7 +38,12 @@ export class MontashError extends Error {
     this.exitCode = opts.exitCode ?? defaultExitCode(code);
   }
 
-  toJSON(): { code: string; message: string; hint?: string; detail?: Record<string, unknown> } {
+  toJSON(): {
+    code: string;
+    message: string;
+    hint?: string;
+    detail?: Record<string, unknown>;
+  } {
     return {
       code: this.code,
       message: this.message,
@@ -52,7 +57,8 @@ export class MontashError extends Error {
 function defaultExitCode(code: string): ExitCode {
   if (code.startsWith("E_FFMPEG") || code === "E_BUN_TOO_OLD") return ExitCode.EXTERNAL;
   if (code === "E_USAGE" || code === "E_INVALID_TIME" || code === "E_UNKNOWN_COMMAND") return ExitCode.USAGE;
-  if (code.endsWith("_MISSING") || code === "E_OUTPUT_EXISTS" || code === "E_PATH_OUTSIDE_PROJECT" || code === "E_IO") return ExitCode.IO;
+  if (code.endsWith("_MISSING") || code === "E_OUTPUT_EXISTS" || code === "E_PATH_OUTSIDE_PROJECT" || code === "E_IO")
+    return ExitCode.IO;
   if (code === "E_VALIDATION_FAILED" || code === "E_STRICT") return ExitCode.VALIDATION;
   return ExitCode.GENERAL;
 }
@@ -73,7 +79,10 @@ export function warning(code: string, message: string, extra: Omit<Warning, "cod
 export function toMontashError(err: unknown): MontashError {
   if (err instanceof MontashError) return err;
   if (err instanceof Error) {
-    return new MontashError("E_INTERNAL", err.message, { detail: { name: err.name, stack: err.stack }, cause: err });
+    return new MontashError("E_INTERNAL", err.message, {
+      detail: { name: err.name, stack: err.stack },
+      cause: err,
+    });
   }
   return new MontashError("E_INTERNAL", String(err));
 }
@@ -98,5 +107,7 @@ export const errors = {
       exitCode: ExitCode.EXTERNAL,
     }),
   notImplemented: (what: string) =>
-    new MontashError("E_NOT_IMPLEMENTED", `${what} is not implemented yet`, { hint: "See docs/09-roadmap.md for the milestone." }),
+    new MontashError("E_NOT_IMPLEMENTED", `${what} is not implemented yet`, {
+      hint: "See docs/09-roadmap.md for the milestone.",
+    }),
 };

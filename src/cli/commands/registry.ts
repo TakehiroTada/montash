@@ -8,7 +8,8 @@ import { schema } from "./schema.ts";
 
 // 各コマンドは固有の Args 型を持つため、レジストリでは共通型に寄せる（実行時は yargs が引数を検証する）
 type AnySpec = CommandSpec<Record<string, unknown>>;
-const spec = (s: CommandSpec<never> | CommandSpec<any>): AnySpec => s as unknown as AnySpec; // eslint-disable-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: 各コマンド固有の Args 型を共通型に寄せる（実行時は yargs が検証）
+const spec = (s: CommandSpec<never> | CommandSpec<any>): AnySpec => s as unknown as AnySpec;
 
 export const commands: ReadonlyArray<AnySpec> = [
   // 環境・メタ
