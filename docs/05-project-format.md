@@ -148,7 +148,7 @@
   "mtime": "2026-09-10T10:00:00Z",
   "hash_head": "sha1:...",         // 先頭 1MB のハッシュ（relink 用）
   "duration_s": 14.214,            // ffprobe の値（参照）
-  "duration_f": 426,               // floor(duration_s * num / den)。in/out の上限に使う
+  "duration_f": 425,               // floor(duration_s * num / den) = floor(425.99)。in/out の上限に使う
   "start_time_s": 0.0,             // コンテナの start_time（非 0 なら in/out 解釈時に補正）
   "video": { "codec": "h264", "width": 3840, "height": 2160, "fps": { "num": 30000, "den": 1001 }, "pix_fmt": "yuv420p", "has_alpha": false, "rotation": 0 },
   "audio": { "codec": "aac", "sample_rate": 48000, "channels": 2 },

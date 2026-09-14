@@ -107,7 +107,11 @@ function readRotation(stream: Rec): number {
   const side = stream.side_data_list;
   if (Array.isArray(side)) {
     for (const sd of side) {
-      if (isRec(sd) && typeof str(sd.side_data_type) === "string" && /display ?matrix/i.test(str(sd.side_data_type) ?? "")) {
+      if (
+        isRec(sd) &&
+        typeof str(sd.side_data_type) === "string" &&
+        /display ?matrix/i.test(str(sd.side_data_type) ?? "")
+      ) {
         rot = num(sd.rotation);
         if (rot !== undefined) break;
       }
@@ -117,7 +121,7 @@ function readRotation(stream: Rec): number {
   if (rot === undefined) return 0;
   // -90 → 270 のように 0..359 に正規化し、90 度単位に丸める
   const norm = ((Math.round(rot) % 360) + 360) % 360;
-  return Math.round(norm / 90) * 90 % 360;
+  return (Math.round(norm / 90) * 90) % 360;
 }
 
 /** pix_fmt がアルファ面を持つか（yuva420p, rgba, argb, bgra, abgr, gbrap, ya8, ayuv, vuya 系。gray/pal8 は含めない） */
@@ -155,11 +159,12 @@ export function summarizeProbe(raw: unknown): ProbeSummary {
   // 映像: attached_pic（カバーアート）は除外して最初の映像ストリームを選ぶ
   const videoStreams = streams.filter((s) => str(s.codec_type) === "video");
   const v =
-    videoStreams.find((s) => !(isRec(s.disposition) && num(s.disposition.attached_pic) === 1)) ??
-    videoStreams[0];
+    videoStreams.find((s) => !(isRec(s.disposition) && num(s.disposition.attached_pic) === 1)) ?? videoStreams[0];
   const a = streams.find((s) => str(s.codec_type) === "audio");
   if (!v && !a) {
-    throw new MontashError("E_ASSET_UNREADABLE", "ffprobe found no video or audio stream", { detail: { streams: streams.length } });
+    throw new MontashError("E_ASSET_UNREADABLE", "ffprobe found no video or audio stream", {
+      detail: { streams: streams.length },
+    });
   }
 
   const formatDuration = num(format.duration);
@@ -218,25 +223,38 @@ export function summarizeProbe(raw: unknown): ProbeSummary {
 /**
  * ファイルを ffprobe し、要約と生 JSON を返す。読めなければ E_ASSET_UNREADABLE（detail: path, stderr_tail）。
  */
-export async function probeFile(bins: Binaries, path: string, opts: { timeoutMs?: number } = {}): Promise<{ summary: ProbeSummary; raw: unknown }> {
+export async function probeFile(
+  bins: Binaries,
+  path: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<{ summary: ProbeSummary; raw: unknown }> {
   const args = ["-v", "error", "-show_streams", "-show_format", "-of", "json", "-i", path];
   let raw: unknown;
   try {
     raw = await runFfprobeJson(bins, args, { timeoutMs: opts.timeoutMs ?? 30_000 });
   } catch (e) {
     if (e instanceof MontashError && e.code === "E_FFMPEG_NOT_FOUND") throw e;
-    const tail = e instanceof MontashError && Array.isArray(e.detail?.stderr_tail) ? (e.detail.stderr_tail as string[]) : [];
-    throw new MontashError("E_ASSET_UNREADABLE", `ffprobe could not read ${path}${tail.length ? `: ${tail.at(-1)}` : ""}`, {
-      hint: "Check that the file exists and is a media file ffmpeg can decode.",
-      detail: { path, stderr_tail: tail },
-      cause: e,
-    });
+    const tail =
+      e instanceof MontashError && Array.isArray(e.detail?.stderr_tail) ? (e.detail.stderr_tail as string[]) : [];
+    throw new MontashError(
+      "E_ASSET_UNREADABLE",
+      `ffprobe could not read ${path}${tail.length ? `: ${tail.at(-1)}` : ""}`,
+      {
+        hint: "Check that the file exists and is a media file ffmpeg can decode.",
+        detail: { path, stderr_tail: tail },
+        cause: e,
+      },
+    );
   }
   try {
     return { summary: summarizeProbe(raw), raw };
   } catch (e) {
     if (e instanceof MontashError) {
-      throw new MontashError(e.code, `${e.message} (${path})`, { hint: e.hint, detail: { ...e.detail, path }, cause: e });
+      throw new MontashError(e.code, `${e.message} (${path})`, {
+        hint: e.hint,
+        detail: { ...e.detail, path },
+        cause: e,
+      });
     }
     throw e;
   }

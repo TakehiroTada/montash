@@ -1,8 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { MontashError } from "../../../src/cli/errors.ts";
 import { ensureFixtures } from "../../../src/ffmpeg/fixtures.ts";
-import { locateBinaries, type Binaries } from "../../../src/ffmpeg/locate.ts";
-import { durationFrames, parseRationalFps, pixFmtHasAlpha, probeFile, summarizeProbe } from "../../../src/ffmpeg/probe.ts";
+import { type Binaries, locateBinaries } from "../../../src/ffmpeg/locate.ts";
+import {
+  durationFrames,
+  parseRationalFps,
+  pixFmtHasAlpha,
+  probeFile,
+  summarizeProbe,
+} from "../../../src/ffmpeg/probe.ts";
 
 let bins: Binaries;
 let fx: Record<string, string>;
@@ -51,13 +57,24 @@ describe("ffmpeg/probe (pure)", () => {
     const raw = {
       streams: [
         {
-          codec_type: "video", codec_name: "hevc", width: 1920, height: 1080, pix_fmt: "yuv420p",
-          r_frame_rate: "90000/1", avg_frame_rate: "30000/1001", nb_frames: "300",
+          codec_type: "video",
+          codec_name: "hevc",
+          width: 1920,
+          height: 1080,
+          pix_fmt: "yuv420p",
+          r_frame_rate: "90000/1",
+          avg_frame_rate: "30000/1001",
+          nb_frames: "300",
           side_data_list: [{ side_data_type: "Display Matrix", rotation: -90 }],
         },
         { codec_type: "audio", codec_name: "aac", sample_rate: "44100", channels: 2 },
       ],
-      format: { format_name: "mov,mp4,m4a,3gp,3g2,mj2", duration: "10.010000", start_time: "0.000000", bit_rate: "8000000" },
+      format: {
+        format_name: "mov,mp4,m4a,3gp,3g2,mj2",
+        duration: "10.010000",
+        start_time: "0.000000",
+        bit_rate: "8000000",
+      },
     };
     const s = summarizeProbe(raw);
     expect(s.type).toBe("video");
@@ -67,7 +84,18 @@ describe("ffmpeg/probe (pure)", () => {
     expect(s.container).toEqual({ format: "mov,mp4,m4a,3gp,3g2,mj2", bit_rate: 8000000 });
     expect(s.duration_s).toBe(10.01);
 
-    const tagged = summarizeProbe({ streams: [{ codec_type: "video", codec_name: "h264", r_frame_rate: "30/1", avg_frame_rate: "30/1", tags: { rotate: "90" } }], format: {} });
+    const tagged = summarizeProbe({
+      streams: [
+        {
+          codec_type: "video",
+          codec_name: "h264",
+          r_frame_rate: "30/1",
+          avg_frame_rate: "30/1",
+          tags: { rotate: "90" },
+        },
+      ],
+      format: {},
+    });
     expect(tagged.video?.rotation).toBe(90);
   });
 

@@ -1,8 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { ExitCode, MontashError } from "../../../src/cli/errors.ts";
 import { ensureFixtures } from "../../../src/ffmpeg/fixtures.ts";
-import { locateBinaries, type Binaries } from "../../../src/ffmpeg/locate.ts";
-import { classifyFfmpegFailure, parseProgressBlock, runFfmpeg, shellQuote, type Progress } from "../../../src/ffmpeg/run.ts";
+import { type Binaries, locateBinaries } from "../../../src/ffmpeg/locate.ts";
+import {
+  classifyFfmpegFailure,
+  type Progress,
+  parseProgressBlock,
+  runFfmpeg,
+  shellQuote,
+} from "../../../src/ffmpeg/run.ts";
 
 let bins: Binaries;
 let fx: Record<string, string>;
@@ -24,7 +30,20 @@ async function expectMontashError(p: Promise<unknown>): Promise<MontashError> {
 
 describe("ffmpeg/run (pure)", () => {
   test("parseProgressBlock maps key=value lines and computes percent from totalFrames", () => {
-    const lines = ["frame=75", "fps=120.5", "stream_0_0_q=28.0", "bitrate=N/A", "total_size=N/A", "out_time_us=2500000", "out_time_ms=2500000", "out_time=00:00:02.500000", "dup_frames=0", "drop_frames=0", "speed=4.02x", "progress=continue"];
+    const lines = [
+      "frame=75",
+      "fps=120.5",
+      "stream_0_0_q=28.0",
+      "bitrate=N/A",
+      "total_size=N/A",
+      "out_time_us=2500000",
+      "out_time_ms=2500000",
+      "out_time=00:00:02.500000",
+      "dup_frames=0",
+      "drop_frames=0",
+      "speed=4.02x",
+      "progress=continue",
+    ];
     const p = parseProgressBlock(lines, { totalFrames: 150, elapsedMs: 1000 });
     expect(p.frame).toBe(75);
     expect(p.fps).toBe(120.5);
@@ -43,7 +62,10 @@ describe("ffmpeg/run (pure)", () => {
     expect(byDuration.frame).toBeUndefined();
     const over = parseProgressBlock(["frame=200", "progress=continue"], { totalFrames: 150 });
     expect(over.percent).toBe(100);
-    const end = parseProgressBlock(["frame=149", "total_size=12345", "progress=end"], { totalFrames: 150, elapsedMs: 500 });
+    const end = parseProgressBlock(["frame=149", "total_size=12345", "progress=end"], {
+      totalFrames: 150,
+      elapsedMs: 500,
+    });
     expect(end.status).toBe("end");
     expect(end.percent).toBe(100);
     expect(end.eta_s).toBe(0);
@@ -60,7 +82,19 @@ describe("ffmpeg/run (pure)", () => {
     expect(shellQuote([""])).toBe("''");
     expect(shellQuote(["[0:v]scale=640:360[v]"])).toBe("'[0:v]scale=640:360[v]'");
 
-    const args = ["plain", "with space", "it's quoted", '"double"', "[0:v]trim=end_frame=30;[1:a]adelay=1000S", "a:b:c", "$HOME", "`x`", "日本語 ファイル.mp4", "*", ""];
+    const args = [
+      "plain",
+      "with space",
+      "it's quoted",
+      '"double"',
+      "[0:v]trim=end_frame=30;[1:a]adelay=1000S",
+      "a:b:c",
+      "$HOME",
+      "`x`",
+      "日本語 ファイル.mp4",
+      "*",
+      "",
+    ];
     const cmd = shellQuote(["printf", "%s\\n", ...args]);
     const proc = Bun.spawn(["sh", "-c", cmd], { stdout: "pipe", stderr: "pipe" });
     const out = await new Response(proc.stdout).text();
@@ -70,10 +104,14 @@ describe("ffmpeg/run (pure)", () => {
   });
 
   test("classifyFfmpegFailure maps known stderr patterns", () => {
-    expect(classifyFfmpegFailure(["[in#0] Error opening input: No such file or directory"])?.code).toBe("E_ASSET_MISSING");
+    expect(classifyFfmpegFailure(["[in#0] Error opening input: No such file or directory"])?.code).toBe(
+      "E_ASSET_MISSING",
+    );
     expect(classifyFfmpegFailure(["No such filter: 'xfadez'"])?.code).toBe("E_FFMPEG_FEATURE_MISSING");
     expect(classifyFfmpegFailure(["Unknown encoder 'libx265'"])?.code).toBe("E_FFMPEG_FEATURE_MISSING");
-    expect(classifyFfmpegFailure(["[Parsed_subtitles_0] fontselect: failed to find any fallback with glyph 0x3042"])?.code).toBe("E_FONT_NOT_FOUND");
+    expect(
+      classifyFfmpegFailure(["[Parsed_subtitles_0] fontselect: failed to find any fallback with glyph 0x3042"])?.code,
+    ).toBe("E_FONT_NOT_FOUND");
     expect(classifyFfmpegFailure(["Fontconfig error: Cannot load default config file"])?.code).toBe("E_FONT_NOT_FOUND");
     expect(classifyFfmpegFailure(["Cannot find a valid font for the family Sans"])?.code).toBe("E_FONT_NOT_FOUND");
     expect(classifyFfmpegFailure(["Conversion failed!"])).toBeUndefined();
@@ -108,7 +146,10 @@ describe("ffmpeg/run (real ffmpeg)", () => {
 
   test("percent from totalDurationS when totalFrames is absent (audio only)", async () => {
     const progress: Progress[] = [];
-    await runFfmpeg(bins, ["-i", fx.tone!, "-f", "null", "-"], { totalDurationS: 10, onProgress: (p) => progress.push(p) });
+    await runFfmpeg(bins, ["-i", fx.tone!, "-f", "null", "-"], {
+      totalDurationS: 10,
+      onProgress: (p) => progress.push(p),
+    });
     expect(progress.at(-1)?.percent).toBe(100);
   });
 
@@ -132,7 +173,9 @@ describe("ffmpeg/run (real ffmpeg)", () => {
   });
 
   test("unknown filter → E_FFMPEG_FEATURE_MISSING", async () => {
-    const err = await expectMontashError(runFfmpeg(bins, ["-i", fx.a!, "-vf", "definitely_not_a_filter", "-f", "null", "-"]));
+    const err = await expectMontashError(
+      runFfmpeg(bins, ["-i", fx.a!, "-vf", "definitely_not_a_filter", "-f", "null", "-"]),
+    );
     expect(err.code).toBe("E_FFMPEG_FEATURE_MISSING");
   });
 
@@ -173,7 +216,9 @@ describe("ffmpeg/run (real ffmpeg)", () => {
 
   test("timeoutMs → E_FFMPEG_TIMEOUT", async () => {
     const t0 = performance.now();
-    const err = await expectMontashError(runFfmpeg(bins, ["-re", "-stream_loop", "-1", "-i", fx.a!, "-f", "null", "-"], { timeoutMs: 300 }));
+    const err = await expectMontashError(
+      runFfmpeg(bins, ["-re", "-stream_loop", "-1", "-i", fx.a!, "-f", "null", "-"], { timeoutMs: 300 }),
+    );
     expect(err.code).toBe("E_FFMPEG_TIMEOUT");
     expect(performance.now() - t0).toBeLessThan(3000);
     expect(err.detail?.timeout_ms).toBe(300);

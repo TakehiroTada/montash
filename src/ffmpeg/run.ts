@@ -135,7 +135,7 @@ export function parseProgressBlock(lines: string[], ctx: ProgressContext = {}): 
 // shell-quote（ログ／--dry-run 表示専用。実行はシェルを経由しない）
 // ---------------------------------------------------------------------------
 
-const SAFE_ARG = /^[A-Za-z0-9_\-.\/=:,+@%]+$/;
+const SAFE_ARG = /^[A-Za-z0-9_\-./=:,+@%]+$/;
 
 /** POSIX sh で安全に貼り付けられる形へ引用する。安全な文字だけの引数はそのまま */
 export function shellQuote(args: string[]): string {
@@ -245,7 +245,10 @@ export async function runFfmpeg(bins: Binaries, args: string[], opts: RunOptions
   fullArgs.push(...args);
 
   if (opts.signal?.aborted) {
-    throw new MontashError("E_FFMPEG_CANCELLED", "ffmpeg was cancelled before start", { exitCode: ExitCode.INTERRUPTED, detail: { args: fullArgs } });
+    throw new MontashError("E_FFMPEG_CANCELLED", "ffmpeg was cancelled before start", {
+      exitCode: ExitCode.INTERRUPTED,
+      detail: { args: fullArgs },
+    });
   }
 
   const t0 = performance.now();
@@ -260,11 +263,15 @@ export async function runFfmpeg(bins: Binaries, args: string[], opts: RunOptions
       stderr: "pipe",
     });
   } catch (e) {
-    throw new MontashError("E_FFMPEG_NOT_FOUND", `failed to spawn ffmpeg at ${bins.ffmpeg}: ${e instanceof Error ? e.message : String(e)}`, {
-      hint: "Run `montash doctor` to check the ffmpeg installation.",
-      cause: e,
-      detail: { args: fullArgs },
-    });
+    throw new MontashError(
+      "E_FFMPEG_NOT_FOUND",
+      `failed to spawn ffmpeg at ${bins.ffmpeg}: ${e instanceof Error ? e.message : String(e)}`,
+      {
+        hint: "Run `montash doctor` to check the ffmpeg installation.",
+        cause: e,
+        detail: { args: fullArgs },
+      },
+    );
   }
 
   // --- 停止制御（キャンセル／タイムアウト） ---
@@ -281,7 +288,8 @@ export async function runFfmpeg(bins: Binaries, args: string[], opts: RunOptions
   };
   const onAbort = () => terminate("cancel");
   opts.signal?.addEventListener("abort", onAbort, { once: true });
-  const timeoutTimer = opts.timeoutMs !== undefined ? setTimeout(() => terminate("timeout"), opts.timeoutMs) : undefined;
+  const timeoutTimer =
+    opts.timeoutMs !== undefined ? setTimeout(() => terminate("timeout"), opts.timeoutMs) : undefined;
 
   // --- stdout: -progress ブロック ---
   const ctx: ProgressContext = { totalFrames: opts.totalFrames, totalDurationS: opts.totalDurationS };
@@ -321,7 +329,9 @@ export async function runFfmpeg(bins: Binaries, args: string[], opts: RunOptions
   const durationMs = Math.round(performance.now() - t0);
   const stderrTail = tail.toArray();
   const result: RunResult = { exitCode, durationMs, stderrTail, args: fullArgs };
-  opts.log?.(`ffmpeg exited ${exitCode} in ${durationMs}ms (${progressCount} progress blocks${proc.signalCode ? `, signal ${proc.signalCode}` : ""})`);
+  opts.log?.(
+    `ffmpeg exited ${exitCode} in ${durationMs}ms (${progressCount} progress blocks${proc.signalCode ? `, signal ${proc.signalCode}` : ""})`,
+  );
 
   if (stopReason === "cancel") {
     throw new MontashError("E_FFMPEG_CANCELLED", `ffmpeg was cancelled after ${durationMs}ms`, {
@@ -340,7 +350,11 @@ export async function runFfmpeg(bins: Binaries, args: string[], opts: RunOptions
     const known = classifyFfmpegFailure(stderrTail);
     const lastLine = stderrTail.at(-1) ?? "(no stderr)";
     if (known) {
-      throw new MontashError(known.code, `ffmpeg failed (exit ${exitCode}): ${lastLine}`, { hint: known.hint, detail, exitCode: known.exitCode });
+      throw new MontashError(known.code, `ffmpeg failed (exit ${exitCode}): ${lastLine}`, {
+        hint: known.hint,
+        detail,
+        exitCode: known.exitCode,
+      });
     }
     throw new MontashError("E_FFMPEG_FAILED", `ffmpeg failed (exit ${exitCode}): ${lastLine}`, {
       hint: "See detail.stderr_tail for the ffmpeg error output.",
@@ -358,15 +372,23 @@ export async function runFfmpeg(bins: Binaries, args: string[], opts: RunOptions
  * ffprobe を実行して stdout を JSON として返す。`-of json` は呼び出し側が付ける。
  * 非 0 終了や JSON 解釈失敗は E_FFMPEG_FAILED（probe.ts が E_ASSET_UNREADABLE に包み直す）。
  */
-export async function runFfprobeJson(bins: Binaries, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): Promise<unknown> {
+export async function runFfprobeJson(
+  bins: Binaries,
+  args: string[],
+  opts: { cwd?: string; timeoutMs?: number } = {},
+): Promise<unknown> {
   let proc: ReturnType<typeof Bun.spawn>;
   try {
     proc = Bun.spawn([bins.ffprobe, ...args], { cwd: opts.cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   } catch (e) {
-    throw new MontashError("E_FFMPEG_NOT_FOUND", `failed to spawn ffprobe at ${bins.ffprobe}: ${e instanceof Error ? e.message : String(e)}`, {
-      hint: "Run `montash doctor` to check the ffmpeg installation.",
-      cause: e,
-    });
+    throw new MontashError(
+      "E_FFMPEG_NOT_FOUND",
+      `failed to spawn ffprobe at ${bins.ffprobe}: ${e instanceof Error ? e.message : String(e)}`,
+      {
+        hint: "Run `montash doctor` to check the ffmpeg installation.",
+        cause: e,
+      },
+    );
   }
   const timer = opts.timeoutMs !== undefined ? setTimeout(() => proc.kill("SIGKILL"), opts.timeoutMs) : undefined;
   const tail = new TailBuffer(STDERR_TAIL_LINES);
@@ -384,9 +406,13 @@ export async function runFfprobeJson(bins: Binaries, args: string[], opts: { cwd
   }
   const stderrTail = tail.toArray();
   if (exitCode !== 0) {
-    throw new MontashError("E_FFMPEG_FAILED", `ffprobe failed (exit ${exitCode}): ${stderrTail.at(-1) ?? "(no stderr)"}`, {
-      detail: { exit_code: exitCode, args, stderr_tail: stderrTail },
-    });
+    throw new MontashError(
+      "E_FFMPEG_FAILED",
+      `ffprobe failed (exit ${exitCode}): ${stderrTail.at(-1) ?? "(no stderr)"}`,
+      {
+        detail: { exit_code: exitCode, args, stderr_tail: stderrTail },
+      },
+    );
   }
   try {
     return JSON.parse(stdout) as unknown;
