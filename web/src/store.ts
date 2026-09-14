@@ -50,6 +50,7 @@ export interface StatusLike {
 
 export interface OpLike {
   id: string;
+  parent?: string | null;
   at?: string;
   actor?: string;
   command?: string[];
@@ -62,7 +63,7 @@ export interface HistoryLike {
   head: string | null;
   ops: OpLike[];
   commits: Array<{ id: string; message?: string; at?: string; [k: string]: unknown }>;
-  tags: Record<string, unknown>;
+  tags: Record<string, { target: string; message?: string }>;
   moves: unknown[];
 }
 

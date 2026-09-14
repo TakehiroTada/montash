@@ -112,10 +112,30 @@ export function HistoryTab() {
           .reverse()
           .slice(0, 200)
           .map((op) => (
-            <li key={op.id}>
-              <span className="id">{op.id}</span>
+            <li key={op.id} aria-current={history?.head === op.id ? "step" : undefined}>
+              <span className="id">
+                {op.id}
+                {history?.head === op.id ? " (HEAD)" : ""}
+              </span>
               <span className="dim">{op.actor ?? ""}</span>
-              <span style={{ flex: 1 }}>{op.summary ?? op.command?.join(" ") ?? ""}</span>
+              <span style={{ flex: 1 }}>
+                {op.summary ?? op.command?.join(" ") ?? ""}
+                {op.commit ? (
+                  <small style={{ display: "block" }}>
+                    {op.commit}: {history?.commits.find((c) => c.id === op.commit)?.message}
+                  </small>
+                ) : null}
+                {Object.entries(history?.tags ?? {})
+                  .filter(
+                    ([, tag]) =>
+                      tag.target === op.id || history?.commits.some((c) => c.id === tag.target && c.head === op.id),
+                  )
+                  .map(([name]) => (
+                    <span key={name} className="badge">
+                      {name}
+                    </span>
+                  ))}
+              </span>
               <button
                 type="button"
                 disabled={readOnly}

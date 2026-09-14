@@ -8,14 +8,14 @@
  *   - `/ws`          WebSocket push（server.publish("events", ...)）
  *   - その他         本番は web/dist の静的ファイル、無ければ 404 JSON
  *
- * この段階では project.json / 履歴ファイルを **そのまま透過** し、duration などの計算値は付けない
- * （project.json の構造は別担当が実装中。docs/06 §3.2 の「計算値」は後続で追加する）。
+ * project.json は透過し、履歴は HEAD / コミット所属 / pending / 分岐状態を解決して返す。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import pkg from "../../package.json";
 import { CliExecutor, type CliExecutorOptions, resolveCliCommand } from "./cli-exec.ts";
-import { createWatcher, HISTORY_DIR, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
+import { readHistoryView } from "./history.ts";
+import { createWatcher, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
 
 export const SERVER_VERSION: string = pkg.version;
 
@@ -62,22 +62,6 @@ const jsonError = (status: number, code: string, message: string, hint?: string)
   json({ ok: false, error: { code, message, ...(hint ? { hint } : {}) } }, status);
 
 const notFound = (what = "resource"): Response => jsonError(404, "E_NOT_FOUND", `${what} not found`);
-
-/** JSONL を 1 行 1 オブジェクトとして読む。壊れた行は捨てる。無ければ [] */
-function readJsonl(path: string): unknown[] {
-  if (!existsSync(path)) return [];
-  const out: unknown[] = [];
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    try {
-      out.push(JSON.parse(t));
-    } catch {
-      /* 途中書き込みの行などは無視 */
-    }
-  }
-  return out;
-}
 
 function readJsonFile(path: string): unknown | undefined {
   if (!existsSync(path)) return undefined;
@@ -143,7 +127,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   const status = () => ({
     watching: watcher !== null,
     watch_mode: watcher?.mode ?? null,
-    head: null,
+    head: readHistoryView(projectDir, readJsonFile(targets.project)).state,
     preview: { state: "missing" as const },
     server: {
       version: SERVER_VERSION,
@@ -165,14 +149,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     "/api/status": { GET: () => json(status()) },
     "/api/history": {
       GET: () => {
-        const tags = readJsonFile(join(projectDir, HISTORY_DIR, "tags.json"));
-        return json({
-          head: null,
-          ops: readJsonl(targets.ops),
-          commits: readJsonl(join(projectDir, HISTORY_DIR, "commits.jsonl")),
-          tags: typeof tags === "object" && tags !== null ? tags : {},
-          moves: readJsonl(targets.moves),
-        });
+        return json(readHistoryView(projectDir).history);
       },
     },
     "/api/cli/allowlist": { GET: () => json({ allowlist: executor.allowlist, read_only: readOnly }) },
@@ -273,11 +250,26 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       mode: opts.watch ?? "auto",
       onEvent(ev) {
         if (ev.target === "project") {
-          publish({ type: "project.changed", hash: hashProjectFile(targets.project), head: null, cause: "external" });
-        } else if (ev.target === "ops") {
-          publish({ type: "history.appended", ops: [], commits: [] });
+          publish({
+            type: "project.changed",
+            hash: hashProjectFile(targets.project),
+            head: readHistoryView(projectDir).state,
+            cause: "external",
+          });
         } else {
-          publish({ type: "history.moved", from: null, to: null, actor: null });
+          const view = readHistoryView(projectDir);
+          if (ev.target === "moves" || ev.target === "head") {
+            const lastMove = view.history.moves.at(-1);
+            const move = lastMove?.to === view.history.head ? lastMove : undefined;
+            publish({
+              type: "history.moved",
+              from: move?.from ?? null,
+              to: view.history.head,
+              actor: move?.actor ?? null,
+            });
+          } else {
+            publish({ type: "history.appended", ops: view.history.ops, commits: view.history.commits });
+          }
         }
       },
     });

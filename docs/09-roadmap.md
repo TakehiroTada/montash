@@ -8,7 +8,8 @@
 - M1 の基本経路を追加: `import` → `proxy build/status` → `assets list/show` → `clip add/list` → `timeline show` → `render/verify/presets`。W-02 / W-03 / W-09 のE2Eを追加。
 - レンダーは単一映像トラックのカット結合、画像、ギャップ、音声ミックス、`youtube-1080p` / `web-preview` に対応。30 / 29.97 / 59.94fpsの厳密フレーム数・カット位置テストを常設。
 - この時点のコマンド引数は `montash schema` が正。04章の将来仕様のうち、`clip add --loop`、`--on-overlap push/overwrite`、`project set fps/resolution`、部分レンダー、`render --last`、テキスト・演出・音量正規化は未実装。
-- 次の実装対象: M2 の `clip move/trim/split/delete` と `preview build/status` をプレイヤーへ接続し、W-04 / W-16 を通す。Web Assets閲覧、Playwright、コンパイル版の自己spawn／資産配信も未検証。
+- W-16の履歴連携を実装: WebでHEAD・pending・コミット・タグ・分岐を表示し、CLI操作と同期。Playwrightでキャンバスクリック、`[` / `]`、コミット・タグ通知、監視なしの再取得を検証。
+- 次の実装対象: M2 の `clip move/trim/split/delete` と `preview build/status` をプレイヤーへ接続し、W-04 を通す。Web Assets閲覧、コンパイル版の自己spawn／資産配信も未検証。
 
 ## 1. マイルストーン
 

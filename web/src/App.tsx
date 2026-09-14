@@ -35,10 +35,10 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (isEditable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       const st = useStore.getState();
-      if (e.key === "[") {
+      if (e.key === "[" && !st.status?.server.read_only) {
         e.preventDefault();
         void undo();
-      } else if (e.key === "]") {
+      } else if (e.key === "]" && !st.status?.server.read_only) {
         e.preventDefault();
         void redo();
       } else if (e.key === "ArrowLeft") {

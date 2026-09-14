@@ -41,8 +41,14 @@ function draw(ctx: CanvasRenderingContext2D, width: number, height: number, ns: 
   ctx.strokeStyle = "#3a404a";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(ns[0]!.x, ns[0]!.y);
-  for (const n of ns) ctx.lineTo(n.x, n.y);
+  const byId = new Map(ns.map((n) => [n.op.id, n]));
+  for (const [i, n] of ns.entries()) {
+    const parent = n.op.parent ? byId.get(n.op.parent) : undefined;
+    if (!parent) continue;
+    ctx.moveTo(parent.x, parent.y);
+    if (ns[i - 1] === parent) ctx.lineTo(n.x, n.y);
+    else ctx.quadraticCurveTo((parent.x + n.x) / 2, n.y - 24, n.x, n.y);
+  }
   ctx.stroke();
   ctx.lineWidth = 1;
   // ノード

@@ -2,7 +2,7 @@
  * WebSocket クライアント（docs/06 §3.4）。サーバ → クライアントの push のみ。
  * 切断時は指数バックオフで再接続する（docs/06 §5「切断バッジと自動再接続」）。
  */
-import { refreshHistory, refreshProject, refreshStatus } from "./api.ts";
+import { refreshAll, refreshHistory, refreshProject, refreshStatus } from "./api.ts";
 import { useStore } from "./store.ts";
 
 export interface WsMessage {
@@ -24,6 +24,7 @@ export function handleMessage(msg: WsMessage): void {
   switch (msg.type) {
     case "hello":
       st.setConnection("open");
+      void refreshAll();
       st.log("info", `connected (server ${String(msg.version ?? "?")}${msg.read_only ? ", read-only" : ""})`, "ws");
       break;
     case "project.changed":
@@ -31,8 +32,12 @@ export function handleMessage(msg: WsMessage): void {
       void refreshProject();
       void refreshStatus();
       break;
-    case "history.appended":
     case "history.moved":
+      void refreshProject();
+      void refreshHistory();
+      void refreshStatus();
+      break;
+    case "history.appended":
       void refreshHistory();
       void refreshStatus();
       break;

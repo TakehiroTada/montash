@@ -3,6 +3,7 @@
  * Web の状態変更はすべてここを通り、CLI コマンドの発行として実行される。
  * 409 `E_CONFIRM_REQUIRED` を受けたら確認ダイアログを出し、`confirm: true` で再送する。
  */
+import { refreshHistory, refreshProject, refreshStatus } from "./api.ts";
 import { useStore } from "./store.ts";
 
 export interface CliError {
@@ -61,6 +62,7 @@ export async function execCli(args: string[], opts: ExecOptions = {}): Promise<C
       st.log("error", `${cmd} → ${e?.code ?? "error"}: ${e?.message ?? ""}`, "web");
     }
   }
+  if (body.ok) await Promise.all([refreshProject(), refreshHistory(), refreshStatus()]);
   return body;
 }
 

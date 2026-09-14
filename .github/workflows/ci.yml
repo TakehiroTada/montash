@@ -36,5 +36,7 @@ jobs:
           bun -e 'const j = await Bun.file("doctor.json").json(); if (!j.ok) { console.error(JSON.stringify(j.error)); process.exit(1) }'
       - name: unit tests
         run: bun test
+      - name: install browser
+        run: bunx playwright install --with-deps chromium
       - name: workflow e2e
         run: bash tests/workflows/run-all.sh

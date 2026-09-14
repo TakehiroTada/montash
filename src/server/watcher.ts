@@ -1,7 +1,7 @@
 /**
  * ファイル監視（docs/08 §2 watcher.ts, docs/12 ADR-05）。
  *
- * 監視対象は `project.json` と `.montash/history/{ops,moves}.jsonl` の 3 ファイル。
+ * 監視対象は `project.json` と履歴の HEAD / ops / commits / moves / tags。
  * バックエンドは 2 つ:
  *   - chokidar 4（既定。`awaitWriteFinish` で tmp → rename の原子的保存も検知）
  *   - poll（`Bun.file(path).lastModified` / size / 内容ハッシュを 500ms 間隔で比較。WSL の /mnt/ 配下では自動選択）
@@ -14,7 +14,7 @@ import chokidar from "chokidar";
 
 export type WatchMode = "chokidar" | "poll" | "auto";
 
-export type WatchTarget = "project" | "ops" | "moves";
+export type WatchTarget = "project" | "ops" | "moves" | "head" | "commits" | "tags";
 
 export interface WatchEvent {
   target: WatchTarget;
@@ -41,6 +41,9 @@ export function watchTargets(projectDir: string): Record<WatchTarget, string> {
     project: join(projectDir, "project.json"),
     ops: join(projectDir, HISTORY_DIR, "ops.jsonl"),
     moves: join(projectDir, HISTORY_DIR, "moves.jsonl"),
+    head: join(projectDir, HISTORY_DIR, "HEAD"),
+    commits: join(projectDir, HISTORY_DIR, "commits.jsonl"),
+    tags: join(projectDir, HISTORY_DIR, "tags.json"),
   };
 }
 
