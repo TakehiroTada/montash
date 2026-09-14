@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { appendFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunningServer } from "../../../src/server/index.ts";
-import { chooseMode, hashProjectFile } from "../../../src/server/watcher.ts";
+import { chooseMode, createWatcher, hashProjectFile } from "../../../src/server/watcher.ts";
 import { boot, makeTempProject, openWs, removeTemp, SAMPLE_PROJECT } from "./helpers.ts";
 
 test("hashProjectFile is sha1 of the file contents", () => {
@@ -66,3 +66,25 @@ describe.each(["chokidar", "poll"] as const)("WebSocket + watcher (%s)", (mode) 
     }
   }, 10_000);
 });
+
+for (const mode of ["chokidar", "poll"] as const) {
+  test(`${mode}: rewriting identical project contents does not publish a change`, async () => {
+    const dir = makeTempProject();
+    const events: string[] = [];
+    const watcher = await createWatcher({
+      projectDir: dir,
+      mode,
+      pollIntervalMs: 50,
+      onEvent: (e) => events.push(e.target),
+    });
+    try {
+      await Bun.sleep(200);
+      writeFileSync(join(dir, "project.json"), JSON.stringify(SAMPLE_PROJECT));
+      await Bun.sleep(300);
+      expect(events).toEqual([]);
+    } finally {
+      await watcher.close();
+      removeTemp(dir);
+    }
+  });
+}

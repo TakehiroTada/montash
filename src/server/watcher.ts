@@ -92,6 +92,11 @@ async function createChokidarWatcher(opts: WatcherOptions): Promise<Watcher> {
   // project.json はファイル単位、履歴は .montash ディレクトリを depth 1 で監視する（history/ が後から作られても拾える）。
   // 派生物（cache / preview / objects）は監視しない。
   const montashDir = join(opts.projectDir, ".montash");
+  // macOS may emit a late startup change even with ignoreInitial. Only publish
+  // content changes, so clients do not mistake an initial event for an edit.
+  const hashes = new Map<WatchTarget, string | null>(
+    Object.entries(targets).map(([key, path]) => [key as WatchTarget, hashProjectFile(path)]),
+  );
   const w = chokidar.watch([targets.project, montashDir], {
     ignoreInitial: true,
     depth: 1,
@@ -112,7 +117,12 @@ async function createChokidarWatcher(opts: WatcherOptions): Promise<Watcher> {
   w.on("all", (ev, p) => {
     if (ev !== "add" && ev !== "change") return;
     const target = targetOf(targets, p);
-    if (target) opts.onEvent({ target, path: p });
+    if (target) {
+      const hash = hashProjectFile(p);
+      if (hash === hashes.get(target)) return;
+      hashes.set(target, hash);
+      opts.onEvent({ target, path: p });
+    }
   });
   await new Promise<void>((res, rej) => {
     w.once("ready", () => res());
@@ -146,18 +156,19 @@ async function createPollWatcher(opts: WatcherOptions): Promise<Watcher> {
   const targets = watchTargets(opts.projectDir);
   const entries = Object.entries(targets) as Array<[WatchTarget, string]>;
   const last = new Map<WatchTarget, Stamp>();
-  for (const [k, p] of entries) last.set(k, await stamp(p, k === "project"));
+  for (const [k, p] of entries) last.set(k, await stamp(p, true));
   let busy = false;
   const timer = setInterval(async () => {
     if (busy) return;
     busy = true;
     try {
       for (const [k, p] of entries) {
-        const now = await stamp(p, k === "project");
+        const now = await stamp(p, true);
         const prev = last.get(k);
         if (prev && changed(prev, now)) {
           last.set(k, now);
-          if (now.exists) opts.onEvent({ target: k, path: p });
+          if (now.exists && (prev.exists !== now.exists || prev.hash !== now.hash))
+            opts.onEvent({ target: k, path: p });
         }
       }
     } finally {

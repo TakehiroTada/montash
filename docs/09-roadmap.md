@@ -2,6 +2,14 @@
 
 作業手順開発の原則に従い、**手順（W-xx）単位で縦に切って** 実装する。各マイルストーンは「その手順が bash スクリプトで通しで動く」ことを完了条件とする。
 
+## 実装状況（2026-09-15）
+
+- M0 と履歴基盤は実装済み。既存の W-01 / W-10 / W-15 を維持。
+- M1 の基本経路を追加: `import` → `proxy build/status` → `assets list/show` → `clip add/list` → `timeline show` → `render/verify/presets`。W-02 / W-03 / W-09 のE2Eを追加。
+- レンダーは単一映像トラックのカット結合、画像、ギャップ、音声ミックス、`youtube-1080p` / `web-preview` に対応。30 / 29.97 / 59.94fpsの厳密フレーム数・カット位置テストを常設。
+- この時点のコマンド引数は `montash schema` が正。04章の将来仕様のうち、`clip add --loop`、`--on-overlap push/overwrite`、`project set fps/resolution`、部分レンダー、`render --last`、テキスト・演出・音量正規化は未実装。
+- 次の実装対象: M2 の `clip move/trim/split/delete` と `preview build/status` をプレイヤーへ接続し、W-04 / W-16 を通す。Web Assets閲覧、Playwright、コンパイル版の自己spawn／資産配信も未検証。
+
 ## 1. マイルストーン
 
 ### M0. 骨格（手順なし・基盤のみ）— 1 週目

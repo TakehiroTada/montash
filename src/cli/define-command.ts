@@ -10,7 +10,7 @@
  */
 import type { Argv } from "yargs";
 import type { CommandContext } from "./context.ts";
-import type { Warning } from "./errors.ts";
+import type { ExitCode, Warning } from "./errors.ts";
 
 export type OptionType = "string" | "number" | "boolean" | "array";
 
@@ -44,6 +44,8 @@ export interface CommandExample {
 
 /** ハンドラの戻り値。cli/output.ts が JSON / テキストに整形する（docs/04 §1.5） */
 export interface CommandResult {
+  /** 一括処理の一部失敗でも成功分の結果を返すための終了コード */
+  exitCode?: ExitCode;
   /** コマンド固有の結果 */
   result?: unknown;
   /** 状態変更の一覧（JSON Patch 風）。読み取り系は省略 */

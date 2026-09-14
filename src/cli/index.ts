@@ -82,7 +82,7 @@ export async function runLeaf(
     if (!spec.noProject) ctx.requireProjectDir();
     const res = await spec.handler(ctx, commandArgs(argv));
     printSuccess(ctx, spec, res);
-    process.exitCode = ExitCode.OK;
+    process.exitCode = res.exitCode ?? ExitCode.OK;
   } catch (e) {
     const err = toMontashError(e);
     printFailure(ctx, spec.path, err);
