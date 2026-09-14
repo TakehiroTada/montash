@@ -1,0 +1,18 @@
+# dependencies / build
+node_modules/
+dist/
+web/dist/
+*.bun-build
+# runtime artifacts of montash projects (仕様 05 章)
+.montash/
+out/
+# spikes
+scripts/spikes/watched/
+scripts/spikes/watched2/
+scripts/spikes/big.bin
+scripts/spikes/montash-spike
+scripts/spikes/web-dist/
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

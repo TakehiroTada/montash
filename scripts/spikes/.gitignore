@@ -1,0 +1,7 @@
+node_modules/
+watched/
+watched2/
+big.bin
+montash-spike
+web-dist/
+*.bun-build
