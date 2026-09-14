@@ -191,6 +191,7 @@ describe("ffmpeg/probe (real ffprobe)", () => {
     expect(me.code).toBe("E_ASSET_UNREADABLE");
     expect(me.detail?.path).toBe(missing);
     expect(Array.isArray(me.detail?.stderr_tail)).toBe(true);
-    expect((me.detail?.stderr_tail as string[]).length).toBeGreaterThan(0);
+    const tail = me.detail?.stderr_tail as string[] | undefined;
+    expect(tail?.length ?? 0).toBeGreaterThan(0);
   });
 });

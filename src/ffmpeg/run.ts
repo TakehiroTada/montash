@@ -196,8 +196,9 @@ async function readLines(stream: ReadableStream<Uint8Array> | null, onLine: (lin
   const flush = (text: string) => {
     buf += text;
     // ffmpeg の stderr は進捗行を \r で上書きするので \r も行区切りとして扱う
-    let idx: number;
-    while ((idx = buf.search(/\r\n|\n|\r/)) >= 0) {
+    for (;;) {
+      const idx = buf.search(/\r\n|\n|\r/);
+      if (idx < 0) break;
       const line = buf.slice(0, idx);
       buf = buf.slice(idx + (buf.startsWith("\r\n", idx) ? 2 : 1));
       onLine(line);

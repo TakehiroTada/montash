@@ -169,7 +169,8 @@ describe("ffmpeg/run (real ffmpeg)", () => {
     const err = await expectMontashError(runFfmpeg(bins, ["-i", "/nonexistent/dir/nope.mp4", "-f", "null", "-"]));
     expect(err.code).toBe("E_ASSET_MISSING");
     expect(err.exitCode).toBe(ExitCode.IO);
-    expect((err.detail?.stderr_tail as string[]).join("\n")).toMatch(/No such file or directory/);
+    const tail = (err.detail?.stderr_tail as string[] | undefined) ?? [];
+    expect(tail.join("\n")).toMatch(/No such file or directory/);
   });
 
   test("unknown filter → E_FFMPEG_FEATURE_MISSING", async () => {
