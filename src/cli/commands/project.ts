@@ -3,10 +3,11 @@
  */
 
 import { clipCount, timelineDurationF } from "../../core/assets.ts";
-import { framesToSeconds, framesToTc, hashProject, loadProject, saveProject } from "../../core/project.ts";
+import { framesToSeconds, framesToTc, hashProject, loadProject } from "../../core/project.ts";
 import type { Project } from "../../core/schema.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError } from "../errors.ts";
+import { runMutation } from "../mutate.ts";
 import { describeSettings } from "./init.ts";
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ export const projectSet = defineCommand<SetArgs>({
   summary: "change a project setting (name, default_font, text_engine, background)",
   description:
     "fps / resolution / sample_rate / channels require re-snapping every _f/_smp field and are not implemented yet (M1).",
-  workflows: [],
+  workflows: ["W-15"],
   mutates: true,
   positionals: [
     { name: "key", describe: `setting key: ${[...SETTABLE, ...DEFERRED].join(" | ")}`, required: true },
@@ -125,7 +126,6 @@ export const projectSet = defineCommand<SetArgs>({
     { cmd: "montash project set text_engine drawtext" },
   ],
   async handler(ctx, args) {
-    const dir = ctx.requireProjectDir();
     const key = String(args.key ?? "");
     const value = String(args.value ?? "");
     if ((DEFERRED as readonly string[]).includes(key)) {
@@ -141,65 +141,53 @@ export const projectSet = defineCommand<SetArgs>({
       );
     }
 
-    const project = await loadProject(dir);
-    let path: string;
-    let before: unknown;
-    let after: unknown;
-    switch (key) {
-      case "name": {
-        if (!value.trim()) throw errors.usage("name must not be empty");
-        path = "/name";
-        before = project.name;
-        after = value.trim();
-        project.name = value.trim();
-        break;
-      }
-      case "default_font": {
-        if (!value.trim()) throw errors.usage("default_font must not be empty");
-        path = "/settings/default_font";
-        before = project.settings.default_font;
-        after = value.trim();
-        project.settings.default_font = value.trim();
-        break;
-      }
-      case "text_engine": {
-        if (value !== "libass" && value !== "drawtext")
-          throw errors.usage(`text_engine must be "libass" or "drawtext" (got "${value}")`);
-        path = "/settings/text_engine";
-        before = project.settings.text_engine;
-        after = value;
-        project.settings.text_engine = value;
-        break;
-      }
-      default: {
-        // background
-        if (!/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value) && !/^[a-zA-Z]+$/.test(value)) {
-          throw errors.usage(`background must be a color like #000000 or a name like black (got "${value}")`);
+    // 状態変更は runMutation を通す（validate → 保存 → op 記録 → -m 即コミット。docs/08 §3.1）
+    return runMutation(ctx, ({ project }) => {
+      let before: unknown;
+      let after: unknown;
+      switch (key) {
+        case "name": {
+          if (!value.trim()) throw errors.usage("name must not be empty");
+          before = project.name;
+          after = value.trim();
+          project.name = value.trim();
+          break;
         }
-        path = "/settings/background";
-        before = project.settings.background;
-        after = value;
-        project.settings.background = value;
+        case "default_font": {
+          if (!value.trim()) throw errors.usage("default_font must not be empty");
+          before = project.settings.default_font;
+          after = value.trim();
+          project.settings.default_font = value.trim();
+          break;
+        }
+        case "text_engine": {
+          if (value !== "libass" && value !== "drawtext")
+            throw errors.usage(`text_engine must be "libass" or "drawtext" (got "${value}")`);
+          before = project.settings.text_engine;
+          after = value;
+          project.settings.text_engine = value;
+          break;
+        }
+        default: {
+          // background
+          if (!/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value) && !/^[a-zA-Z]+$/.test(value)) {
+            throw errors.usage(`background must be a color like #000000 or a name like black (got "${value}")`);
+          }
+          before = project.settings.background;
+          after = value;
+          project.settings.background = value;
+        }
       }
-    }
-
-    const changes = [{ op: "replace", path, value: after, before }];
-    if (ctx.globals.dryRun) {
+      const changed = before !== after;
       return {
-        result: { key, before, after, dry_run: true },
-        changes,
-        op: null,
-        human: `would set ${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`,
+        result: { key, before, after },
+        summary: `set ${key} = ${JSON.stringify(after)}`,
+        affects: { clips: [], range_f: null },
+        changed,
+        human: changed
+          ? `${ctx.globals.dryRun ? "would set" : "set"} ${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
+          : `${key} is already ${JSON.stringify(after)} (no change)`,
       };
-    }
-    await saveProject(dir, project);
-    // TODO(history): op の記録（src/core/history）は別モジュールで実装される。ここでは保存のみ。
-    return {
-      result: { key, before, after, updated_at: project.updated_at },
-      changes,
-      op: null,
-      timeline: timelineSummary(project),
-      human: `set ${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`,
-    };
+    });
   },
 });

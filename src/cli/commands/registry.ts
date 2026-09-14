@@ -3,11 +3,22 @@
  * 各コマンドは defineCommand() で定義し、1 ファイル 1〜数コマンド。
  */
 import type { CommandSpec } from "../define-command.ts";
+import { checkout } from "./checkout.ts";
+import { commit } from "./commit.ts";
+import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
+import { historyExport, historyImport, historyPrune, historyVerify } from "./history.ts";
+import { idsRebuild } from "./ids.ts";
 import { init } from "./init.ts";
+import { log } from "./log.ts";
 import { projectSet, projectShow } from "./project.ts";
+import { redo } from "./redo.ts";
 import { schema } from "./schema.ts";
 import { serve } from "./serve.ts";
+import { show } from "./show.ts";
+import { status } from "./status.ts";
+import { tag, tagDelete, tagList } from "./tag.ts";
+import { undo } from "./undo.ts";
 import { validate } from "./validate.ts";
 
 // 各コマンドは固有の Args 型を持つため、レジストリでは共通型に寄せる（実行時は yargs が引数を検証する）
@@ -31,6 +42,22 @@ export const commands: ReadonlyArray<AnySpec> = [
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
   // 出力: render *                                                    → M1
-  // 履歴: status, log, show, diff, blame, commit, checkout, undo, redo, revert, reset, tag, history *, ids rebuild → M1/M4
+  // 履歴: blame, revert, reset → M4
+  spec(status),
+  spec(log),
+  spec(show),
+  spec(diff),
+  spec(commit),
+  spec(checkout),
+  spec(undo),
+  spec(redo),
+  spec(tag),
+  spec(tagList),
+  spec(tagDelete),
+  spec(historyVerify),
+  spec(historyPrune),
+  spec(historyExport),
+  spec(historyImport),
+  spec(idsRebuild),
   // AI 支援: batch, explain                                           → M4
 ];
