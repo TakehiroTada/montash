@@ -41,8 +41,12 @@ export const SettingsSchema = z.looseObject({
   default_image_duration_f: z.int().positive(),
   default_font: z.string().default("Noto Sans CJK JP"),
   text_engine: z.enum(["libass", "drawtext"]).default("libass"),
-  proxy: z.looseObject({ height: posInt.default(360), crf: z.int().nonnegative().default(28) }).default({ height: 360, crf: 28 }),
-  preview: z.looseObject({ auto_build: z.boolean().default(true), debounce_ms: z.int().nonnegative().default(1500) }).default({ auto_build: true, debounce_ms: 1500 }),
+  proxy: z
+    .looseObject({ height: posInt.default(360), crf: z.int().nonnegative().default(28) })
+    .default({ height: 360, crf: 28 }),
+  preview: z
+    .looseObject({ auto_build: z.boolean().default(true), debounce_ms: z.int().nonnegative().default(1500) })
+    .default({ auto_build: true, debounce_ms: 1500 }),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -164,7 +168,12 @@ export const ClipVideoSchema = z.looseObject({
   transform: TransformSchema.nullable().default(null),
   crop: z.looseObject({ x: PxOrPercent, y: PxOrPercent, w: PxOrPercent, h: PxOrPercent }).nullable().default(null),
   color: z
-    .looseObject({ brightness: z.number().optional(), contrast: z.number().optional(), saturation: z.number().optional(), gamma: z.number().optional() })
+    .looseObject({
+      brightness: z.number().optional(),
+      contrast: z.number().optional(),
+      saturation: z.number().optional(),
+      gamma: z.number().optional(),
+    })
     .nullable()
     .default(null),
   lut: z.string().nullable().default(null),
@@ -245,7 +254,13 @@ export const SubtitleClipSchema = z.looseObject({
   mode: z.enum(["burn", "soft"]).default("burn"),
   start_f: FrameSchema,
   offset_f: z.int().default(0),
-  style: z.looseObject({ font: z.string().optional(), size: z.number().positive().optional(), margin_bottom: z.number().optional() }).default({}),
+  style: z
+    .looseObject({
+      font: z.string().optional(),
+      size: z.number().positive().optional(),
+      margin_bottom: z.number().optional(),
+    })
+    .default({}),
   lang: z.string().optional(),
 });
 export type SubtitleClip = z.infer<typeof SubtitleClipSchema>;
@@ -319,7 +334,12 @@ export type Ducking = z.infer<typeof DuckingSchema>;
 export const AudioSettingsSchema = z.looseObject({
   master_gain_db: z.number().default(0),
   normalize: z
-    .looseObject({ enabled: z.boolean().default(true), i: z.number().default(-14), tp: z.number().default(-1), lra: z.number().default(11) })
+    .looseObject({
+      enabled: z.boolean().default(true),
+      i: z.number().default(-14),
+      tp: z.number().default(-1),
+      lra: z.number().default(11),
+    })
     .default({ enabled: true, i: -14, tp: -1, lra: 11 }),
   ducking: z.array(DuckingSchema).default([]),
   track_gain_db: z.record(z.string(), z.number()).default({}),
@@ -352,7 +372,12 @@ export const ProjectSchema = z.looseObject({
   assets: z.record(z.string(), AssetSchema).default({}),
   tracks: z.array(TrackSchema).default([]),
   transitions: z.array(TransitionSchema).default([]),
-  audio: AudioSettingsSchema.default({ master_gain_db: 0, normalize: { enabled: true, i: -14, tp: -1, lra: 11 }, ducking: [], track_gain_db: {} }),
+  audio: AudioSettingsSchema.default({
+    master_gain_db: 0,
+    normalize: { enabled: true, i: -14, tp: -1, lra: 11 },
+    ducking: [],
+    track_gain_db: {},
+  }),
   text_presets: z.record(z.string(), TextPresetSchema).default({}),
   render_presets: z.record(z.string(), RenderPresetSchema).default({}),
   meta: MetaSchema.default({ tags: [] }),

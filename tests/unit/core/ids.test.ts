@@ -3,7 +3,15 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MontashError } from "../../../src/cli/errors.ts";
-import { assertIdAvailable, collectNumberedIds, nextId, nextIds, readIds, rebuildIds, slugAssetId } from "../../../src/core/ids.ts";
+import {
+  assertIdAvailable,
+  collectNumberedIds,
+  nextId,
+  nextIds,
+  readIds,
+  rebuildIds,
+  slugAssetId,
+} from "../../../src/core/ids.ts";
 import { createProject, initProjectDir, projectPaths, saveProject } from "../../../src/core/project.ts";
 import type { Project } from "../../../src/core/schema.ts";
 
@@ -19,11 +27,52 @@ async function freshProject(): Promise<{ dir: string; project: Project }> {
 function withClips(project: Project): Project {
   project.assets.clip_a = { id: "clip_a", type: "video", path: "a.mp4", owned: false, tags: [], duration_f: 1000 };
   project.tracks[0]!.clips.push(
-    { id: "c1", asset: "clip_a", start_f: 0, in_f: 0, out_f: 100, speed: 1, pitch_keep: false, loop: false, link: null, effects: [] },
-    { id: "c7", asset: "clip_a", start_f: 100, in_f: 0, out_f: 100, speed: 1, pitch_keep: false, loop: false, link: null, effects: [] },
+    {
+      id: "c1",
+      asset: "clip_a",
+      start_f: 0,
+      in_f: 0,
+      out_f: 100,
+      speed: 1,
+      pitch_keep: false,
+      loop: false,
+      link: null,
+      effects: [],
+    },
+    {
+      id: "c7",
+      asset: "clip_a",
+      start_f: 100,
+      in_f: 0,
+      out_f: 100,
+      speed: 1,
+      pitch_keep: false,
+      loop: false,
+      link: null,
+      effects: [],
+    },
   );
-  project.transitions.push({ id: "t3", track: "V1", from: "c1", to: "c7", type: "fade", duration_f: 10, mode: "handle", audio: "crossfade", params: {} });
-  project.audio.ducking.push({ id: "d2", target: "A1", sidechain: "A1", threshold_db: -30, ratio: 8, attack_ms: 20, release_ms: 500, makeup_db: 0 });
+  project.transitions.push({
+    id: "t3",
+    track: "V1",
+    from: "c1",
+    to: "c7",
+    type: "fade",
+    duration_f: 10,
+    mode: "handle",
+    audio: "crossfade",
+    params: {},
+  });
+  project.audio.ducking.push({
+    id: "d2",
+    target: "A1",
+    sidechain: "A1",
+    threshold_db: -30,
+    ratio: 8,
+    attack_ms: 20,
+    release_ms: 500,
+    makeup_db: 0,
+  });
   return project;
 }
 
@@ -42,7 +91,9 @@ describe("nextId", () => {
     const { dir } = await freshProject();
     const ids = await Promise.all(Array.from({ length: 20 }, () => nextId(dir, "c")));
     expect(new Set(ids).size).toBe(20);
-    expect(ids.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))).toEqual(Array.from({ length: 20 }, (_, i) => `c${i + 1}`));
+    expect(ids.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))).toEqual(
+      Array.from({ length: 20 }, (_, i) => `c${i + 1}`),
+    );
     expect((await readIds(dir))?.counters.c).toBe(21);
   });
   test("nextIds issues a contiguous block", async () => {
@@ -76,7 +127,11 @@ describe("rebuildIds", () => {
     expect(again.counters.t).toBe(4);
   });
   test("collectNumberedIds ignores asset slugs, track ids and unknown prefixes", () => {
-    const m = collectNumberedIds({ id: "clip_a", tracks: [{ id: "V1" }], items: [{ id: "q9" }, { id: "c3" }, { id: "c10" }] });
+    const m = collectNumberedIds({
+      id: "clip_a",
+      tracks: [{ id: "V1" }],
+      items: [{ id: "q9" }, { id: "c3" }, { id: "c10" }],
+    });
     expect([...m.entries()]).toEqual([["c", 10]]);
   });
 });

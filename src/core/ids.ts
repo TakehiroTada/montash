@@ -60,7 +60,7 @@ export async function writeIds(dir: string, ids: IdsFile): Promise<void> {
   const { idsFile } = projectPaths(dir);
   const counters: Record<string, number> = {};
   for (const k of Object.keys(ids.counters).sort()) counters[k] = ids.counters[k]!;
-  await atomicWrite(idsFile, JSON.stringify({ counters }, null, 2) + "\n");
+  await atomicWrite(idsFile, `${JSON.stringify({ counters }, null, 2)}\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,11 @@ export function assertIdAvailable(project: Project, id: string): void {
  * ids.json を現在の project と履歴 object 群から再構築する（各プレフィックスの最大値 +1）。
  * 既存の ids.json の値がそれより大きければそちらを維持する（巻き戻さない）。
  */
-export async function rebuildIds(dir: string, project: Project, historyObjects: Iterable<unknown> = []): Promise<IdsFile> {
+export async function rebuildIds(
+  dir: string,
+  project: Project,
+  historyObjects: Iterable<unknown> = [],
+): Promise<IdsFile> {
   const max = collectNumberedIds(project);
   for (const obj of historyObjects) collectNumberedIds(obj, max);
   const existing = await readIds(dir);
@@ -162,7 +166,9 @@ async function withFileLock<T>(lockPath: string, fn: () => Promise<T>): Promise<
         throw new MontashError("E_IO", `cannot create lock ${lockPath}: ${String(e)}`, { cause: e });
       }
       if (Date.now() > deadline) {
-        throw new MontashError("E_IO", `timed out waiting for ${lockPath}`, { hint: "Remove the stale lock file if no other montash process is running." });
+        throw new MontashError("E_IO", `timed out waiting for ${lockPath}`, {
+          hint: "Remove the stale lock file if no other montash process is running.",
+        });
       }
       await new Promise((r) => setTimeout(r, 10 + Math.random() * 20));
     }

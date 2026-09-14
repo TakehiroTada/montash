@@ -1,11 +1,12 @@
 /**
  * `montash project show` / `montash project set <key> <value>`（docs/03 W-01, docs/04 §3）
  */
-import { defineCommand } from "../define-command.ts";
-import { errors, MontashError } from "../errors.ts";
+
 import { clipCount, timelineDurationF } from "../../core/assets.ts";
 import { framesToSeconds, framesToTc, hashProject, loadProject, saveProject } from "../../core/project.ts";
 import type { Project } from "../../core/schema.ts";
+import { defineCommand } from "../define-command.ts";
+import { errors, MontashError } from "../errors.ts";
 import { describeSettings } from "./init.ts";
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,13 @@ export const projectShow = defineCommand<Record<string, unknown>>({
       asset_count: Object.keys(project.assets).length,
       assets_by_type: assetsByType,
       track_count: project.tracks.length,
-      tracks: project.tracks.map((t) => ({ id: t.id, kind: t.kind, clip_count: t.clips.length, muted: t.muted, locked: t.locked })),
+      tracks: project.tracks.map((t) => ({
+        id: t.id,
+        kind: t.kind,
+        clip_count: t.clips.length,
+        muted: t.muted,
+        locked: t.locked,
+      })),
       transition_count: project.transitions.length,
       duration_f: timeline.duration_f,
       duration: timeline.duration,
@@ -61,7 +68,13 @@ export const projectShow = defineCommand<Record<string, unknown>>({
       `  resolution  ${settings.resolution.width}x${settings.resolution.height}    background ${settings.background}`,
       `  audio       ${settings.sample_rate} Hz, ${settings.channels} ch`,
       `  text        ${settings.text_engine}, font "${settings.default_font}"`,
-      `  assets      ${result.asset_count}${result.asset_count ? ` (${Object.entries(assetsByType).map(([k, v]) => `${k}: ${v}`).join(", ")})` : ""}`,
+      `  assets      ${result.asset_count}${
+        result.asset_count
+          ? ` (${Object.entries(assetsByType)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ")})`
+          : ""
+      }`,
       `  tracks      ${result.tracks.map((t) => `${t.id}[${t.clip_count}]`).join(" ") || "(none)"}`,
       `  transitions ${result.transition_count}`,
       `  duration    ${formatDuration(timeline.duration_f, project, ctx.globals.timeFormat)}`,
@@ -98,7 +111,8 @@ const DEFERRED = ["fps", "resolution", "sample_rate", "channels"] as const;
 export const projectSet = defineCommand<SetArgs>({
   path: "project set",
   summary: "change a project setting (name, default_font, text_engine, background)",
-  description: "fps / resolution / sample_rate / channels require re-snapping every _f/_smp field and are not implemented yet (M1).",
+  description:
+    "fps / resolution / sample_rate / channels require re-snapping every _f/_smp field and are not implemented yet (M1).",
   workflows: [],
   mutates: true,
   positionals: [
@@ -121,7 +135,10 @@ export const projectSet = defineCommand<SetArgs>({
       });
     }
     if (!(SETTABLE as readonly string[]).includes(key)) {
-      throw errors.usage(`unknown setting "${key}"`, `Settable keys: ${SETTABLE.join(", ")} (fps, resolution, sample_rate, channels: M1).`);
+      throw errors.usage(
+        `unknown setting "${key}"`,
+        `Settable keys: ${SETTABLE.join(", ")} (fps, resolution, sample_rate, channels: M1).`,
+      );
     }
 
     const project = await loadProject(dir);
@@ -146,7 +163,8 @@ export const projectSet = defineCommand<SetArgs>({
         break;
       }
       case "text_engine": {
-        if (value !== "libass" && value !== "drawtext") throw errors.usage(`text_engine must be "libass" or "drawtext" (got "${value}")`);
+        if (value !== "libass" && value !== "drawtext")
+          throw errors.usage(`text_engine must be "libass" or "drawtext" (got "${value}")`);
         path = "/settings/text_engine";
         before = project.settings.text_engine;
         after = value;
@@ -167,7 +185,12 @@ export const projectSet = defineCommand<SetArgs>({
 
     const changes = [{ op: "replace", path, value: after, before }];
     if (ctx.globals.dryRun) {
-      return { result: { key, before, after, dry_run: true }, changes, op: null, human: `would set ${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}` };
+      return {
+        result: { key, before, after, dry_run: true },
+        changes,
+        op: null,
+        human: `would set ${key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`,
+      };
     }
     await saveProject(dir, project);
     // TODO(history): op の記録（src/core/history）は別モジュールで実装される。ここでは保存のみ。

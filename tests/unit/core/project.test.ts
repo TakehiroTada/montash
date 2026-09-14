@@ -24,7 +24,7 @@ import {
 const tmp = (prefix = "montash-core-") => mkdtempSync(join(tmpdir(), prefix));
 const fps2997 = { num: 30000, den: 1001 };
 
-describe("fps helpers (TODO(core-time) placeholders)", () => {
+describe("fps helpers (re-exported from core/time)", () => {
   test("presets and fractions", () => {
     expect(parseFps("29.97")).toEqual({ num: 30000, den: 1001 });
     expect(parseFps("23.976")).toEqual({ num: 24000, den: 1001 });
@@ -36,7 +36,7 @@ describe("fps helpers (TODO(core-time) placeholders)", () => {
     expect(parseFps("48")).toEqual({ num: 48, den: 1 });
   });
   test("rejects garbage", () => {
-    for (const bad of ["abc", "0", "30/0", "-30", "29.9", ""]) {
+    for (const bad of ["abc", "0", "30/0", "-30", "24.5.1", ""]) {
       expect(() => parseFps(bad)).toThrow(MontashError);
     }
   });
@@ -61,7 +61,12 @@ describe("fps helpers (TODO(core-time) placeholders)", () => {
 
 describe("createProject", () => {
   test("defaults: V1/A1, 5 s image duration, libass, schema v2", () => {
-    const p = createProject({ name: "vlog", fps: fps2997, resolution: { width: 1920, height: 1080 }, now: new Date("2026-09-14T01:23:45.678Z") });
+    const p = createProject({
+      name: "vlog",
+      fps: fps2997,
+      resolution: { width: 1920, height: 1080 },
+      now: new Date("2026-09-14T01:23:45.678Z"),
+    });
     expect(p.schema_version).toBe(2);
     expect(p.name).toBe("vlog");
     expect(p.created_at).toBe("2026-09-14T01:23:45Z");
@@ -79,7 +84,13 @@ describe("createProject", () => {
     expect(p.transitions).toEqual([]);
   });
   test("image duration follows fps; sample rate / channels override", () => {
-    const p = createProject({ name: "x", fps: { num: 24, den: 1 }, resolution: { width: 1920, height: 1080 }, sampleRate: 44100, channels: 1 });
+    const p = createProject({
+      name: "x",
+      fps: { num: 24, den: 1 },
+      resolution: { width: 1920, height: 1080 },
+      sampleRate: 44100,
+      channels: 1,
+    });
     expect(p.settings.default_image_duration_f).toBe(120);
     expect(p.settings.sample_rate).toBe(44100);
     expect(p.settings.channels).toBe(1);
@@ -89,7 +100,12 @@ describe("createProject", () => {
 describe("save / load round trip", () => {
   test("saveProject writes 2-space JSON atomically and updates updated_at", async () => {
     const dir = tmp();
-    const p = createProject({ name: "rt", fps: fps2997, resolution: { width: 1920, height: 1080 }, now: new Date("2026-01-01T00:00:00Z") });
+    const p = createProject({
+      name: "rt",
+      fps: fps2997,
+      resolution: { width: 1920, height: 1080 },
+      now: new Date("2026-01-01T00:00:00Z"),
+    });
     await saveProject(dir, p, { now: new Date("2026-01-02T00:00:00Z") });
     expect(p.updated_at).toBe("2026-01-02T00:00:00Z");
     const text = readFileSync(join(dir, "project.json"), "utf8");
@@ -123,18 +139,30 @@ describe("save / load round trip", () => {
   });
   test("schema_version newer than supported → E_SCHEMA_TOO_NEW", () => {
     const p = createProject({ name: "new", fps: fps2997, resolution: { width: 1920, height: 1080 } });
-    expect(() => parseProject({ ...p, schema_version: 99 })).toThrow(expect.objectContaining({ code: "E_SCHEMA_TOO_NEW" }));
+    expect(() => parseProject({ ...p, schema_version: 99 })).toThrow(
+      expect.objectContaining({ code: "E_SCHEMA_TOO_NEW" }),
+    );
     expect(() => parseProject([])).toThrow(expect.objectContaining({ code: "E_PROJECT_INVALID" }));
   });
 });
 
 describe("hashProject", () => {
   test("is deterministic and independent of key order", () => {
-    const p = createProject({ name: "h", fps: fps2997, resolution: { width: 1920, height: 1080 }, now: new Date("2026-01-01T00:00:00Z") });
+    const p = createProject({
+      name: "h",
+      fps: fps2997,
+      resolution: { width: 1920, height: 1080 },
+      now: new Date("2026-01-01T00:00:00Z"),
+    });
     // すべてのオブジェクトのキー順を逆にしたコピー（配列順は保持）
     const reverseKeys = (v: unknown): unknown => {
       if (Array.isArray(v)) return v.map(reverseKeys);
-      if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>).reverse().map(([k, x]) => [k, reverseKeys(x)]));
+      if (v && typeof v === "object")
+        return Object.fromEntries(
+          Object.entries(v as Record<string, unknown>)
+            .reverse()
+            .map(([k, x]) => [k, reverseKeys(x)]),
+        );
       return v;
     };
     const reordered = reverseKeys(p) as typeof p;
@@ -143,7 +171,12 @@ describe("hashProject", () => {
     expect(hashProject(p)).toMatch(/^sha1:[0-9a-f]{40}$/);
   });
   test("changes when content changes; array order matters", () => {
-    const p = createProject({ name: "h", fps: fps2997, resolution: { width: 1920, height: 1080 }, now: new Date("2026-01-01T00:00:00Z") });
+    const p = createProject({
+      name: "h",
+      fps: fps2997,
+      resolution: { width: 1920, height: 1080 },
+      now: new Date("2026-01-01T00:00:00Z"),
+    });
     const renamed = { ...p, name: "h2" };
     expect(hashProject(renamed)).not.toBe(hashProject(p));
     const swapped = { ...p, tracks: [p.tracks[1]!, p.tracks[0]!] };
@@ -162,7 +195,18 @@ describe("initProjectDir", () => {
     const dir = join(root, "proj");
     const p = createProject({ name: "proj", fps: fps2997, resolution: { width: 1920, height: 1080 } });
     const paths = await initProjectDir(dir, p);
-    for (const d of [paths.projectFile, paths.idsFile, paths.gitignore, paths.assetsDir, paths.outDir, paths.historyDir, paths.cacheDir, paths.previewDir, paths.tmpDir, paths.logsDir]) {
+    for (const d of [
+      paths.projectFile,
+      paths.idsFile,
+      paths.gitignore,
+      paths.assetsDir,
+      paths.outDir,
+      paths.historyDir,
+      paths.cacheDir,
+      paths.previewDir,
+      paths.tmpDir,
+      paths.logsDir,
+    ]) {
       expect(existsSync(d)).toBe(true);
     }
     expect(readFileSync(paths.gitignore, "utf8")).toBe(GITIGNORE_CONTENT);

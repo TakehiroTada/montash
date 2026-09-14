@@ -4,9 +4,17 @@
  * fps と解像度はプロジェクトの基準単位（ADR-09）。fps は有理数 {num, den} で保存する。
  */
 import { resolve } from "node:path";
+import {
+  createProject,
+  defaultProjectName,
+  fpsLabel,
+  framesToSeconds,
+  initProjectDir,
+  parseFps,
+  parseResolution,
+} from "../../core/project.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors } from "../errors.ts";
-import { createProject, defaultProjectName, fpsLabel, framesToSeconds, initProjectDir, parseFps, parseResolution } from "../../core/project.ts";
 
 interface Args extends Record<string, unknown> {
   dir: string;
@@ -31,19 +39,34 @@ export const INIT_TEMPLATES: Readonly<Record<string, { fps: string; resolution: 
 export const init = defineCommand<Args>({
   path: "init",
   summary: "create a new project directory with project.json and .montash/",
-  description: "fps and resolution become the project's base units: all times are stored as integer frames of this fps.",
+  description:
+    "fps and resolution become the project's base units: all times are stored as integer frames of this fps.",
   workflows: ["W-01"],
   noProject: true,
   mutates: false,
-  positionals: [{ name: "dir", describe: "project directory to create (\".\" for the current directory)", required: true }],
+  positionals: [
+    { name: "dir", describe: 'project directory to create ("." for the current directory)', required: true },
+  ],
   options: {
-    fps: { type: "string", describe: "frame rate: 23.976 | 24 | 25 | 29.97 | 30 | 50 | 59.94 | 60, or a fraction like 30000/1001 (default 30)" },
+    fps: {
+      type: "string",
+      describe:
+        "frame rate: 23.976 | 24 | 25 | 29.97 | 30 | 50 | 59.94 | 60, or a fraction like 30000/1001 (default 30)",
+    },
     resolution: { type: "string", describe: "canvas size WIDTHxHEIGHT, even pixels (default 1920x1080)" },
     "sample-rate": { type: "number", describe: "audio sample rate", default: 48000 },
     channels: { type: "number", describe: "audio channels", default: 2 },
     name: { type: "string", describe: "project name (default: directory name)" },
-    template: { type: "string", describe: "preset for fps/resolution (explicit --fps/--resolution override it)", choices: Object.keys(INIT_TEMPLATES) },
-    force: { type: "boolean", describe: "overwrite an existing project.json (discards the existing project and its history)", default: false },
+    template: {
+      type: "string",
+      describe: "preset for fps/resolution (explicit --fps/--resolution override it)",
+      choices: Object.keys(INIT_TEMPLATES),
+    },
+    force: {
+      type: "boolean",
+      describe: "overwrite an existing project.json (discards the existing project and its history)",
+      default: false,
+    },
   },
   examples: [
     { cmd: "montash init my-vlog --fps 30 --resolution 1920x1080 --sample-rate 48000" },
@@ -60,8 +83,10 @@ export const init = defineCommand<Args>({
     const resolution = parseResolution(args.resolution ?? template?.resolution ?? "1920x1080");
     const sampleRate = Number(args.sampleRate);
     const channels = Number(args.channels);
-    if (!Number.isInteger(sampleRate) || sampleRate <= 0) throw errors.usage(`invalid --sample-rate ${String(args.sampleRate)}`, "Use a positive integer such as 48000.");
-    if (!Number.isInteger(channels) || channels <= 0) throw errors.usage(`invalid --channels ${String(args.channels)}`, "Use 1 or 2.");
+    if (!Number.isInteger(sampleRate) || sampleRate <= 0)
+      throw errors.usage(`invalid --sample-rate ${String(args.sampleRate)}`, "Use a positive integer such as 48000.");
+    if (!Number.isInteger(channels) || channels <= 0)
+      throw errors.usage(`invalid --channels ${String(args.channels)}`, "Use 1 or 2.");
 
     const dir = resolve(ctx.cwd, args.dir);
     const name = args.name?.trim() || defaultProjectName(dir);

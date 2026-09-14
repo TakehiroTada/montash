@@ -71,7 +71,8 @@ class Collector {
   }
   /** strict なら error、そうでなければ warning */
   warn(issue: Issue, promoteOnStrict = true): void {
-    if (this.strict && promoteOnStrict) this.errors.push({ ...issue, detail: { ...(issue.detail ?? {}), promoted_by: "strict" } });
+    if (this.strict && promoteOnStrict)
+      this.errors.push({ ...issue, detail: { ...(issue.detail ?? {}), promoted_by: "strict" } });
     else this.warnings.push(issue);
   }
 }
@@ -102,7 +103,7 @@ export function validateProject(project: Project, opts: ValidateOptions = {}): V
 function checkIntegerFields(value: unknown, path: string, c: Collector): void {
   if (value === null || typeof value !== "object") return;
   if (Array.isArray(value)) {
-    value.forEach((v, i) => checkIntegerFields(v, `${path}/${i}`, c));
+    for (const [i, v] of value.entries()) checkIntegerFields(v, `${path}/${i}`, c);
     return;
   }
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -110,7 +111,12 @@ function checkIntegerFields(value: unknown, path: string, c: Collector): void {
     if (k.endsWith("_f") || k.endsWith("_smp")) {
       if (v === null || v === undefined) continue;
       if (typeof v !== "number" || !Number.isSafeInteger(v)) {
-        c.error({ code: "E_FRAME_NOT_INTEGER", message: `${p} must be a safe integer (got ${JSON.stringify(v)})`, path: p, hint: "Times are stored as integer frames (_f) / samples (_smp). Use f:<n> input or round the value." });
+        c.error({
+          code: "E_FRAME_NOT_INTEGER",
+          message: `${p} must be a safe integer (got ${JSON.stringify(v)})`,
+          path: p,
+          hint: "Times are stored as integer frames (_f) / samples (_smp). Use f:<n> input or round the value.",
+        });
         continue;
       }
       // offset_smp / offset_f は負も可（同期の前倒し）
@@ -134,13 +140,26 @@ function gcd(a: number, b: number): number {
 function checkSettings(project: Project, c: Collector): void {
   const { fps, resolution } = project.settings;
   if (!Number.isSafeInteger(fps.num) || !Number.isSafeInteger(fps.den) || fps.num <= 0 || fps.den <= 0) {
-    c.error({ code: "E_FPS_INVALID", message: `settings.fps must be positive integers (got ${fps.num}/${fps.den})`, path: "/settings/fps" });
+    c.error({
+      code: "E_FPS_INVALID",
+      message: `settings.fps must be positive integers (got ${fps.num}/${fps.den})`,
+      path: "/settings/fps",
+    });
   } else if (gcd(fps.num, fps.den) !== 1) {
     const g = gcd(fps.num, fps.den);
-    c.error({ code: "E_FPS_INVALID", message: `settings.fps ${fps.num}/${fps.den} is not in lowest terms`, path: "/settings/fps", hint: `Use ${fps.num / g}/${fps.den / g}.` });
+    c.error({
+      code: "E_FPS_INVALID",
+      message: `settings.fps ${fps.num}/${fps.den} is not in lowest terms`,
+      path: "/settings/fps",
+      hint: `Use ${fps.num / g}/${fps.den / g}.`,
+    });
   }
   if (resolution.width % 2 !== 0 || resolution.height % 2 !== 0) {
-    c.error({ code: "E_RESOLUTION_ODD", message: `settings.resolution ${resolution.width}x${resolution.height} must be even (yuv420p)`, path: "/settings/resolution" });
+    c.error({
+      code: "E_RESOLUTION_ODD",
+      message: `settings.resolution ${resolution.width}x${resolution.height} must be even (yuv420p)`,
+      path: "/settings/resolution",
+    });
   }
 }
 
@@ -151,7 +170,8 @@ function checkSettings(project: Project, c: Collector): void {
 function checkTracks(project: Project, c: Collector): Map<string, Track> {
   const byId = new Map<string, Track>();
   project.tracks.forEach((t, i) => {
-    if (byId.has(t.id)) c.error({ code: "E_TRACK_ID_DUPLICATE", message: `track id "${t.id}" is duplicated`, path: `/tracks/${i}` });
+    if (byId.has(t.id))
+      c.error({ code: "E_TRACK_ID_DUPLICATE", message: `track id "${t.id}" is duplicated`, path: `/tracks/${i}` });
     else byId.set(t.id, t);
   });
   return byId;
@@ -171,7 +191,11 @@ function indexClips(project: Project, c: Collector): Map<string, ClipRef> {
     track.clips.forEach((clip, ci) => {
       const path = `/tracks/${ti}/clips/${ci}`;
       if (index.has(clip.id)) {
-        c.error({ code: "E_CLIP_ID_DUPLICATE", message: `clip id "${clip.id}" is duplicated (also at ${index.get(clip.id)!.path})`, path });
+        c.error({
+          code: "E_CLIP_ID_DUPLICATE",
+          message: `clip id "${clip.id}" is duplicated (also at ${index.get(clip.id)!.path})`,
+          path,
+        });
         return;
       }
       index.set(clip.id, { clip, track, trackIndex: ti, clipIndex: ci, path });
@@ -195,24 +219,51 @@ function checkClips(project: Project, _trackById: Map<string, Track>, c: Collect
       const kind = clipKind(clip);
 
       // kind に合わないクリップ種別（§14.7）
-      const allowed = track.kind === "text" ? kind === "text" || kind === "subtitle" : kind === "media" || kind === "generator";
+      const allowed =
+        track.kind === "text" ? kind === "text" || kind === "subtitle" : kind === "media" || kind === "generator";
       if (!allowed) {
-        c.error({ code: "E_CLIP_KIND_MISMATCH", message: `clip "${clip.id}" (${kind}) cannot be placed on ${track.kind} track "${track.id}"`, path, hint: track.kind === "text" ? "Text tracks hold text/subtitle clips only." : "Media/generator clips belong on video or audio tracks." });
+        c.error({
+          code: "E_CLIP_KIND_MISMATCH",
+          message: `clip "${clip.id}" (${kind}) cannot be placed on ${track.kind} track "${track.id}"`,
+          path,
+          hint:
+            track.kind === "text"
+              ? "Text tracks hold text/subtitle clips only."
+              : "Media/generator clips belong on video or audio tracks.",
+        });
       }
 
       if (isMediaClip(clip)) {
         const asset = project.assets[clip.asset];
         if (!asset) {
-          c.error({ code: "E_ASSET_NOT_FOUND", message: `clip "${clip.id}" references unknown asset "${clip.asset}"`, path: `${path}/asset`, hint: "Run `montash assets list` to see available assets, or `montash import` the file.", detail: { clip: clip.id, asset: clip.asset } });
+          c.error({
+            code: "E_ASSET_NOT_FOUND",
+            message: `clip "${clip.id}" references unknown asset "${clip.asset}"`,
+            path: `${path}/asset`,
+            hint: "Run `montash assets list` to see available assets, or `montash import` the file.",
+            detail: { clip: clip.id, asset: clip.asset },
+          });
         } else {
           if (!MEDIA_ASSET_TYPES.has(asset.type)) {
-            c.error({ code: "E_ASSET_TYPE_MISMATCH", message: `clip "${clip.id}" references ${asset.type} asset "${asset.id}"; media clips need video/audio/image`, path: `${path}/asset` });
+            c.error({
+              code: "E_ASSET_TYPE_MISMATCH",
+              message: `clip "${clip.id}" references ${asset.type} asset "${asset.id}"; media clips need video/audio/image`,
+              path: `${path}/asset`,
+            });
           }
           if (track.kind === "video" && asset.type === "audio") {
-            c.error({ code: "E_CLIP_KIND_MISMATCH", message: `audio asset "${asset.id}" (clip "${clip.id}") cannot be placed on video track "${track.id}"`, path });
+            c.error({
+              code: "E_CLIP_KIND_MISMATCH",
+              message: `audio asset "${asset.id}" (clip "${clip.id}") cannot be placed on video track "${track.id}"`,
+              path,
+            });
           }
           if (track.kind === "audio" && asset.type === "image") {
-            c.error({ code: "E_CLIP_KIND_MISMATCH", message: `image asset "${asset.id}" (clip "${clip.id}") cannot be placed on audio track "${track.id}"`, path });
+            c.error({
+              code: "E_CLIP_KIND_MISMATCH",
+              message: `image asset "${asset.id}" (clip "${clip.id}") cannot be placed on audio track "${track.id}"`,
+              path,
+            });
           }
           checkRange(clip, asset, path, c);
           checkAssetMismatch(clip, asset, track, fps, res, path, c);
@@ -220,16 +271,42 @@ function checkClips(project: Project, _trackById: Map<string, Track>, c: Collect
       } else if (isTextClip(clip)) {
         if (clip.asset !== null) {
           const asset = project.assets[clip.asset];
-          if (!asset) c.error({ code: "E_ASSET_NOT_FOUND", message: `text clip "${clip.id}" references unknown asset "${clip.asset}"`, path: `${path}/asset` });
-          else if (asset.type !== "text") c.error({ code: "E_ASSET_TYPE_MISMATCH", message: `text clip "${clip.id}" must reference a text asset (got ${asset.type} "${asset.id}")`, path: `${path}/asset`, hint: "Create one with `montash assets new-text`." });
+          if (!asset)
+            c.error({
+              code: "E_ASSET_NOT_FOUND",
+              message: `text clip "${clip.id}" references unknown asset "${clip.asset}"`,
+              path: `${path}/asset`,
+            });
+          else if (asset.type !== "text")
+            c.error({
+              code: "E_ASSET_TYPE_MISMATCH",
+              message: `text clip "${clip.id}" must reference a text asset (got ${asset.type} "${asset.id}")`,
+              path: `${path}/asset`,
+              hint: "Create one with `montash assets new-text`.",
+            });
         }
       } else if (isSubtitleClip(clip)) {
         const asset = project.assets[clip.asset];
-        if (!asset) c.error({ code: "E_ASSET_NOT_FOUND", message: `subtitle clip "${clip.id}" references unknown asset "${clip.asset}"`, path: `${path}/asset` });
-        else if (asset.type !== "subtitle") c.error({ code: "E_ASSET_TYPE_MISMATCH", message: `subtitle clip "${clip.id}" must reference a subtitle asset (got ${asset.type} "${asset.id}")`, path: `${path}/asset` });
+        if (!asset)
+          c.error({
+            code: "E_ASSET_NOT_FOUND",
+            message: `subtitle clip "${clip.id}" references unknown asset "${clip.asset}"`,
+            path: `${path}/asset`,
+          });
+        else if (asset.type !== "subtitle")
+          c.error({
+            code: "E_ASSET_TYPE_MISMATCH",
+            message: `subtitle clip "${clip.id}" must reference a subtitle asset (got ${asset.type} "${asset.id}")`,
+            path: `${path}/asset`,
+          });
       } else if (kind === "generator" && "generator" in clip && clip.generator === "hold") {
         const from = clip.params.from_clip;
-        if (typeof from !== "string") c.error({ code: "E_CLIP_NOT_FOUND", message: `hold generator "${clip.id}" needs params.from_clip`, path: `${path}/params` });
+        if (typeof from !== "string")
+          c.error({
+            code: "E_CLIP_NOT_FOUND",
+            message: `hold generator "${clip.id}" needs params.from_clip`,
+            path: `${path}/params`,
+          });
       }
     });
   });
@@ -238,7 +315,12 @@ function checkClips(project: Project, _trackById: Map<string, Track>, c: Collect
 /** §14.3: 0 <= in_f < out_f <= asset.duration_f（image は out_f > in_f のみ） */
 function checkRange(clip: Clip, asset: Asset, path: string, c: Collector): void {
   if (clip.in_f >= clip.out_f) {
-    c.error({ code: "E_RANGE_OUT_OF_ASSET", message: `clip "${clip.id}": in (f:${clip.in_f}) must be < out (f:${clip.out_f})`, path, detail: { clip: clip.id, in_f: clip.in_f, out_f: clip.out_f } });
+    c.error({
+      code: "E_RANGE_OUT_OF_ASSET",
+      message: `clip "${clip.id}": in (f:${clip.in_f}) must be < out (f:${clip.out_f})`,
+      path,
+      detail: { clip: clip.id, in_f: clip.in_f, out_f: clip.out_f },
+    });
     return;
   }
   if (asset.type === "image") return;
@@ -255,16 +337,36 @@ function checkRange(clip: Clip, asset: Asset, path: string, c: Collector): void 
 }
 
 /** fps / 解像度の不一致（warning、strict で error） */
-function checkAssetMismatch(clip: Clip, asset: Asset, track: Track, fps: Project["settings"]["fps"], res: Project["settings"]["resolution"], path: string, c: Collector): void {
+function checkAssetMismatch(
+  clip: Clip,
+  asset: Asset,
+  track: Track,
+  fps: Project["settings"]["fps"],
+  res: Project["settings"]["resolution"],
+  path: string,
+  c: Collector,
+): void {
   if (asset.type !== "video") return;
   const v = asset.video;
   if (!v) return;
   if (v.fps && (v.fps.num !== fps.num || v.fps.den !== fps.den)) {
-    c.warn({ code: "W_ASSET_MISMATCH", message: `asset "${asset.id}" (clip "${clip.id}") is ${v.fps.num}/${v.fps.den} fps; project is ${fps.num}/${fps.den}`, path, hint: "Frames are converted at render time (fps= filter). If most assets share this fps, consider `montash project set fps`.", detail: { asset: asset.id, asset_fps: v.fps, project_fps: fps } });
+    c.warn({
+      code: "W_ASSET_MISMATCH",
+      message: `asset "${asset.id}" (clip "${clip.id}") is ${v.fps.num}/${v.fps.den} fps; project is ${fps.num}/${fps.den}`,
+      path,
+      hint: "Frames are converted at render time (fps= filter). If most assets share this fps, consider `montash project set fps`.",
+      detail: { asset: asset.id, asset_fps: v.fps, project_fps: fps },
+    });
   }
   const fullFrame = track.kind === "video" && !clip.video?.transform;
   if (fullFrame && v.width && v.height && (v.width !== res.width || v.height !== res.height)) {
-    c.warn({ code: "W_ASSET_MISMATCH", message: `asset "${asset.id}" (clip "${clip.id}") is ${v.width}x${v.height}; project is ${res.width}x${res.height}`, path, hint: "The clip is scaled to the project resolution at render time.", detail: { asset: asset.id, asset_resolution: { width: v.width, height: v.height }, project_resolution: res } });
+    c.warn({
+      code: "W_ASSET_MISMATCH",
+      message: `asset "${asset.id}" (clip "${clip.id}") is ${v.width}x${v.height}; project is ${res.width}x${res.height}`,
+      path,
+      hint: "The clip is scaled to the project resolution at render time.",
+      detail: { asset: asset.id, asset_resolution: { width: v.width, height: v.height }, project_resolution: res },
+    });
   }
 }
 
@@ -279,12 +381,22 @@ function checkLinks(index: Map<string, ClipRef>, c: Collector): void {
     if (!isMediaClip(clip) || clip.link === null) continue;
     const other = index.get(clip.link);
     if (!other) {
-      c.error({ code: "E_LINK_NOT_FOUND", message: `clip "${clip.id}" links to unknown clip "${clip.link}"`, path: `${ref.path}/link`, hint: "Set link to null or to an existing clip id." });
+      c.error({
+        code: "E_LINK_NOT_FOUND",
+        message: `clip "${clip.id}" links to unknown clip "${clip.link}"`,
+        path: `${ref.path}/link`,
+        hint: "Set link to null or to an existing clip id.",
+      });
       continue;
     }
     const o = other.clip;
     if (!isMediaClip(o) || o.link !== clip.id) {
-      c.error({ code: "E_LINK_MISMATCH", message: `clip "${clip.id}" links to "${o.id}" but "${o.id}" does not link back`, path: `${ref.path}/link`, hint: "Links must be reciprocal." });
+      c.error({
+        code: "E_LINK_MISMATCH",
+        message: `clip "${clip.id}" links to "${o.id}" but "${o.id}" does not link back`,
+        path: `${ref.path}/link`,
+        hint: "Links must be reciprocal.",
+      });
       continue;
     }
     if (o.start_f !== clip.start_f || clipDurationF(o) !== clipDurationF(clip)) {
@@ -310,30 +422,58 @@ function checkLinks(index: Map<string, ClipRef>, c: Collector): void {
 /** overlap モードで重なりを許すクリップ対（"from|to"） */
 type OverlapExempt = Set<string>;
 
-function checkTransitions(project: Project, trackById: Map<string, Track>, index: Map<string, ClipRef>, c: Collector): OverlapExempt {
+function checkTransitions(
+  project: Project,
+  trackById: Map<string, Track>,
+  index: Map<string, ClipRef>,
+  c: Collector,
+): OverlapExempt {
   const exempt: OverlapExempt = new Set();
   const seen = new Set<string>();
   project.transitions.forEach((tr, i) => {
     const path = `/transitions/${i}`;
-    if (seen.has(tr.id)) c.error({ code: "E_TRANSITION_ID_DUPLICATE", message: `transition id "${tr.id}" is duplicated`, path });
+    if (seen.has(tr.id))
+      c.error({ code: "E_TRANSITION_ID_DUPLICATE", message: `transition id "${tr.id}" is duplicated`, path });
     seen.add(tr.id);
 
     const track = trackById.get(tr.track);
     if (!track) {
-      c.error({ code: "E_TRACK_NOT_FOUND", message: `transition "${tr.id}" references unknown track "${tr.track}"`, path: `${path}/track` });
+      c.error({
+        code: "E_TRACK_NOT_FOUND",
+        message: `transition "${tr.id}" references unknown track "${tr.track}"`,
+        path: `${path}/track`,
+      });
       return;
     }
     const from = index.get(tr.from);
     const to = index.get(tr.to);
-    if (!from) c.error({ code: "E_CLIP_NOT_FOUND", message: `transition "${tr.id}": from clip "${tr.from}" not found`, path: `${path}/from` });
-    if (!to) c.error({ code: "E_CLIP_NOT_FOUND", message: `transition "${tr.id}": to clip "${tr.to}" not found`, path: `${path}/to` });
+    if (!from)
+      c.error({
+        code: "E_CLIP_NOT_FOUND",
+        message: `transition "${tr.id}": from clip "${tr.from}" not found`,
+        path: `${path}/from`,
+      });
+    if (!to)
+      c.error({
+        code: "E_CLIP_NOT_FOUND",
+        message: `transition "${tr.id}": to clip "${tr.to}" not found`,
+        path: `${path}/to`,
+      });
     if (!from || !to) return;
     if (from.track.id !== tr.track || to.track.id !== tr.track) {
-      c.error({ code: "E_TRANSITION_TRACK_MISMATCH", message: `transition "${tr.id}" is on track "${tr.track}" but clips are on "${from.track.id}" / "${to.track.id}"`, path });
+      c.error({
+        code: "E_TRANSITION_TRACK_MISMATCH",
+        message: `transition "${tr.id}" is on track "${tr.track}" but clips are on "${from.track.id}" / "${to.track.id}"`,
+        path,
+      });
       return;
     }
     if (tr.from === tr.to) {
-      c.error({ code: "E_TRANSITION_NOT_ADJACENT", message: `transition "${tr.id}": from and to are the same clip "${tr.from}"`, path });
+      c.error({
+        code: "E_TRANSITION_NOT_ADJACENT",
+        message: `transition "${tr.id}": from and to are the same clip "${tr.from}"`,
+        path,
+      });
       return;
     }
 
@@ -342,19 +482,34 @@ function checkTransitions(project: Project, trackById: Map<string, Track>, index
     const fi = sorted.findIndex((k) => k.id === tr.from);
     const next = sorted[fi + 1];
     if (!next || next.id !== tr.to) {
-      c.error({ code: "E_TRANSITION_NOT_ADJACENT", message: `transition "${tr.id}": clips "${tr.from}" and "${tr.to}" are not adjacent on track "${tr.track}"`, path, hint: "Transitions join consecutive clips only." });
+      c.error({
+        code: "E_TRANSITION_NOT_ADJACENT",
+        message: `transition "${tr.id}": clips "${tr.from}" and "${tr.to}" are not adjacent on track "${tr.track}"`,
+        path,
+        hint: "Transitions join consecutive clips only.",
+      });
       return;
     }
     const fromEnd = clipEndF(from.clip);
     if (tr.mode === "handle") {
       if (fromEnd !== to.clip.start_f) {
-        c.error({ code: "E_TRANSITION_NOT_ADJACENT", message: `transition "${tr.id}": "${tr.from}" ends at f:${fromEnd} but "${tr.to}" starts at f:${to.clip.start_f}`, path, hint: "In handle mode the clips must touch (from.end_f == to.start_f). Close the gap or use mode: overlap." });
+        c.error({
+          code: "E_TRANSITION_NOT_ADJACENT",
+          message: `transition "${tr.id}": "${tr.from}" ends at f:${fromEnd} but "${tr.to}" starts at f:${to.clip.start_f}`,
+          path,
+          hint: "In handle mode the clips must touch (from.end_f == to.start_f). Close the gap or use mode: overlap.",
+        });
       }
       checkHandles(tr, from.clip, to.clip, project, path, c);
     } else {
       const overlap = fromEnd - to.clip.start_f;
       if (overlap !== tr.duration_f) {
-        c.error({ code: "E_TRANSITION_NOT_ADJACENT", message: `transition "${tr.id}" (overlap): clips overlap by f:${overlap} but duration_f is ${tr.duration_f}`, path, hint: "In overlap mode to.start_f must equal from.end_f - duration_f." });
+        c.error({
+          code: "E_TRANSITION_NOT_ADJACENT",
+          message: `transition "${tr.id}" (overlap): clips overlap by f:${overlap} but duration_f is ${tr.duration_f}`,
+          path,
+          hint: "In overlap mode to.start_f must equal from.end_f - duration_f.",
+        });
       } else {
         exempt.add(`${tr.from}|${tr.to}`);
       }
@@ -364,7 +519,14 @@ function checkTransitions(project: Project, trackById: Map<string, Track>, index
 }
 
 /** ハンドル充足: from.out_f + ext_from <= from.asset.duration_f、to.in_f - ext_to >= 0 */
-function checkHandles(tr: Transition, from: TrackClip, to: TrackClip, project: Project, path: string, c: Collector): void {
+function checkHandles(
+  tr: Transition,
+  from: TrackClip,
+  to: TrackClip,
+  project: Project,
+  path: string,
+  c: Collector,
+): void {
   const { ext_from, ext_to } = handleExtension(tr.duration_f);
   let availFrom = Number.POSITIVE_INFINITY;
   let availTo = Number.POSITIVE_INFINITY;
@@ -378,13 +540,29 @@ function checkHandles(tr: Transition, from: TrackClip, to: TrackClip, project: P
   }
   if (ext_from > availFrom || ext_to > availTo) {
     // ceil(d/2) <= availFrom かつ floor(d/2) <= availTo を満たす最大 d
-    const maxD = Math.max(0, Math.min(Number.isFinite(availFrom) ? 2 * availFrom : Number.MAX_SAFE_INTEGER, Number.isFinite(availTo) ? 2 * availTo + 1 : Number.MAX_SAFE_INTEGER));
+    const maxD = Math.max(
+      0,
+      Math.min(
+        Number.isFinite(availFrom) ? 2 * availFrom : Number.MAX_SAFE_INTEGER,
+        Number.isFinite(availTo) ? 2 * availTo + 1 : Number.MAX_SAFE_INTEGER,
+      ),
+    );
     c.error({
       code: "E_INSUFFICIENT_HANDLE",
       message: `transition "${tr.id}" needs ${ext_from} frame(s) after "${from.id}" and ${ext_to} before "${to.id}" but only ${fmtAvail(availFrom)} / ${fmtAvail(availTo)} are available`,
       path,
-      hint: maxD > 0 ? `Use duration_f <= ${maxD}, or --mode overlap.` : "Trim the clips to leave handles, or use --mode overlap.",
-      detail: { transition: tr.id, ext_from, ext_to, available_from: fmtAvail(availFrom), available_to: fmtAvail(availTo), max_duration_f: maxD },
+      hint:
+        maxD > 0
+          ? `Use duration_f <= ${maxD}, or --mode overlap.`
+          : "Trim the clips to leave handles, or use --mode overlap.",
+      detail: {
+        transition: tr.id,
+        ext_from,
+        ext_to,
+        available_from: fmtAvail(availFrom),
+        available_to: fmtAvail(availTo),
+        max_duration_f: maxD,
+      },
     });
   }
 }
@@ -413,7 +591,12 @@ function checkOverlaps(project: Project, exempt: OverlapExempt, c: Collector): v
         message: `clips "${prev.clip.id}" [f:${prev.start}, f:${prev.end}) and "${cur.clip.id}" [f:${cur.start}, f:${cur.end}) overlap on track "${track.id}"`,
         path: `/tracks/${ti}/clips/${cur.ci}`,
         hint: `Move "${cur.clip.id}" to f:${prev.end} or later, or trim "${prev.clip.id}".`,
-        detail: { track: track.id, a: prev.clip.id, b: cur.clip.id, overlap_f: Math.min(prev.end, cur.end) - Math.max(prev.start, cur.start) },
+        detail: {
+          track: track.id,
+          a: prev.clip.id,
+          b: cur.clip.id,
+          overlap_f: Math.min(prev.end, cur.end) - Math.max(prev.start, cur.start),
+        },
       });
     }
   });
@@ -484,7 +667,13 @@ function checkBeyondTimeline(project: Project, c: Collector): void {
       const end = clipEndF(clip);
       if (end > mediaEnd) {
         c.warn(
-          { code: "W_BEYOND_TIMELINE", message: `text clip "${clip.id}" ends at f:${end}, beyond the last media clip (f:${mediaEnd})`, path: `/tracks/${ti}/clips/${ci}`, hint: "It will extend the render over the background. Shorten it if unintended.", detail: { clip: clip.id, end_f: end, media_end_f: mediaEnd } },
+          {
+            code: "W_BEYOND_TIMELINE",
+            message: `text clip "${clip.id}" ends at f:${end}, beyond the last media clip (f:${mediaEnd})`,
+            path: `/tracks/${ti}/clips/${ci}`,
+            hint: "It will extend the render over the background. Shorten it if unintended.",
+            detail: { clip: clip.id, end_f: end, media_end_f: mediaEnd },
+          },
           false,
         );
       }
@@ -500,14 +689,28 @@ function checkAudioSettings(project: Project, trackById: Map<string, Track>, c: 
   const seen = new Set<string>();
   project.audio.ducking.forEach((d, i) => {
     const path = `/audio/ducking/${i}`;
-    if (seen.has(d.id)) c.error({ code: "E_DUCKING_ID_DUPLICATE", message: `ducking id "${d.id}" is duplicated`, path });
+    if (seen.has(d.id))
+      c.error({ code: "E_DUCKING_ID_DUPLICATE", message: `ducking id "${d.id}" is duplicated`, path });
     seen.add(d.id);
     for (const key of ["target", "sidechain"] as const) {
-      if (!trackById.has(d[key])) c.error({ code: "E_TRACK_NOT_FOUND", message: `ducking "${d.id}": ${key} track "${d[key]}" not found`, path: `${path}/${key}` });
+      if (!trackById.has(d[key]))
+        c.error({
+          code: "E_TRACK_NOT_FOUND",
+          message: `ducking "${d.id}": ${key} track "${d[key]}" not found`,
+          path: `${path}/${key}`,
+        });
     }
   });
   for (const id of Object.keys(project.audio.track_gain_db)) {
-    if (!trackById.has(id)) c.warn({ code: "W_UNKNOWN_TRACK", message: `audio.track_gain_db refers to unknown track "${id}"`, path: `/audio/track_gain_db/${id}` }, false);
+    if (!trackById.has(id))
+      c.warn(
+        {
+          code: "W_UNKNOWN_TRACK",
+          message: `audio.track_gain_db refers to unknown track "${id}"`,
+          path: `/audio/track_gain_db/${id}`,
+        },
+        false,
+      );
   }
 }
 
@@ -523,7 +726,13 @@ function checkFiles(project: Project, dir: string, c: Collector): void {
   for (const [id, asset] of Object.entries(project.assets)) {
     const full = resolveAssetPath(dir, asset.path);
     if (!existsSync(full)) {
-      c.error({ code: "E_ASSET_MISSING", message: `asset "${id}": file not found at ${full}`, path: `/assets/${id}/path`, hint: `Run \`montash assets relink ${id} <path>\` to point to the moved file.`, detail: { asset: id, path: full } });
+      c.error({
+        code: "E_ASSET_MISSING",
+        message: `asset "${id}": file not found at ${full}`,
+        path: `/assets/${id}/path`,
+        hint: `Run \`montash assets relink ${id} <path>\` to point to the moved file.`,
+        detail: { asset: id, path: full },
+      });
     }
   }
 }

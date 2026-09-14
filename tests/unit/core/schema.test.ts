@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createProject } from "../../../src/core/project.ts";
 import {
   AssetSchema,
   ClipSchema,
@@ -14,7 +15,6 @@ import {
   TrackSchema,
   TransitionSchema,
 } from "../../../src/core/schema.ts";
-import { createProject } from "../../../src/core/project.ts";
 
 const fps = { num: 30000, den: 1001 };
 
@@ -29,7 +29,12 @@ describe("FpsSchema / SettingsSchema", () => {
     expect(FpsSchema.safeParse(29.97).success).toBe(false);
   });
   test("settings fill defaults and keep unknown fields", () => {
-    const s = SettingsSchema.parse({ fps, resolution: { width: 1920, height: 1080 }, default_image_duration_f: 150, future_field: "kept" });
+    const s = SettingsSchema.parse({
+      fps,
+      resolution: { width: 1920, height: 1080 },
+      default_image_duration_f: 150,
+      future_field: "kept",
+    });
     expect(s.sample_rate).toBe(48000);
     expect(s.channels).toBe(2);
     expect(s.text_engine).toBe("libass");
@@ -37,7 +42,14 @@ describe("FpsSchema / SettingsSchema", () => {
     expect((s as Record<string, unknown>).future_field).toBe("kept");
   });
   test("rejects unknown text_engine", () => {
-    expect(SettingsSchema.safeParse({ fps, resolution: { width: 1920, height: 1080 }, default_image_duration_f: 150, text_engine: "gdi" }).success).toBe(false);
+    expect(
+      SettingsSchema.safeParse({
+        fps,
+        resolution: { width: 1920, height: 1080 },
+        default_image_duration_f: 150,
+        text_engine: "gdi",
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -71,7 +83,9 @@ describe("AssetSchema", () => {
   test("rejects unknown type, fractional duration_f and bad derived state", () => {
     expect(AssetSchema.safeParse({ id: "a", type: "midi", path: "x" }).success).toBe(false);
     expect(AssetSchema.safeParse({ id: "a", type: "video", path: "x", duration_f: 12.5 }).success).toBe(false);
-    expect(AssetSchema.safeParse({ id: "a", type: "video", path: "x", derived: { proxy: { state: "done" } } }).success).toBe(false);
+    expect(
+      AssetSchema.safeParse({ id: "a", type: "video", path: "x", derived: { proxy: { state: "done" } } }).success,
+    ).toBe(false);
   });
 });
 
@@ -89,16 +103,34 @@ describe("ClipSchema", () => {
     expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: "10" }).success).toBe(false);
   });
   test("rejects non-positive speed", () => {
-    expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 10, speed: 0 }).success).toBe(false);
+    expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 10, speed: 0 }).success).toBe(
+      false,
+    );
   });
   test("audio offset_smp may be negative", () => {
     const c = ClipSchema.parse({ id: "c1a", asset: "a", start_f: 0, in_f: 0, out_f: 10, audio: { offset_smp: -960 } });
     expect(c.audio?.offset_smp).toBe(-960);
   });
   test("video transform accepts px and percent", () => {
-    const c = ClipSchema.parse({ id: "c2", asset: "logo", start_f: 0, in_f: 0, out_f: 30, video: { transform: { position: "top-right", margin: "5%", scale: 0.12 } } });
+    const c = ClipSchema.parse({
+      id: "c2",
+      asset: "logo",
+      start_f: 0,
+      in_f: 0,
+      out_f: 30,
+      video: { transform: { position: "top-right", margin: "5%", scale: 0.12 } },
+    });
     expect(c.video?.transform?.position).toBe("top-right");
-    expect(ClipSchema.safeParse({ id: "c2", asset: "logo", start_f: 0, in_f: 0, out_f: 30, video: { transform: { x: "5px" } } }).success).toBe(false);
+    expect(
+      ClipSchema.safeParse({
+        id: "c2",
+        asset: "logo",
+        start_f: 0,
+        in_f: 0,
+        out_f: 30,
+        video: { transform: { x: "5px" } },
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -107,7 +139,13 @@ describe("TrackClipSchema union + clipKind", () => {
     const media = TrackClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 10 });
     const text = TrackClipSchema.parse({ id: "x1", type: "text", start_f: 0, duration_f: 90, text: "hi" });
     const sub = TrackClipSchema.parse({ id: "s1", type: "subtitle", asset: "ja", start_f: 0 });
-    const gen = TrackClipSchema.parse({ id: "c9", generator: "color", params: { color: "#000" }, start_f: 0, duration_f: 30 });
+    const gen = TrackClipSchema.parse({
+      id: "c9",
+      generator: "color",
+      params: { color: "#000" },
+      start_f: 0,
+      duration_f: 30,
+    });
     expect([media, text, sub, gen].map(clipKind)).toEqual(["media", "text", "subtitle", "generator"]);
   });
   test("text clip defaults", () => {
@@ -143,8 +181,13 @@ describe("TrackSchema / TransitionSchema", () => {
     expect(tr.mode).toBe("handle");
     expect(tr.audio).toBe("crossfade");
     expect(tr.type).toBe("fade");
-    expect(TransitionSchema.safeParse({ id: "t1", track: "V1", from: "c1", to: "c2", duration_f: 0 }).success).toBe(false);
-    expect(TransitionSchema.safeParse({ id: "t1", track: "V1", from: "c1", to: "c2", duration_f: 15, mode: "blend" }).success).toBe(false);
+    expect(TransitionSchema.safeParse({ id: "t1", track: "V1", from: "c1", to: "c2", duration_f: 0 }).success).toBe(
+      false,
+    );
+    expect(
+      TransitionSchema.safeParse({ id: "t1", track: "V1", from: "c1", to: "c2", duration_f: 15, mode: "blend" })
+        .success,
+    ).toBe(false);
   });
 });
 
@@ -162,7 +205,11 @@ describe("ProjectSchema", () => {
   });
   test("keeps unknown top-level and nested fields", () => {
     const p = createProject({ name: "t", fps, resolution: { width: 1920, height: 1080 } });
-    const parsed = ProjectSchema.parse({ ...p, experimental: { a: 1 }, tracks: [{ ...p.tracks[0], custom_color: "#fff" }] });
+    const parsed = ProjectSchema.parse({
+      ...p,
+      experimental: { a: 1 },
+      tracks: [{ ...p.tracks[0], custom_color: "#fff" }],
+    });
     expect((parsed as Record<string, unknown>).experimental).toEqual({ a: 1 });
     expect((parsed.tracks[0] as Record<string, unknown>).custom_color).toBe("#fff");
   });

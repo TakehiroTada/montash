@@ -4,9 +4,9 @@
  */
 import type { CommandSpec } from "../define-command.ts";
 import { doctor } from "./doctor.ts";
-import { schema } from "./schema.ts";
 import { init } from "./init.ts";
 import { projectSet, projectShow } from "./project.ts";
+import { schema } from "./schema.ts";
 import { validate } from "./validate.ts";
 
 // 各コマンドは固有の Args 型を持つため、レジストリでは共通型に寄せる（実行時は yargs が引数を検証する）

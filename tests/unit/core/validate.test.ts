@@ -14,7 +14,15 @@ function base(): Project {
   p.assets.clip_a = asset("clip_a", "video", 1000);
   p.assets.clip_b = asset("clip_b", "video", 1000);
   p.assets.bgm = asset("bgm", "audio", 5000);
-  p.assets.logo = { id: "logo", type: "image", path: "logo.png", owned: false, tags: [], duration_f: null, duration_s: null };
+  p.assets.logo = {
+    id: "logo",
+    type: "image",
+    path: "logo.png",
+    owned: false,
+    tags: [],
+    duration_f: null,
+    duration_s: null,
+  };
   p.assets.ja = { id: "ja", type: "subtitle", path: "ja.srt", owned: false, tags: [] };
   p.assets.script = { id: "script", type: "text", path: "assets/text/script.txt", owned: true, tags: [] };
   return p;
@@ -22,24 +30,85 @@ function base(): Project {
 
 function asset(id: string, type: "video" | "audio", duration_f: number): Asset {
   const a: Asset = { id, type, path: `${id}.mp4`, owned: false, tags: [], duration_f, duration_s: duration_f / 30 };
-  if (type === "video") (a as Extract<Asset, { type: "video" }>).video = { codec: "h264", width: 1920, height: 1080, fps: { num: 30, den: 1 } };
+  if (type === "video")
+    (a as Extract<Asset, { type: "video" }>).video = {
+      codec: "h264",
+      width: 1920,
+      height: 1080,
+      fps: { num: 30, den: 1 },
+    };
   return a;
 }
 
-function clip(id: string, assetId: string, start_f: number, in_f: number, out_f: number, extra: Partial<Clip> = {}): Clip {
-  return { id, asset: assetId, start_f, in_f, out_f, speed: 1, pitch_keep: false, loop: false, link: null, effects: [], ...extra };
+function clip(
+  id: string,
+  assetId: string,
+  start_f: number,
+  in_f: number,
+  out_f: number,
+  extra: Partial<Clip> = {},
+): Clip {
+  return {
+    id,
+    asset: assetId,
+    start_f,
+    in_f,
+    out_f,
+    speed: 1,
+    pitch_keep: false,
+    loop: false,
+    link: null,
+    effects: [],
+    ...extra,
+  };
 }
 
 function textClip(id: string, start_f: number, duration_f: number, extra: Partial<TextClip> = {}): TextClip {
-  return { id, type: "text", start_f, duration_f, text: "hi", asset: null, markup: "plain", style: {}, fade: { in_f: 0, out_f: 0 }, ...extra };
+  return {
+    id,
+    type: "text",
+    start_f,
+    duration_f,
+    text: "hi",
+    asset: null,
+    markup: "plain",
+    style: {},
+    fade: { in_f: 0, out_f: 0 },
+    ...extra,
+  };
 }
 
 function textTrack(...clips: Track["clips"]): Track {
-  return { id: "T1", kind: "text", name: "T1", muted: false, locked: false, fade: { in_f: 0, out_f: 0, color: "black" }, clips };
+  return {
+    id: "T1",
+    kind: "text",
+    name: "T1",
+    muted: false,
+    locked: false,
+    fade: { in_f: 0, out_f: 0, color: "black" },
+    clips,
+  };
 }
 
-function transition(id: string, from: string, to: string, duration_f: number, extra: Partial<Transition> = {}): Transition {
-  return { id, track: "V1", from, to, type: "fade", duration_f, mode: "handle", audio: "crossfade", params: {}, ...extra };
+function transition(
+  id: string,
+  from: string,
+  to: string,
+  duration_f: number,
+  extra: Partial<Transition> = {},
+): Transition {
+  return {
+    id,
+    track: "V1",
+    from,
+    to,
+    type: "fade",
+    duration_f,
+    mode: "handle",
+    audio: "crossfade",
+    params: {},
+    ...extra,
+  };
 }
 
 const V1 = (p: Project) => p.tracks[0]!;
@@ -66,7 +135,11 @@ describe("§14.1 integer fields", () => {
   test("non-integer and negative _f are errors; offset_smp may be negative", () => {
     const p = base();
     V1(p).clips.push(clip("c1", "clip_a", 0.5 as number, 0, 100));
-    V1(p).clips.push(clip("c2", "clip_a", 200, 0, 100, { audio: { gain_db: 0, fade: { in_f: 0, out_f: 0, curve: "tri" }, offset_smp: -960, muted: false } }));
+    V1(p).clips.push(
+      clip("c2", "clip_a", 200, 0, 100, {
+        audio: { gain_db: 0, fade: { in_f: 0, out_f: 0, curve: "tri" }, offset_smp: -960, muted: false },
+      }),
+    );
     (V1(p).clips[1] as Clip).in_f = -3;
     const r = validateProject(p);
     expect(codes(r.errors)).toContain("E_FRAME_NOT_INTEGER");
@@ -145,7 +218,11 @@ describe("§14.4 overlaps", () => {
 describe("§14.5 transitions", () => {
   test("not adjacent / gap between clips in handle mode", () => {
     const p = base();
-    V1(p).clips.push(clip("c1", "clip_a", 0, 0, 100), clip("c2", "clip_b", 110, 0, 100), clip("c3", "clip_a", 300, 0, 100));
+    V1(p).clips.push(
+      clip("c1", "clip_a", 0, 0, 100),
+      clip("c2", "clip_b", 110, 0, 100),
+      clip("c3", "clip_a", 300, 0, 100),
+    );
     p.transitions.push(transition("t1", "c1", "c2", 10), transition("t2", "c1", "c3", 10));
     const r = validateProject(p);
     const adj = r.errors.filter((e) => e.code === "E_TRANSITION_NOT_ADJACENT");
@@ -155,9 +232,15 @@ describe("§14.5 transitions", () => {
     const p = base();
     V1(p).clips.push(clip("c1", "clip_a", 0, 0, 100));
     A1(p).clips.push(clip("c2", "bgm", 100, 0, 100));
-    p.transitions.push(transition("t1", "c1", "zz", 10), transition("t2", "c1", "c2", 10, { track: "V9" }), transition("t3", "c1", "c2", 10));
+    p.transitions.push(
+      transition("t1", "c1", "zz", 10),
+      transition("t2", "c1", "c2", 10, { track: "V9" }),
+      transition("t3", "c1", "c2", 10),
+    );
     const r = validateProject(p);
-    expect(codes(r.errors)).toEqual(expect.arrayContaining(["E_CLIP_NOT_FOUND", "E_TRACK_NOT_FOUND", "E_TRANSITION_TRACK_MISMATCH"]));
+    expect(codes(r.errors)).toEqual(
+      expect.arrayContaining(["E_CLIP_NOT_FOUND", "E_TRACK_NOT_FOUND", "E_TRANSITION_TRACK_MISMATCH"]),
+    );
   });
   test("insufficient handle: from side and to side, with max duration hint", () => {
     const p = base();
@@ -166,7 +249,13 @@ describe("§14.5 transitions", () => {
     p.transitions.push(transition("t1", "c1", "c2", 10));
     const r = validateProject(p);
     expect(codes(r.errors)).toEqual(["E_INSUFFICIENT_HANDLE"]);
-    expect(r.errors[0]?.detail).toMatchObject({ ext_from: 5, ext_to: 5, available_from: 0, available_to: 3, max_duration_f: 0 });
+    expect(r.errors[0]?.detail).toMatchObject({
+      ext_from: 5,
+      ext_to: 5,
+      available_from: 0,
+      available_to: 3,
+      max_duration_f: 0,
+    });
     // enough tail on c1 → limited by c2's head (3) → max d = 2*3+1 = 7
     V1(p).clips[0] = clip("c1", "clip_a", 0, 0, 100);
     const r2 = validateProject(p);
@@ -185,7 +274,11 @@ describe("§14.5 transitions", () => {
 describe("§14.6 links", () => {
   test("missing target, non-reciprocal, mismatched start/duration", () => {
     const p = base();
-    V1(p).clips.push(clip("c1", "clip_a", 0, 0, 100, { link: "ghost" }), clip("c2", "clip_b", 100, 0, 100, { link: "c2a" }), clip("c3", "clip_a", 200, 0, 100, { link: "c3a" }));
+    V1(p).clips.push(
+      clip("c1", "clip_a", 0, 0, 100, { link: "ghost" }),
+      clip("c2", "clip_b", 100, 0, 100, { link: "c2a" }),
+      clip("c3", "clip_a", 200, 0, 100, { link: "c3a" }),
+    );
     A1(p).clips.push(clip("c2a", "bgm", 100, 0, 100, { link: null }), clip("c3a", "bgm", 205, 0, 100, { link: "c3" }));
     const r = validateProject(p);
     expect(codes(r.errors).sort()).toEqual(["E_LINK_MISMATCH", "E_LINK_MISMATCH", "E_LINK_NOT_FOUND"]);
@@ -240,13 +333,25 @@ describe("gaps and warnings", () => {
     const p = base();
     V1(p).clips.push(clip("c1", "clip_a", 30, 0, 100));
     expect(findVideoGaps(p)).toEqual([{ from_f: 0, to_f: 30 }]);
-    p.tracks.push({ id: "V2", kind: "video", name: "V2", muted: false, locked: false, fade: { in_f: 0, out_f: 0, color: "black" }, clips: [clip("c2", "logo", 0, 0, 30)] });
+    p.tracks.push({
+      id: "V2",
+      kind: "video",
+      name: "V2",
+      muted: false,
+      locked: false,
+      fade: { in_f: 0, out_f: 0, color: "black" },
+      clips: [clip("c2", "logo", 0, 0, 30)],
+    });
     expect(findVideoGaps(p)).toEqual([]);
     expect(validateProject(p).warnings).toEqual([]);
   });
   test("fps / resolution mismatch warns (strict → error)", () => {
     const p = base();
-    (p.assets.clip_a as Extract<Asset, { type: "video" }>).video = { fps: { num: 30000, den: 1001 }, width: 3840, height: 2160 };
+    (p.assets.clip_a as Extract<Asset, { type: "video" }>).video = {
+      fps: { num: 30000, den: 1001 },
+      width: 3840,
+      height: 2160,
+    };
     V1(p).clips.push(clip("c1", "clip_a", 0, 0, 100));
     const r = validateProject(p);
     expect(codes(r.warnings)).toEqual(["W_ASSET_MISMATCH", "W_ASSET_MISMATCH"]);
@@ -262,7 +367,16 @@ describe("gaps and warnings", () => {
   });
   test("ducking references unknown tracks", () => {
     const p = base();
-    p.audio.ducking.push({ id: "d1", target: "A2", sidechain: "A1", threshold_db: -30, ratio: 8, attack_ms: 20, release_ms: 500, makeup_db: 0 });
+    p.audio.ducking.push({
+      id: "d1",
+      target: "A2",
+      sidechain: "A1",
+      threshold_db: -30,
+      ratio: 8,
+      attack_ms: 20,
+      release_ms: 500,
+      makeup_db: 0,
+    });
     p.audio.track_gain_db = { A1: 0, A9: -12 };
     const r = validateProject(p);
     expect(codes(r.errors)).toEqual(["E_TRACK_NOT_FOUND"]);
