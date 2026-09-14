@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import yargs from "yargs";
-import { buildCommandTree, commandSignature, defineCommand, registerCommands, toSchema, toToolDefinition, type CommandSpec } from "../../../src/cli/define-command.ts";
+import {
+  buildCommandTree,
+  type CommandSpec,
+  commandSignature,
+  defineCommand,
+  registerCommands,
+  toSchema,
+  toToolDefinition,
+} from "../../../src/cli/define-command.ts";
 
 const trim = defineCommand<{ id: string; in?: string; ripple?: boolean }>({
   path: "clip trim",
@@ -10,7 +18,11 @@ const trim = defineCommand<{ id: string; in?: string; ripple?: boolean }>({
   positionals: [{ name: "id", describe: "clip id", required: true }],
   options: {
     in: { type: "string", describe: "new in point", time: true },
-    ripple: { type: "boolean", describe: "ripple following clips", default: false },
+    ripple: {
+      type: "boolean",
+      describe: "ripple following clips",
+      default: false,
+    },
   },
   handler: () => ({ result: {} }),
 });
@@ -22,7 +34,12 @@ const add = defineCommand<{ asset: string }>({
   handler: () => ({ result: {} }),
 });
 
-const doctor = defineCommand({ path: "doctor", summary: "check env", noProject: true, handler: () => ({ result: {} }) });
+const doctor = defineCommand({
+  path: "doctor",
+  summary: "check env",
+  noProject: true,
+  handler: () => ({ result: {} }),
+});
 
 const specs = [trim, add, doctor] as unknown as CommandSpec<Record<string, unknown>>[];
 
@@ -76,19 +93,29 @@ describe("defineCommand", () => {
     expect(s.path).toBe("clip trim");
     expect(s.workflows).toEqual(["W-04"]);
     expect(s.mutates).toBe(true);
-    expect(s.positionals[0]).toMatchObject({ name: "id", required: true, type: "string" });
+    expect(s.positionals[0]).toMatchObject({
+      name: "id",
+      required: true,
+      type: "string",
+    });
     expect(s.options.in).toMatchObject({ type: "string", time: true });
   });
 
   test("toToolDefinition (anthropic) produces JSON schema with required fields", () => {
-    const t = toToolDefinition(add as never, "anthropic-tools") as { name: string; input_schema: { required: string[]; properties: Record<string, unknown> } };
+    const t = toToolDefinition(add as never, "anthropic-tools") as {
+      name: string;
+      input_schema: { required: string[]; properties: Record<string, unknown> };
+    };
     expect(t.name).toBe("montash_clip_add");
     expect(t.input_schema.required).toEqual(["asset"]);
     expect(Object.keys(t.input_schema.properties)).toEqual(["asset"]);
   });
 
   test("toToolDefinition (openai) wraps in function", () => {
-    const t = toToolDefinition(trim as never, "openai-tools") as { type: string; function: { name: string; parameters: { required: string[] } } };
+    const t = toToolDefinition(trim as never, "openai-tools") as {
+      type: string;
+      function: { name: string; parameters: { required: string[] } };
+    };
     expect(t.type).toBe("function");
     expect(t.function.name).toBe("montash_clip_trim");
     expect(t.function.parameters.required).toEqual(["id"]);

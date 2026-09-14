@@ -1,0 +1,35 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "src/**",
+      "web/src/**",
+      "web/index.html",
+      "tests/**",
+      "scripts/*.ts",
+      "bin/**",
+      "*.json",
+      "!scripts/spikes",
+      "!web/dist",
+      "!dist",
+      "!tests/fixtures",
+      "!bun.lock"
+    ]
+  },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 120, "lineEnding": "lf" },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": { "noExplicitAny": "warn", "noConsole": "off" },
+      "style": { "noNonNullAssertion": "off", "useTemplate": "warn" },
+      "complexity": { "noForEach": "off" }
+    }
+  },
+  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always", "trailingCommas": "all" } },
+  "json": { "formatter": { "enabled": true } },
+  "assist": { "enabled": true, "actions": { "source": { "organizeImports": "on" } } },
+  "overrides": [{ "includes": ["tests/**"], "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } } }]
+}

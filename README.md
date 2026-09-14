@@ -84,10 +84,12 @@ bun run doctor                              # = montash doctor
 bun run dev                                 # CLI を bun で直接実行（bun src/cli/index.ts ...）
 bun run dev:web                             # Bun.serve + HTML import（HMR）で Web UI を開発
 bun test                                    # 単体テスト
+bun run lint                                # Biome（lint + format チェック）。bun run lint:fix で自動修正
+bun run check                               # typecheck + lint + test（CI と同じ）
 bun run build && bun run compile            # web/dist を生成し、OS 別の単一バイナリ dist/montash-<os>-<arch> を作成
 ```
 
-技術スタック: TypeScript（strict）/ Bun / yargs / zod / `Bun.serve` / chokidar 4 / React 19 + zustand + canvas / ffmpeg。選定理由と実機検証は [docs/12-tech-decisions.md](docs/12-tech-decisions.md)。
+技術スタック: TypeScript（strict）/ Bun / yargs / zod / `Bun.serve` / chokidar 4 / React 19 + zustand + canvas / ffmpeg / Biome（lint・format）。選定理由と実機検証は [docs/12-tech-decisions.md](docs/12-tech-decisions.md)。
 
 ## 用語
 

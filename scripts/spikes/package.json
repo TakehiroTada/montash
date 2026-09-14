@@ -1,20 +1,20 @@
 {
-  "name": "montash-spikes",
-  "private": true,
-  "type": "module",
-  "description": "Bun 互換性の再検証スクリプト（docs/12-tech-decisions.md）。bun install してから各ファイルを bun run する。",
-  "scripts": {
-    "all": "bun run watch.ts && bun run serve.ts && bun run yargs.ts && bun run frontend.ts && bun build --compile ./compile.ts --outfile ./montash-spike && ./montash-spike && rm -f ./montash-spike"
-  },
-  "dependencies": {
-    "chokidar": "^4.0.3",
-    "yargs": "^17.7.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
-  "devDependencies": {
-    "@types/yargs": "^17.0.33",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
-  }
+	"name": "montash-spikes",
+	"private": true,
+	"type": "module",
+	"description": "Bun 互換性の再検証スクリプト（docs/12-tech-decisions.md）。bun install してから各ファイルを bun run する。",
+	"scripts": {
+		"all": "bun run watch.ts && bun run serve.ts && bun run yargs.ts && bun run frontend.ts && bun build --compile ./compile.ts --outfile ./montash-spike && ./montash-spike && rm -f ./montash-spike"
+	},
+	"dependencies": {
+		"chokidar": "^4.0.3",
+		"yargs": "^17.7.2",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@types/yargs": "^17.0.33",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0"
+	}
 }

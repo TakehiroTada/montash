@@ -14,10 +14,13 @@
     "doctor": "bun src/cli/index.ts doctor",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
-    "check": "bun run typecheck && bun test",
+    "check": "bun run typecheck && bun run lint && bun test",
     "build:web": "bun build web/index.html --outdir web/dist --minify",
     "compile": "bun build --compile src/cli/index.ts --outfile dist/montash",
-    "spikes": "cd scripts/spikes && bun install && bun run all"
+    "spikes": "cd scripts/spikes && bun install && bun run all",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
   },
   "dependencies": {
     "chokidar": "^4.0.3",
@@ -28,6 +31,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.13",
     "@types/bun": "latest",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

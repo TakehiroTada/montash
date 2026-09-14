@@ -9,16 +9,38 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { commands } from "./commands/registry.ts";
 import { createContext, type GlobalOptions } from "./context.ts";
-import { registerCommands, type CommandSpec } from "./define-command.ts";
+import { type CommandSpec, registerCommands } from "./define-command.ts";
 import { ExitCode, MontashError, toMontashError } from "./errors.ts";
 import { printFailure, printSuccess } from "./output.ts";
 
 export const VERSION = "0.0.1";
 
 const GLOBAL_KEYS = new Set([
-  "project", "C", "json", "quiet", "q", "verbose", "v", "dry-run", "dryRun", "yes", "y",
-  "ffmpeg-path", "ffmpegPath", "ffprobe-path", "ffprobePath", "message", "m", "body",
-  "no-color", "noColor", "color", "time-format", "timeFormat", "_", "$0",
+  "project",
+  "C",
+  "json",
+  "quiet",
+  "q",
+  "verbose",
+  "v",
+  "dry-run",
+  "dryRun",
+  "yes",
+  "y",
+  "ffmpeg-path",
+  "ffmpegPath",
+  "ffprobe-path",
+  "ffprobePath",
+  "message",
+  "m",
+  "body",
+  "no-color",
+  "noColor",
+  "color",
+  "time-format",
+  "timeFormat",
+  "_",
+  "$0",
 ]);
 
 function readGlobals(argv: Record<string, unknown>, env: NodeJS.ProcessEnv): GlobalOptions {
@@ -50,7 +72,10 @@ function commandArgs(argv: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-export async function runLeaf(spec: CommandSpec<Record<string, unknown>>, argv: Record<string, unknown>): Promise<void> {
+export async function runLeaf(
+  spec: CommandSpec<Record<string, unknown>>,
+  argv: Record<string, unknown>,
+): Promise<void> {
   const globals = readGlobals(argv, process.env);
   const ctx = createContext(globals);
   try {
@@ -74,31 +99,111 @@ export function buildCli(argv: string[]) {
     .help("help")
     .alias("help", "h")
     .strict()
-    .parserConfiguration({ "camel-case-expansion": true, "strip-dashed": false, "populate--": true })
-    .option("project", { alias: "C", type: "string", describe: "project directory (default: search upward for project.json)", global: true })
-    .option("json", { type: "boolean", default: false, describe: "machine-readable JSON output (also MONTASH_JSON=1)", global: true })
-    .option("quiet", { alias: "q", type: "boolean", default: false, describe: "suppress human-readable output", global: true })
-    .option("verbose", { alias: "v", type: "boolean", default: false, describe: "print executed ffmpeg commands and details", global: true })
-    .option("dry-run", { type: "boolean", default: false, describe: "show what would change without writing", global: true })
-    .option("yes", { alias: "y", type: "boolean", default: false, describe: "answer yes to confirmations", global: true })
-    .option("ffmpeg-path", { type: "string", describe: "path to ffmpeg binary (also MONTASH_FFMPEG)", global: true })
-    .option("ffprobe-path", { type: "string", describe: "path to ffprobe binary (also MONTASH_FFPROBE)", global: true })
-    .option("message", { alias: "m", type: "string", describe: "commit this operation immediately with the given message", global: true })
-    .option("body", { type: "string", describe: "commit body (with -m)", global: true })
-    .option("color", { type: "boolean", default: true, describe: "colorize output (--no-color to disable)", global: true })
-    .option("time-format", { type: "string", choices: ["frames", "seconds", "tc"], default: "seconds", describe: "human-readable time format", global: true })
+    .parserConfiguration({
+      "camel-case-expansion": true,
+      "strip-dashed": false,
+      "populate--": true,
+    })
+    .option("project", {
+      alias: "C",
+      type: "string",
+      describe: "project directory (default: search upward for project.json)",
+      global: true,
+    })
+    .option("json", {
+      type: "boolean",
+      default: false,
+      describe: "machine-readable JSON output (also MONTASH_JSON=1)",
+      global: true,
+    })
+    .option("quiet", {
+      alias: "q",
+      type: "boolean",
+      default: false,
+      describe: "suppress human-readable output",
+      global: true,
+    })
+    .option("verbose", {
+      alias: "v",
+      type: "boolean",
+      default: false,
+      describe: "print executed ffmpeg commands and details",
+      global: true,
+    })
+    .option("dry-run", {
+      type: "boolean",
+      default: false,
+      describe: "show what would change without writing",
+      global: true,
+    })
+    .option("yes", {
+      alias: "y",
+      type: "boolean",
+      default: false,
+      describe: "answer yes to confirmations",
+      global: true,
+    })
+    .option("ffmpeg-path", {
+      type: "string",
+      describe: "path to ffmpeg binary (also MONTASH_FFMPEG)",
+      global: true,
+    })
+    .option("ffprobe-path", {
+      type: "string",
+      describe: "path to ffprobe binary (also MONTASH_FFPROBE)",
+      global: true,
+    })
+    .option("message", {
+      alias: "m",
+      type: "string",
+      describe: "commit this operation immediately with the given message",
+      global: true,
+    })
+    .option("body", {
+      type: "string",
+      describe: "commit body (with -m)",
+      global: true,
+    })
+    .option("color", {
+      type: "boolean",
+      default: true,
+      describe: "colorize output (--no-color to disable)",
+      global: true,
+    })
+    .option("time-format", {
+      type: "string",
+      choices: ["frames", "seconds", "tc"],
+      default: "seconds",
+      describe: "human-readable time format",
+      global: true,
+    })
     .demandCommand(1, "specify a command (try `montash --help`)")
     .recommendCommands()
     .fail((msg, err, yy) => {
       // 使用法エラーは JSON でも返す（AI が読めるように）
       const wantJson = argv.includes("--json") || process.env.MONTASH_JSON === "1";
-      const e = err instanceof MontashError ? err : new MontashError("E_USAGE", msg ?? (err?.message ?? "usage error"), { exitCode: ExitCode.USAGE, hint: "Run `montash <command> --help` or `montash schema --json`." });
+      const e =
+        err instanceof MontashError
+          ? err
+          : new MontashError("E_USAGE", msg ?? err?.message ?? "usage error", {
+              exitCode: ExitCode.USAGE,
+              hint: "Run `montash <command> --help` or `montash schema --json`.",
+            });
       if (wantJson) {
-        process.stdout.write(JSON.stringify({ ok: false, command: argv.filter((a) => !a.startsWith("-")).slice(0, 2).join(" "), error: e.toJSON() }) + "\n");
+        process.stdout.write(
+          `${JSON.stringify({
+            ok: false,
+            command: argv
+              .filter((a) => !a.startsWith("-"))
+              .slice(0, 2)
+              .join(" "),
+            error: e.toJSON(),
+          })}\n`,
+        );
       } else {
         process.stderr.write(`error [${e.code}]: ${e.message}\n`);
         if (e.hint) process.stderr.write(`  hint: ${e.hint}\n`);
-        if (!err) process.stderr.write("\n" + yy.help() + "\n");
+        if (!err) process.stderr.write(`\n${yy.help()}\n`);
       }
       process.exit(e.exitCode);
     })
