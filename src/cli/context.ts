@@ -29,6 +29,8 @@ export interface CommandContext {
   actor: Actor;
   actorDetail: string | undefined;
   env: NodeJS.ProcessEnv;
+  /** 実行された引数（bin 以降）。履歴の op.command に記録する */
+  argv: string[];
   /** プロジェクトディレクトリ（project.json のあるディレクトリ）。無ければ E_PROJECT_NOT_FOUND */
   requireProjectDir(): string;
   /** プロジェクトディレクトリ（無ければ null） */
@@ -59,7 +61,7 @@ export function detectActor(env: NodeJS.ProcessEnv, isTTY: boolean): Actor {
 
 export function createContext(
   globals: GlobalOptions,
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv; isTTY?: boolean } = {},
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; isTTY?: boolean; argv?: string[] } = {},
 ): CommandContext {
   const cwd = opts.cwd ?? process.cwd();
   const env = opts.env ?? process.env;
@@ -84,6 +86,7 @@ export function createContext(
     actor: detectActor(env, isTTY),
     actorDetail: env.MONTASH_ACTOR_DETAIL,
     env,
+    argv: opts.argv ?? [],
     findProjectDir,
     requireProjectDir() {
       const dir = findProjectDir();
