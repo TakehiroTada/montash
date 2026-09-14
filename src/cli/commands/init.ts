@@ -15,6 +15,7 @@ import {
 } from "../../core/project.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors } from "../errors.ts";
+import { recordInitialOp } from "../mutate.ts";
 
 interface Args extends Record<string, unknown> {
   dir: string;
@@ -100,6 +101,7 @@ export const init = defineCommand<Args>({
     }
 
     const paths = await initProjectDir(dir, project, { force: args.force });
+    const initial = await recordInitialOp(dir, project, ctx);
     const settings = describeSettings(project.settings);
     const result = {
       project_dir: paths.root,
@@ -119,7 +121,7 @@ export const init = defineCommand<Args>({
       `  tracks      ${project.tracks.map((t) => t.id).join(", ")}`,
       `  next        montash import <files...>   (run inside ${paths.root} or with -C)`,
     ].join("\n");
-    return { result, human };
+    return { result, human, op: initial.op, head: initial.head };
   },
 });
 

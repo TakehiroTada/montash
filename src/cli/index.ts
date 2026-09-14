@@ -77,7 +77,7 @@ export async function runLeaf(
   argv: Record<string, unknown>,
 ): Promise<void> {
   const globals = readGlobals(argv, process.env);
-  const ctx = createContext(globals);
+  const ctx = createContext(globals, { argv: hideBin(process.argv) });
   try {
     if (!spec.noProject) ctx.requireProjectDir();
     const res = await spec.handler(ctx, commandArgs(argv));
