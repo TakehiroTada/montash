@@ -1,0 +1,3 @@
+# ffmpeg で生成するテスト素材（scripts/make-fixtures.sh / src/ffmpeg/fixtures.ts）。git 管理外
+*
+!.gitignore
