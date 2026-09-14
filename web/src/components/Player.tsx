@@ -11,7 +11,11 @@ export function Player() {
     return (
       <div className="player">
         <video src={`/preview/timeline.mp4${hash ? `?v=${encodeURIComponent(hash)}` : ""}`} controls playsInline />
-        {state === "stale" ? <span className="badge warn" style={{ position: "absolute", top: 8, right: 8 }}>プレビュー再生成中</span> : null}
+        {state === "stale" ? (
+          <span className="badge warn" style={{ position: "absolute", top: 8, right: 8 }}>
+            プレビュー再生成中
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -20,7 +24,9 @@ export function Player() {
       <div className="placeholder">
         <div className="big">▶</div>
         <div>preview: {state}</div>
-        <div className="mono" style={{ fontSize: 11 }}>montash preview build</div>
+        <div className="mono" style={{ fontSize: 11 }}>
+          montash preview build
+        </div>
       </div>
     </div>
   );

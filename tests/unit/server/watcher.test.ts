@@ -9,7 +9,7 @@ test("hashProjectFile is sha1 of the file contents", () => {
   const dir = makeTempProject();
   try {
     const p = join(dir, "project.json");
-    const expected = "sha1:" + new Bun.CryptoHasher("sha1").update(JSON.stringify(SAMPLE_PROJECT)).digest("hex");
+    const expected = `sha1:${new Bun.CryptoHasher("sha1").update(JSON.stringify(SAMPLE_PROJECT)).digest("hex")}`;
     expect(hashProjectFile(p)).toBe(expected);
     expect(hashProjectFile(join(dir, "missing.json"))).toBeNull();
   } finally {
@@ -49,7 +49,7 @@ describe.each(["chokidar", "poll"] as const)("WebSocket + watcher (%s)", (mode) 
       writeFileSync(join(dir, "project.json"), JSON.stringify(updated));
       const changed = await next("project.changed", 2000);
       expect(changed).toMatchObject({ type: "project.changed", cause: "external", head: null });
-      expect(changed.hash).toBe("sha1:" + new Bun.CryptoHasher("sha1").update(JSON.stringify(updated)).digest("hex"));
+      expect(changed.hash).toBe(`sha1:${new Bun.CryptoHasher("sha1").update(JSON.stringify(updated)).digest("hex")}`);
 
       // tmp → rename の原子的保存も検知する
       await Bun.sleep(150);
@@ -57,9 +57,9 @@ describe.each(["chokidar", "poll"] as const)("WebSocket + watcher (%s)", (mode) 
       writeFileSync(join(dir, "project.json.tmp"), JSON.stringify(updated2));
       renameSync(join(dir, "project.json.tmp"), join(dir, "project.json"));
       const changed2 = await next("project.changed", 2000);
-      expect(changed2.hash).toBe("sha1:" + new Bun.CryptoHasher("sha1").update(JSON.stringify(updated2)).digest("hex"));
+      expect(changed2.hash).toBe(`sha1:${new Bun.CryptoHasher("sha1").update(JSON.stringify(updated2)).digest("hex")}`);
 
-      appendFileSync(join(dir, ".montash/history/ops.jsonl"), JSON.stringify({ id: "o_0001" }) + "\n");
+      appendFileSync(join(dir, ".montash/history/ops.jsonl"), `${JSON.stringify({ id: "o_0001" })}\n`);
       expect(await next("history.appended", 2000)).toMatchObject({ type: "history.appended" });
     } finally {
       ws.close();

@@ -1,9 +1,11 @@
 /**
  * 読み取り API クライアント（docs/06 §3.2）。取得結果はストアに入れる。
  */
-import { useStore, type HistoryLike, type ProjectLike, type StatusLike } from "./store.ts";
+import { type HistoryLike, type ProjectLike, type StatusLike, useStore } from "./store.ts";
 
-async function getJson<T>(path: string): Promise<{ ok: true; data: T; etag: string | null } | { ok: false; status: number; error: unknown }> {
+async function getJson<T>(
+  path: string,
+): Promise<{ ok: true; data: T; etag: string | null } | { ok: false; status: number; error: unknown }> {
   const res = await fetch(path, { headers: { accept: "application/json" }, cache: "no-store" });
   if (!res.ok) {
     let error: unknown = null;

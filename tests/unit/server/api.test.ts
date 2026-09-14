@@ -35,15 +35,27 @@ describe("GET /api/*", () => {
   });
 
   test("/api/history returns a stub and parses ops.jsonl when present", async () => {
-    let body = (await (await fetch(`${srv.url}/api/history`)).json()) as { ops: unknown[]; commits: unknown[]; tags: unknown; moves: unknown[]; head: unknown };
+    let body = (await (await fetch(`${srv.url}/api/history`)).json()) as {
+      ops: unknown[];
+      commits: unknown[];
+      tags: unknown;
+      moves: unknown[];
+      head: unknown;
+    };
     expect(body).toEqual({ head: null, ops: [], commits: [], tags: {}, moves: [] });
-    writeFileSync(join(dir, ".montash/history/ops.jsonl"), JSON.stringify({ id: "o_0001", actor: "ai" }) + "\n{broken\n" + JSON.stringify({ id: "o_0002" }) + "\n");
+    writeFileSync(
+      join(dir, ".montash/history/ops.jsonl"),
+      `${JSON.stringify({ id: "o_0001", actor: "ai" })}\n{broken\n${JSON.stringify({ id: "o_0002" })}\n`,
+    );
     body = (await (await fetch(`${srv.url}/api/history`)).json()) as typeof body;
     expect(body.ops).toEqual([{ id: "o_0001", actor: "ai" }, { id: "o_0002" }]);
   });
 
   test("/api/cli/allowlist returns the default allowlist", async () => {
-    const body = (await (await fetch(`${srv.url}/api/cli/allowlist`)).json()) as { allowlist: string[]; read_only: boolean };
+    const body = (await (await fetch(`${srv.url}/api/cli/allowlist`)).json()) as {
+      allowlist: string[];
+      read_only: boolean;
+    };
     expect(body.allowlist).toContain("checkout");
     expect(body.allowlist).toContain("assets remove");
     expect(body.allowlist).not.toContain("doctor");

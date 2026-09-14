@@ -4,7 +4,16 @@
  * この段階はルーラー・クリップ矩形（start_f / end_f）・再生ヘッド・選択枠・ヒットテストのみ。
  */
 import { useEffect, useRef } from "react";
-import { clipEnd, displayTracks, formatTc, fpsOf, timelineDuration, useStore, type ClipLike, type TrackLike } from "../../store.ts";
+import {
+  type ClipLike,
+  clipEnd,
+  displayTracks,
+  formatTc,
+  fpsOf,
+  type TrackLike,
+  timelineDuration,
+  useStore,
+} from "../../store.ts";
 
 export const RULER_H = 18;
 export const ROW_H = 28;

@@ -22,24 +22,41 @@ export function Header() {
         <>
           <span>{project.name ?? "(unnamed)"}</span>
           <span className="dim">
-            {res ? `${res.width}x${res.height}` : "—"} {fpsLabel}fps · <span className="mono">{formatTc(dur, fps)}</span> · {clipCount(project)} clips
+            {res ? `${res.width}x${res.height}` : "—"} {fpsLabel}fps ·{" "}
+            <span className="mono">{formatTc(dur, fps)}</span> · {clipCount(project)} clips
           </span>
         </>
       ) : (
         <span className="dim">project.json not found</span>
       )}
       <span className="spacer" />
-      <button className={`badge ${head?.detached ? "warn" : ""}`} onClick={() => setTab("history")} title="History">
+      <button
+        type="button"
+        className={`badge ${head?.detached ? "warn" : ""}`}
+        onClick={() => setTab("history")}
+        title="History"
+      >
         HEAD <span className="mono">{head?.op ?? "—"}</span>
-        {head?.commit ? <span className="dim mono">({head.commit}{head.pending ? ` +${head.pending} pending` : ""})</span> : null}
+        {head?.commit ? (
+          <span className="dim mono">
+            ({head.commit}
+            {head.pending ? ` +${head.pending} pending` : ""})
+          </span>
+        ) : null}
       </button>
-      <span className={`badge ${status?.preview.state === "ready" ? "ok" : status?.preview.state === "building" ? "warn" : ""}`}>
+      <span
+        className={`badge ${status?.preview.state === "ready" ? "ok" : status?.preview.state === "building" ? "warn" : ""}`}
+      >
         <span className="dot" /> preview: {status?.preview.state ?? "—"}
       </span>
       <span className={`badge ${connection === "open" ? "ok" : connection === "connecting" ? "warn" : "err"}`}>
         <span className="dot" /> {connection}
       </span>
-      {status?.server.read_only ? <span className="badge warn"><span className="dot" /> read-only</span> : null}
+      {status?.server.read_only ? (
+        <span className="badge warn">
+          <span className="dot" /> read-only
+        </span>
+      ) : null}
     </header>
   );
 }

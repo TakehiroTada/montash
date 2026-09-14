@@ -14,11 +14,24 @@ import { resolve } from "node:path";
 /** 既定の許可リスト（docs/06 §3.3）。`"reset --hard"` のように 2 語で照合するものを含む */
 export const DEFAULT_ALLOWLIST: readonly string[] = [
   // 履歴移動
-  "checkout", "undo", "redo", "tag", "tag delete", "revert", "reset --hard",
+  "checkout",
+  "undo",
+  "redo",
+  "tag",
+  "tag delete",
+  "revert",
+  "reset --hard",
   // 素材管理
-  "import", "assets set", "assets set-text", "assets new-text", "assets remove", "assets relink", "proxy build",
+  "import",
+  "assets set",
+  "assets set-text",
+  "assets new-text",
+  "assets remove",
+  "assets relink",
+  "proxy build",
   // 補助
-  "preview build", "validate",
+  "preview build",
+  "validate",
 ];
 
 /** サーバ側で固定し、クライアントからの上書きを禁止するグローバルオプション（docs/08 §4.5） */
@@ -53,7 +66,9 @@ export function checkAllowlist(args: readonly string[], allowlist: readonly stri
 export function needsConfirm(args: readonly string[]): boolean {
   const [a0] = args;
   if (a0 === "reset" || a0 === "revert") return true;
-  return args.some((a) => a === "--force" || a === "--overwrite" || a.startsWith("--force=") || a.startsWith("--overwrite="));
+  return args.some(
+    (a) => a === "--force" || a === "--overwrite" || a.startsWith("--force=") || a.startsWith("--overwrite="),
+  );
 }
 
 /**
@@ -147,24 +162,41 @@ export class CliExecutor {
       return fail(500, "E_CLI_SPAWN_FAILED", `failed to spawn montash: ${String(e)}`, { detail: { command: full } });
     }
     const timer = setTimeout(() => proc.kill("SIGTERM"), this.timeoutMs);
-    const [stdout, stderr] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), new Response(proc.stderr as ReadableStream).text()]);
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout as ReadableStream).text(),
+      new Response(proc.stderr as ReadableStream).text(),
+    ]);
     const exitCode = await proc.exited;
     clearTimeout(timer);
     const durationMs = Math.round(performance.now() - started);
-    const exec = { id: `x_${id}`, args, actor: "web", actor_detail: clientDetail, duration_ms: durationMs, exit_code: exitCode };
+    const exec = {
+      id: `x_${id}`,
+      args,
+      actor: "web",
+      actor_detail: clientDetail,
+      duration_ms: durationMs,
+      exit_code: exitCode,
+    };
 
     // CLI の --json 出力は 1 行 1 JSON。最後の非空行を採用する
-    const lines = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+    const lines = stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
     const last = lines.at(-1);
     if (last === undefined) {
       const code = exitCode === null || exitCode === 143 ? "E_CLI_TIMEOUT" : "E_CLI_OUTPUT_INVALID";
-      return fail(500, code, `montash produced no JSON output (exit ${String(exitCode)})`, { detail: { ...exec, stderr_tail: tail(stderr) } });
+      return fail(500, code, `montash produced no JSON output (exit ${String(exitCode)})`, {
+        detail: { ...exec, stderr_tail: tail(stderr) },
+      });
     }
     try {
       const json = JSON.parse(last) as Record<string, unknown>;
       return { status: 200, body: { ...json, exec } };
     } catch {
-      return fail(500, "E_CLI_OUTPUT_INVALID", "montash output was not JSON", { detail: { ...exec, stdout_tail: tail(stdout), stderr_tail: tail(stderr) } });
+      return fail(500, "E_CLI_OUTPUT_INVALID", "montash output was not JSON", {
+        detail: { ...exec, stdout_tail: tail(stdout), stderr_tail: tail(stderr) },
+      });
     }
   }
 }
@@ -173,6 +205,11 @@ function tail(s: string, n = 20): string[] {
   return s.split("\n").filter(Boolean).slice(-n);
 }
 
-function fail(status: number, code: string, message: string, extra: { hint?: string; detail?: Record<string, unknown> } = {}): ExecResult {
+function fail(
+  status: number,
+  code: string,
+  message: string,
+  extra: { hint?: string; detail?: Record<string, unknown> } = {},
+): ExecResult {
   return { status, body: { ok: false, error: { code, message, ...extra } } };
 }

@@ -4,8 +4,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
-import { connectWs } from "./ws.ts";
 import { refreshAll } from "./api.ts";
+import { connectWs } from "./ws.ts";
 
 const el = document.getElementById("root");
 if (!el) throw new Error("#root not found");

@@ -6,10 +6,11 @@
  *   - chokidar 4（既定。`awaitWriteFinish` で tmp → rename の原子的保存も検知）
  *   - poll（`Bun.file(path).lastModified` / size / 内容ハッシュを 500ms 間隔で比較。WSL の /mnt/ 配下では自動選択）
  */
-import chokidar from "chokidar";
+
 import { readFileSync } from "node:fs";
 import { platform } from "node:os";
 import { basename, join, resolve } from "node:path";
+import chokidar from "chokidar";
 
 export type WatchMode = "chokidar" | "poll" | "auto";
 
@@ -47,7 +48,7 @@ export function watchTargets(projectDir: string): Record<WatchTarget, string> {
 export function hashProjectFile(path: string): string | null {
   try {
     const buf = readFileSync(path);
-    return "sha1:" + new Bun.CryptoHasher("sha1").update(buf).digest("hex");
+    return `sha1:${new Bun.CryptoHasher("sha1").update(buf).digest("hex")}`;
   } catch {
     return null;
   }
@@ -97,7 +98,14 @@ async function createChokidarWatcher(opts: WatcherOptions): Promise<Watcher> {
     ignored: (p, stats) => {
       if (stats?.isFile()) return targetOf(targets, p) === null;
       const name = basename(p);
-      return name === "cache" || name === "preview" || name === "objects" || name === "tmp" || name === "logs" || name === "render";
+      return (
+        name === "cache" ||
+        name === "preview" ||
+        name === "objects" ||
+        name === "tmp" ||
+        name === "logs" ||
+        name === "render"
+      );
     },
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 20 },
   });

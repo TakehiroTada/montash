@@ -14,8 +14,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import pkg from "../../package.json";
-import { CliExecutor, resolveCliCommand, type CliExecutorOptions } from "./cli-exec.ts";
-import { createWatcher, hashProjectFile, HISTORY_DIR, watchTargets, type WatchMode, type Watcher } from "./watcher.ts";
+import { CliExecutor, type CliExecutorOptions, resolveCliCommand } from "./cli-exec.ts";
+import { createWatcher, HISTORY_DIR, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
 
 export const SERVER_VERSION: string = pkg.version;
 
@@ -53,7 +53,10 @@ export function isLoopback(host: string): boolean {
 // ---------------------------------------------------------------------------
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
+  });
 
 const jsonError = (status: number, code: string, message: string, hint?: string): Response =>
   json({ ok: false, error: { code, message, ...(hint ? { hint } : {}) } }, status);
@@ -90,7 +93,11 @@ function readJsonFile(path: string): unknown | undefined {
  * バイナリと同じ場所の `web/dist` を探す（埋め込みは未対応。docs/13 B-2）。
  */
 export function resolveDistDir(): string | null {
-  const candidates = [resolve(import.meta.dir, "../../web/dist"), resolve(dirname(process.execPath), "web/dist"), resolve(process.cwd(), "web/dist")];
+  const candidates = [
+    resolve(import.meta.dir, "../../web/dist"),
+    resolve(dirname(process.execPath), "web/dist"),
+    resolve(process.cwd(), "web/dist"),
+  ];
   for (const c of candidates) if (existsSync(join(c, "index.html"))) return c;
   return null;
 }
@@ -110,7 +117,9 @@ function serveStatic(distDir: string, pathname: string): Response | null {
   const file = Bun.file(abs);
   // ハッシュ付きファイル名は長期キャッシュ可
   const immutable = /-[a-z0-9]{8,}\.(js|css|woff2?|png|svg|map)$/i.test(rel);
-  return new Response(file, { headers: { "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache" } });
+  return new Response(file, {
+    headers: { "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache" },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +145,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     watch_mode: watcher?.mode ?? null,
     head: null,
     preview: { state: "missing" as const },
-    server: { version: SERVER_VERSION, read_only: readOnly, dev: opts.dev, compiled: isCompiledBinary(), project_dir: projectDir },
+    server: {
+      version: SERVER_VERSION,
+      read_only: readOnly,
+      dev: opts.dev,
+      compiled: isCompiledBinary(),
+      project_dir: projectDir,
+    },
   });
 
   const routes: Bun.Serve.RoutesWithUpgrade<undefined, string> = {
@@ -163,7 +178,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     "/api/cli/allowlist": { GET: () => json({ allowlist: executor.allowlist, read_only: readOnly }) },
     "/api/cli": {
       POST: async (req, server) => {
-        if (readOnly) return jsonError(405, "E_READ_ONLY", "server is running with --read-only", "Restart `montash serve` without --read-only (and on a loopback host).");
+        if (readOnly)
+          return jsonError(
+            405,
+            "E_READ_ONLY",
+            "server is running with --read-only",
+            "Restart `montash serve` without --read-only (and on a loopback host).",
+          );
         let payload: unknown;
         try {
           payload = await req.json();
@@ -176,7 +197,12 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         const args = (payload as { args?: unknown }).args;
         server.publish(
           "events",
-          JSON.stringify({ type: "log", level: res.body.ok ? "info" : "error", actor: "web", message: `${Array.isArray(args) ? args.join(" ") : "?"} → ${res.body.ok ? "ok" : String((res.body.error as { code?: string } | undefined)?.code ?? "error")}` }),
+          JSON.stringify({
+            type: "log",
+            level: res.body.ok ? "info" : "error",
+            actor: "web",
+            message: `${Array.isArray(args) ? args.join(" ") : "?"} → ${res.body.ok ? "ok" : String((res.body.error as { code?: string } | undefined)?.code ?? "error")}`,
+          }),
         );
         return json(res.body, res.status);
       },
@@ -199,7 +225,10 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     routes["/"] = () => {
       const dir = distDir ?? resolveDistDir();
       if (!dir) {
-        return new Response("web/dist/index.html not found. Run `bun run build:web` first (or start with `montash serve --dev`).", { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } });
+        return new Response(
+          "web/dist/index.html not found. Run `bun run build:web` first (or start with `montash serve --dev`).",
+          { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } },
+        );
       }
       distDir = dir;
       return new Response(Bun.file(join(dir, "index.html")), { headers: { "cache-control": "no-cache" } });

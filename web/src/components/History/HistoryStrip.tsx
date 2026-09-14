@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef } from "react";
 import { checkout } from "../../cli-client.ts";
-import { useStore, type OpLike } from "../../store.ts";
+import { type OpLike, useStore } from "../../store.ts";
 
 const PAD = 24;
 const R_OP = 4;
@@ -127,9 +127,17 @@ export function HistoryStrip() {
       <div className="bar">
         <b>History</b>
         <span>{ops} ops</span>
-        <span>HEAD <span className="mono">{head ?? "—"}</span></span>
-        {pending > 0 ? <span>pending {pending} — <code>montash commit -m "..."</code></span> : null}
-        <span style={{ marginLeft: "auto" }}>click a node → <code>checkout</code></span>
+        <span>
+          HEAD <span className="mono">{head ?? "—"}</span>
+        </span>
+        {pending > 0 ? (
+          <span>
+            pending {pending} — <code>montash commit -m "..."</code>
+          </span>
+        ) : null}
+        <span style={{ marginLeft: "auto" }}>
+          click a node → <code>checkout</code>
+        </span>
       </div>
       <div className="canvas-wrap">
         <canvas ref={ref} onClick={onClick} style={{ cursor: readOnly ? "default" : "pointer" }} />

@@ -2,14 +2,21 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startServer, type RunningServer, type StartServerOptions } from "../../../src/server/index.ts";
+import { type RunningServer, type StartServerOptions, startServer } from "../../../src/server/index.ts";
 
 export const SAMPLE_PROJECT = {
   schema_version: 2,
   name: "test-project",
   settings: { fps: { num: 30, den: 1 }, resolution: { width: 1920, height: 1080 } },
   assets: {},
-  tracks: [{ id: "V1", kind: "video", name: "V1", clips: [{ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 1 }] }],
+  tracks: [
+    {
+      id: "V1",
+      kind: "video",
+      name: "V1",
+      clips: [{ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 1 }],
+    },
+  ],
 };
 
 export function makeTempProject(withProjectJson = true): string {
@@ -24,12 +31,26 @@ export function removeTemp(dir: string): void {
 }
 
 export async function boot(projectDir: string, over: Partial<StartServerOptions> = {}): Promise<RunningServer> {
-  return startServer({ projectDir, host: "127.0.0.1", port: 0, readOnly: false, open: false, dev: false, watch: false, log: () => {}, ...over });
+  return startServer({
+    projectDir,
+    host: "127.0.0.1",
+    port: 0,
+    readOnly: false,
+    open: false,
+    dev: false,
+    watch: false,
+    log: () => {},
+    ...over,
+  });
 }
 
 /** WebSocket を開き、hello 受信までの Promise と、次に来るメッセージを type で待つ関数を返す */
-export async function openWs(url: string): Promise<{ ws: WebSocket; hello: Record<string, unknown>; next(type: string, timeoutMs?: number): Promise<Record<string, unknown>> }> {
-  const ws = new WebSocket(url.replace(/^http/, "ws") + "/ws");
+export async function openWs(url: string): Promise<{
+  ws: WebSocket;
+  hello: Record<string, unknown>;
+  next(type: string, timeoutMs?: number): Promise<Record<string, unknown>>;
+}> {
+  const ws = new WebSocket(`${url.replace(/^http/, "ws")}/ws`);
   const queue: Record<string, unknown>[] = [];
   const waiters: Array<{ type: string; res: (m: Record<string, unknown>) => void }> = [];
   ws.onmessage = (ev) => {
@@ -43,10 +64,19 @@ export async function openWs(url: string): Promise<{ ws: WebSocket; hello: Recor
     if (qi >= 0) return Promise.resolve(queue.splice(qi, 1)[0]!);
     return new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error(`timeout waiting for ws message "${type}"`)), timeoutMs);
-      waiters.push({ type, res: (m) => { clearTimeout(t); res(m); } });
+      waiters.push({
+        type,
+        res: (m) => {
+          clearTimeout(t);
+          res(m);
+        },
+      });
     });
   };
-  await new Promise<void>((res, rej) => { ws.onopen = () => res(); ws.onerror = (e) => rej(e); });
+  await new Promise<void>((res, rej) => {
+    ws.onopen = () => res();
+    ws.onerror = (e) => rej(e);
+  });
   const hello = await next("hello");
   return { ws, hello, next };
 }

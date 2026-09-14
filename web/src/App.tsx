@@ -7,12 +7,12 @@ import { useEffect } from "react";
 import { redo, undo } from "./cli-client.ts";
 import { Header } from "./components/Header.tsx";
 import { HistoryStrip } from "./components/History/HistoryStrip.tsx";
-import { Inspector, AssetsTab, HistoryTab } from "./components/Inspector.tsx";
+import { AssetsTab, HistoryTab, Inspector } from "./components/Inspector.tsx";
 import { LogPane } from "./components/LogPane.tsx";
 import { Player } from "./components/Player.tsx";
 import { TimelineView } from "./components/Timeline/TimelineView.tsx";
 import { Transport } from "./components/Transport.tsx";
-import { useStore, type SideTab } from "./store.ts";
+import { type SideTab, useStore } from "./store.ts";
 
 const TABS: Array<{ id: SideTab; label: string }> = [
   { id: "inspector", label: "Inspector" },
@@ -66,7 +66,14 @@ export function App() {
       <aside className="side">
         <div className="tabs" role="tablist">
           {TABS.map((t) => (
-            <button key={t.id} role="tab" className={t.id === tab ? "active" : ""} aria-selected={t.id === tab} onClick={() => setTab(t.id)}>
+            <button
+              type="button"
+              key={t.id}
+              role="tab"
+              className={t.id === tab ? "active" : ""}
+              aria-selected={t.id === tab}
+              onClick={() => setTab(t.id)}
+            >
               {t.label}
             </button>
           ))}
@@ -83,7 +90,9 @@ export function App() {
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.level}`} onClick={() => dismiss(t.id)}>
             {t.text.split("\n").map((line, i) => (
-              <div key={i} className={i > 0 ? "code" : ""}>{line}</div>
+              <div key={i} className={i > 0 ? "code" : ""}>
+                {line}
+              </div>
             ))}
           </div>
         ))}

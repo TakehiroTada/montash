@@ -20,7 +20,9 @@ export function TimelineView() {
       </div>
       <div className="canvas-wrap">
         <TimelineCanvas />
-        {tracks.length === 0 ? <div className="empty">{project ? "no tracks — `montash track add`" : "project.json not found"}</div> : null}
+        {tracks.length === 0 ? (
+          <div className="empty">{project ? "no tracks — `montash track add`" : "project.json not found"}</div>
+        ) : null}
       </div>
     </div>
   );

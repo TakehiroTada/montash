@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { checkAllowlist, CliExecutor, needsConfirm, resolveCliCommand } from "../../../src/server/cli-exec.ts";
+import { CliExecutor, checkAllowlist, needsConfirm, resolveCliCommand } from "../../../src/server/cli-exec.ts";
 import type { RunningServer } from "../../../src/server/index.ts";
 import { boot, makeTempProject, removeTemp } from "./helpers.ts";
 
@@ -51,7 +51,12 @@ describe("POST /api/cli", () => {
     removeTemp(dir);
   });
 
-  const post = (body: unknown) => fetch(`${srv.url}/api/cli`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const post = (body: unknown) =>
+    fetch(`${srv.url}/api/cli`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
   test("rejects commands outside the allowlist with 403 E_WEB_COMMAND_NOT_ALLOWED", async () => {
     const res = await post({ args: ["doctor"] });
@@ -75,7 +80,11 @@ describe("POST /api/cli", () => {
   test("allowed command is spawned and the CLI JSON is passed through (200 even if the CLI fails)", async () => {
     const res = await post({ args: ["checkout", "o_0001"] });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; error?: { code: string }; exec: { args: string[]; actor: string; duration_ms: number; exit_code: number } };
+    const body = (await res.json()) as {
+      ok: boolean;
+      error?: { code: string };
+      exec: { args: string[]; actor: string; duration_ms: number; exit_code: number };
+    };
     // checkout は未実装なので CLI 側は E_USAGE 系で失敗するが、JSON はそのまま透過される
     expect(body.ok).toBe(false);
     expect(body.error?.code).toMatch(/^E_/);
@@ -91,9 +100,22 @@ describe("POST /api/cli", () => {
 
   test("runs are serialized (FIFO order, no overlap)", async () => {
     const seen: string[] = [];
-    const exec = new CliExecutor({ projectDir: dir, command: [process.execPath, "-e", "await Bun.sleep(80); console.log(JSON.stringify({ ok: true, argv: Bun.argv }))"] });
+    const exec = new CliExecutor({
+      projectDir: dir,
+      command: [
+        process.execPath,
+        "-e",
+        "await Bun.sleep(80); console.log(JSON.stringify({ ok: true, argv: Bun.argv }))",
+      ],
+    });
     const started = performance.now();
-    const runs = ["a", "b", "c"].map((x) => exec.handle({ args: ["undo", x] }, "t").then((r) => seen.push(((r.body as { argv?: string[] }).argv ?? []).find((v) => ["a", "b", "c"].includes(v)) ?? "?")));
+    const runs = ["a", "b", "c"].map((x) =>
+      exec
+        .handle({ args: ["undo", x] }, "t")
+        .then((r) =>
+          seen.push(((r.body as { argv?: string[] }).argv ?? []).find((v) => ["a", "b", "c"].includes(v)) ?? "?"),
+        ),
+    );
     await Promise.all(runs);
     expect(seen).toEqual(["a", "b", "c"]);
     // 3 本が直列なら 80ms × 3 以上かかる（並列なら約 80ms）
@@ -103,7 +125,11 @@ describe("POST /api/cli", () => {
   test("read-only server answers 405", async () => {
     const ro = await boot(dir, { readOnly: true });
     try {
-      const res = await fetch(`${ro.url}/api/cli`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ args: ["undo"] }) });
+      const res = await fetch(`${ro.url}/api/cli`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ args: ["undo"] }),
+      });
       expect(res.status).toBe(405);
       expect(await res.json()).toMatchObject({ ok: false, error: { code: "E_READ_ONLY" } });
       const al = (await (await fetch(`${ro.url}/api/cli/allowlist`)).json()) as { read_only: boolean };

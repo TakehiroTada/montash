@@ -5,9 +5,9 @@
  */
 import { readFileSync } from "node:fs";
 import { platform } from "node:os";
-import { defineCommand } from "../define-command.ts";
-import { errors, warning, type Warning } from "../errors.ts";
 import { startServer } from "../../server/index.ts";
+import { defineCommand } from "../define-command.ts";
+import { errors, type Warning, warning } from "../errors.ts";
 
 interface Args extends Record<string, unknown> {
   port: number;
@@ -49,14 +49,19 @@ export async function openBrowser(url: string): Promise<boolean> {
 export const serve = defineCommand<Args>({
   path: "serve",
   summary: "start the local web preview server (Ctrl-C to stop)",
-  description: "Serves the web UI, read-only APIs and a WebSocket that pushes project.json / history changes. Web actions run `montash` as a child process (MONTASH_ACTOR=web) restricted by an allowlist.",
+  description:
+    "Serves the web UI, read-only APIs and a WebSocket that pushes project.json / history changes. Web actions run `montash` as a child process (MONTASH_ACTOR=web) restricted by an allowlist.",
   workflows: ["W-02", "W-04", "W-16"],
   options: {
     port: { type: "number", describe: "TCP port (0 = random)", default: 7788 },
     host: { type: "string", describe: "bind address. Non-loopback forces --read-only", default: "127.0.0.1" },
     open: { type: "boolean", describe: "open the URL in the default browser", default: false },
     "read-only": { type: "boolean", describe: "disable POST /api/cli (viewing only)", default: false },
-    dev: { type: "boolean", describe: "serve web/index.html via Bun's HTML import with HMR instead of web/dist", default: false },
+    dev: {
+      type: "boolean",
+      describe: "serve web/index.html via Bun's HTML import with HMR instead of web/dist",
+      default: false,
+    },
     watch: { type: "boolean", describe: "watch project.json and history (use --no-watch to disable)", default: true },
     daemon: { type: "boolean", describe: "run in the background (not implemented yet)", default: false },
   },
@@ -67,7 +72,8 @@ export const serve = defineCommand<Args>({
   ],
   async handler(ctx, args) {
     if (args.daemon) throw errors.notImplemented("serve --daemon");
-    if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) throw errors.usage(`invalid --port ${String(args.port)}`, "Use 0-65535.");
+    if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535)
+      throw errors.usage(`invalid --port ${String(args.port)}`, "Use 0-65535.");
     const projectDir = ctx.requireProjectDir();
     const warnings: Warning[] = [];
 
@@ -79,22 +85,38 @@ export const serve = defineCommand<Args>({
       open: args.open,
       dev: args.dev,
       watch: args.watch ? "auto" : false,
-      log: (l) => ctx.stderr(l + "\n"),
+      log: (l) => ctx.stderr(`${l}\n`),
     });
     if (running.readOnly && !args.readOnly) {
-      warnings.push(warning("W_REMOTE_HOST", `--host ${args.host} is not loopback; --read-only was forced`, { hint: "Bind to 127.0.0.1 to allow web actions." }));
+      warnings.push(
+        warning("W_REMOTE_HOST", `--host ${args.host} is not loopback; --read-only was forced`, {
+          hint: "Bind to 127.0.0.1 to allow web actions.",
+        }),
+      );
     }
 
-    const info = { url: running.url, project_dir: projectDir, read_only: running.readOnly, dev: args.dev, watching: running.watcher !== null, watch_mode: running.watcher?.mode ?? null };
+    const info = {
+      url: running.url,
+      project_dir: projectDir,
+      read_only: running.readOnly,
+      dev: args.dev,
+      watching: running.watcher !== null,
+      watch_mode: running.watcher?.mode ?? null,
+    };
     if (ctx.globals.json) {
-      ctx.stdout(JSON.stringify({ type: "listening", ...info }) + "\n");
+      ctx.stdout(`${JSON.stringify({ type: "listening", ...info })}\n`);
     } else if (!ctx.globals.quiet) {
-      ctx.stderr(`montash serve — ${running.url}\n  project: ${projectDir}\n  mode: ${args.dev ? "dev (HMR)" : "web/dist"}${running.readOnly ? " · read-only" : ""}${running.watcher ? ` · watching (${running.watcher.mode})` : " · not watching"}\n  Ctrl-C to stop\n`);
+      ctx.stderr(
+        `montash serve — ${running.url}\n  project: ${projectDir}\n  mode: ${args.dev ? "dev (HMR)" : "web/dist"}${running.readOnly ? " · read-only" : ""}${running.watcher ? ` · watching (${running.watcher.mode})` : " · not watching"}\n  Ctrl-C to stop\n`,
+      );
     }
 
     if (args.open) {
       const ok = await openBrowser(running.url);
-      if (!ok) warnings.push(warning("W_OPEN_FAILED", `could not open a browser for ${running.url}`, { hint: "Open the URL manually." }));
+      if (!ok)
+        warnings.push(
+          warning("W_OPEN_FAILED", `could not open a browser for ${running.url}`, { hint: "Open the URL manually." }),
+        );
     }
 
     // Ctrl-C / SIGTERM まで待つ

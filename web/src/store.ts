@@ -142,7 +142,8 @@ export const useStore = create<State>()((set) => ({
   setHover: (hoverClipId) => set({ hoverClipId }),
   setTab: (tab) => set({ tab }),
   setAllowlist: (allowlist) => set({ allowlist }),
-  log: (level, message, actor) => set((s) => ({ logs: [...s.logs.slice(-499), { at: Date.now(), level, message, actor }] })),
+  log: (level, message, actor) =>
+    set((s) => ({ logs: [...s.logs.slice(-499), { at: Date.now(), level, message, actor }] })),
   toast: (level, text) => {
     const id = ++toastSeq;
     set((s) => ({ toasts: [...s.toasts, { id, level, text }] }));
