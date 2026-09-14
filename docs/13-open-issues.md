@@ -25,7 +25,7 @@
 
 | ID | 優先度 | 懸念 | 検証内容 | 判定基準 | 状態 |
 |----|--------|------|----------|----------|------|
-| B-1 | 中 | `Bun.spawn` での長時間 ffmpeg 制御 | `-progress pipe:1` のストリーム逐次読み取り、SIGTERM でのキャンセルと後片付け、stderr 末尾の捕捉、exit code、サーバ異常終了時の子プロセス残留 | 60 秒のレンダーで進捗が 1 秒間隔で届き、キャンセル後 1 秒以内にプロセスが消える | deferred（M1 `ffmpeg/run.ts` 実装時に検証） |
+| B-1 | 中 | `Bun.spawn` での長時間 ffmpeg 制御 | `-progress pipe:1` のストリーム逐次読み取り、SIGTERM でのキャンセルと後片付け、stderr 末尾の捕捉、exit code、サーバ異常終了時の子プロセス残留 | 60 秒のレンダーで進捗が 1 秒間隔で届き、キャンセル後 1 秒以内にプロセスが消える | spiked（`src/ffmpeg/run.ts`、macOS / Bun 1.3.14 / ffmpeg 9.0.1）。進捗は既定 `-stats_period` の **0.5 秒間隔**（実測 501〜505ms、`progressIntervalS` で変更可）で stdout から逐次届く。キャンセルは abort → SIGTERM → ffmpeg が exit 255 で自終了、**abort から 8〜15ms** で `E_FFMPEG_CANCELLED` が返り子プロセス残留なし（2 秒の猶予後 SIGKILL も実装）。stderr は末尾 30 行を保持し `detail.stderr_tail` に格納。残課題: サーバ異常終了時の子プロセス残留（M2 `serve` で検証） |
 | B-2 | 中 | コンパイル済みバイナリの自己 spawn と埋め込み資産 | `process.execPath` で自分を起動して `checkout` が動くか、`web/dist` を埋め込んで `Bun.file` 配信できるか、`--target` クロスコンパイル | 3 OS のバイナリで `montash serve` → History クリックが動く | deferred（M2 `serve` / M5 配布時に検証） |
 | B-3 | 中 | 大容量 multipart アップロード | `req.formData()` のメモリ挙動、ストリーム直書き | 2GB アップロードで RSS が +200MB 以内 | deferred（M3 `upload.ts` 実装時。上限 2GB は A-5 で決定） |
 | B-4 | 中 | `xfade=offset`（秒指定）と 29.97fps のフレーム境界 | ゴールデンテスト（08 章 §6）で合成後フレーム数と各カット点を検証 | 30 / 29.97 / 59.94 で `duration_f` 厳密一致 | deferred（M1 のゴールデンテストで事実上検証） |
@@ -52,3 +52,4 @@
 ## 決定ログ
 
 - 2026-09-14: A-1〜A-4 を推奨案で決定（ADR-13〜16）。B-1〜B-4 は事前 spike を行わず、該当モジュールの実装時に検証する方針（deferred）。残る `open` は A-5, A-7, A-8, A-12（中・低）、B-5〜B-11、C 群。
+- 2026-09-14: B-1 を `ffmpeg/run.ts` 実装時に検証（spiked）。進捗 0.5 秒間隔・キャンセル 15ms 以内で判定基準を満たす。サーバ異常終了時の子プロセス残留のみ M2 へ持ち越し。
