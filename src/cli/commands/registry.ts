@@ -4,7 +4,10 @@
  */
 import type { CommandSpec } from "../define-command.ts";
 import { doctor } from "./doctor.ts";
+import { init } from "./init.ts";
+import { projectSet, projectShow } from "./project.ts";
 import { schema } from "./schema.ts";
+import { validate } from "./validate.ts";
 
 // 各コマンドは固有の Args 型を持つため、レジストリでは共通型に寄せる（実行時は yargs が引数を検証する）
 type AnySpec = CommandSpec<Record<string, unknown>>;
@@ -15,7 +18,12 @@ export const commands: ReadonlyArray<AnySpec> = [
   // 環境・メタ
   spec(doctor),
   spec(schema),
-  // プロジェクト: init, project show, project set, validate, diff  → M0/M1
+  // プロジェクト
+  spec(init),
+  spec(projectShow),
+  spec(projectSet),
+  spec(validate),
+  // diff → M1
   // アセット: import, assets *, proxy *, fonts list                 → M1/M3
   // トラック / クリップ / タイムライン                                 → M1/M2
   // トランジション / テキスト / オーバーレイ / 音声 / 字幕             → M3/M4

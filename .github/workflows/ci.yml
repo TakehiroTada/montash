@@ -33,3 +33,7 @@ jobs:
           export PATH="$HOME/.local/bin:$HOME/.local/share/montash/ffmpeg/bin:$PATH"
           bun run dev doctor --json | tee doctor.json
           bun -e 'const j = await Bun.file("doctor.json").json(); if (!j.ok) { console.error(JSON.stringify(j.error)); process.exit(1) }'
+      - name: workflow e2e (tests/workflows)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.local/share/montash/ffmpeg/bin:$PATH"
+          bash tests/workflows/run-all.sh
