@@ -1,0 +1,3 @@
+#!/usr/bin/env bun
+// montash CLI エントリ（開発時は `bun src/cli/index.ts`、配布時は `bun build --compile`）
+import "../src/cli/index.ts";

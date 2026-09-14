@@ -1,0 +1,37 @@
+{
+  "name": "montash",
+  "version": "0.0.1",
+  "description": "montash — CLI video editor operated by AI (montage + sh)",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "bin": {
+    "montash": "./bin/montash"
+  },
+  "scripts": {
+    "dev": "bun src/cli/index.ts",
+    "doctor": "bun src/cli/index.ts doctor",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "check": "bun run typecheck && bun test",
+    "build:web": "bun build web/index.html --outdir web/dist --minify",
+    "compile": "bun build --compile src/cli/index.ts --outfile dist/montash",
+    "spikes": "cd scripts/spikes && bun install && bun run all"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yargs": "^17.7.2",
+    "zod": "^4.1.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/yargs": "^17.0.33",
+    "typescript": "^5.6.0"
+  }
+}

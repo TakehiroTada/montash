@@ -111,7 +111,12 @@ EOF
   [ "${a2:-0}" -gt "${b2:-0}" ] && return 0; [ "${a2:-0}" -lt "${b2:-0}" ] && return 1
   [ "${a3:-0}" -ge "${b3:-0}" ]
 }
-ffmpeg_version() { ffmpeg -version 2>/dev/null | head -1 | sed -E 's/^ffmpeg version [nN]?([0-9]+(\.[0-9]+)*).*/\1/; t; s/.*/0/'; }
+ffmpeg_version() { # "ffmpeg version 9.0.1 ..." / "ffmpeg version n7.1-latest ..." / "4.4.2-0ubuntu0.22.04.1" → 9.0.1 / 7.1 / 4.4.2（BSD/GNU sed 両対応）
+  local v; v="$(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')"
+  v="${v#n}"; v="${v#N}"
+  v="$(printf '%s' "$v" | sed -E 's/[^0-9.].*$//')"
+  printf '%s' "${v:-0}"
+}
 ffmpeg_has_filter()  { ffmpeg -hide_banner -filters  2>/dev/null | awk '{print $2}' | grep -qx "$1"; }
 ffmpeg_has_encoder() { ffmpeg -hide_banner -encoders 2>/dev/null | awk '{print $2}' | grep -qx "$1"; }
 
@@ -155,7 +160,11 @@ check_ffmpeg() {
   if ver_ge "$v" "$REC_FFMPEG"; then ok "ffmpeg $v ($path)"; else ok "ffmpeg $v ($path)"; warn "ffmpeg $v は best effort（推奨 $REC_FFMPEG 以上。Linux/WSL は --static で最新を導入可）"; fi
   if [ -n "$rec_ng" ]; then
     set_status ffmpeg_features warn "has: $req_ok | recommended missing: $rec_ng | extra: $extra"
-    warn "ffmpeg lacks recommended: $rec_ng （テロップは drawtext フォールバック／機能制限）"
+    if [ "$PLATFORM" = macos ]; then
+      warn "ffmpeg lacks recommended: $rec_ng （テロップに必要。brew の素の ffmpeg は libass 無し → \`brew install ffmpeg-full\`。--static は macOS 非対応）"
+    else
+      warn "ffmpeg lacks recommended: $rec_ng （テロップは drawtext フォールバック／機能制限。--static でフル機能ビルドを導入可）"
+    fi
   else
     set_status ffmpeg_features ok "has: $req_ok | extra: ${extra:-none}"
     ok "ffmpeg features: $req_ok${extra:+ + $extra}"
@@ -233,6 +242,8 @@ check_ffmpeg; check_bun; check_fonts; check_wsl_tools; check_misc
 # ---------- summarize ----------
 NEED=""
 case "$(status_of ffmpeg)" in missing|outdated|limited) NEED="$NEED ffmpeg" ;; esac
+# 推奨機能（libass）が無い場合も導入対象にする（macOS: ffmpeg-full、Linux/WSL: static）。--check では警告のみ。
+if [ "$(status_of ffmpeg)" = ok ] && [ "$(status_of ffmpeg_features)" = warn ] && [ "$CHECK_ONLY" = 0 ]; then NEED="$NEED ffmpeg"; fi
 [ "$FORCE_STATIC" = 1 ] && [ "$PLATFORM" != macos ] && case " $NEED " in *" ffmpeg "*) ;; *) NEED="$NEED ffmpeg" ;; esac
 case "$(status_of bun)" in missing|outdated) NEED="$NEED bun" ;; esac
 [ "$WITH_FONTS" = 1 ] && [ "$(status_of cjk_font)" = missing ] && NEED="$NEED cjk_font"
@@ -264,6 +275,17 @@ if [ "$CHECK_ONLY" = 1 ]; then
   if [ "$JSON_OUT" = 1 ]; then emit_json; else log "missing: $NEED (run without --check to install)"; fi
   exit 1
 fi
+
+# ---------- macOS: keg-only の ffmpeg-full を montash の探索場所にリンク ----------
+link_brew_ffmpeg_full() {
+  local prefix; prefix="$(brew --prefix ffmpeg-full 2>/dev/null || true)"
+  [ -n "$prefix" ] && [ -x "$prefix/bin/ffmpeg" ] || die "ffmpeg-full が見つかりません（brew install ffmpeg-full）"
+  mkdir -p "$MONTASH_FFMPEG_HOME/bin"
+  ln -sf "$prefix/bin/ffmpeg"  "$MONTASH_FFMPEG_HOME/bin/ffmpeg"
+  ln -sf "$prefix/bin/ffprobe" "$MONTASH_FFMPEG_HOME/bin/ffprobe"
+  "$MONTASH_FFMPEG_HOME/bin/ffmpeg" -version | head -1
+  log "  linked ffmpeg-full → $MONTASH_FFMPEG_HOME/bin（montash はここを優先します。シェルから使うなら PATH に追加）"
+}
 
 # ---------- static ffmpeg (Linux / WSL) : 実行 ----------
 install_static_ffmpeg() {
@@ -303,9 +325,10 @@ FFMPEG_ROUTE=""
 if needs ffmpeg; then
   if [ "$PLATFORM" = macos ]; then FFMPEG_ROUTE="brew"
   elif [ "$FORCE_STATIC" = 1 ]; then FFMPEG_ROUTE="static"
+  elif [ "$(status_of ffmpeg)" = ok ]; then FFMPEG_ROUTE="static"      # ok だが推奨機能が無い → static でフル機能に
   else
     case "$(status_of ffmpeg)" in
-      outdated|limited) FFMPEG_ROUTE="static" ;;                       # ディストリ版が入っているが不十分 → static
+      outdated|limited|recommended_missing) FFMPEG_ROUTE="static" ;;   # ディストリ版が入っているが不十分 → static
       missing)
         case "$PKG" in
           apt) # Ubuntu 22.04 (4.4) / Debian 12 (5.1) は要件を満たしにくいので static を優先
@@ -321,7 +344,16 @@ fi
 case "$PKG" in
   brew)
     have brew || die "Homebrew が必要です: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-    [ "$FFMPEG_ROUTE" = brew ] && plan "brew install ffmpeg"            # libx264/libx265/libass/libfreetype 同梱
+    # Homebrew の素の `ffmpeg` formula は libass / libfreetype を含まない（2026 年時点）。テロップに必要なので
+    # `ffmpeg-full`（keg-only: PATH に入らない）を入れ、$MONTASH_FFMPEG_HOME/bin にリンクする。montash はそこを優先探索する。
+    if [ "$FFMPEG_ROUTE" = brew ]; then
+      if brew info --formula ffmpeg-full >/dev/null 2>&1; then
+        plan "brew install ffmpeg-full"
+        plan "link_brew_ffmpeg_full   # → $MONTASH_FFMPEG_HOME/bin（keg-only なのでリンクして montash から見えるようにする）"
+      else
+        plan "brew install ffmpeg"
+      fi
+    fi
     needs cjk_font && plan "brew install --cask font-noto-sans-cjk-jp"
     ;;
   apt)
@@ -379,6 +411,7 @@ printf '%s' "$CMDS" | while IFS= read -r c; do
   log "\$ $c"
   case "$c" in
     install_static_ffmpeg*) install_static_ffmpeg ;;
+    link_brew_ffmpeg_full*) link_brew_ffmpeg_full ;;
     *) bash -c "$c" ;;
   esac
 done

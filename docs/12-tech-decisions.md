@@ -148,7 +148,9 @@
 
 - **決定**:
   - `doctor` と `install-deps.sh` は ffmpeg の可否を **必須機能の有無**で判定する。必須: `libx264`, `aac`, `xfade`, `concat`, `overlay`, `loudnorm`, `sidechaincompress`。推奨: `subtitles`（libass）、`drawtext`。バージョンは 4.4 未満を `outdated`、6.0 未満を「best effort（警告）」とする。
-  - Linux / WSL では、ディストリの ffmpeg が無い・古い・機能不足の場合、**BtbN の GPL static ビルド**（代替: johnvansickle）を `~/.local/share/montash/ffmpeg/bin` に展開し `~/.local/bin` にリンクする（sudo 不要）。`montash` のバイナリ探索順は `MONTASH_FFMPEG` / `--ffmpeg-path` → `PATH` → `~/.local/share/montash/ffmpeg/bin`。macOS は brew（フル機能）。
+  - Linux / WSL では、ディストリの ffmpeg が無い・古い・機能不足の場合、**BtbN の GPL static ビルド**（代替: johnvansickle）を `~/.local/share/montash/ffmpeg/bin` に展開し `~/.local/bin` にリンクする（sudo 不要）。
+  - macOS は Homebrew。ただし **素の `ffmpeg` formula は libass / libfreetype を含まない**（2026-09 時点、ffmpeg 9.0.1 で実機確認）ため、keg-only の **`ffmpeg-full`** を入れ、同じ `~/.local/share/montash/ffmpeg/bin` にリンクする。
+  - `montash` のバイナリ探索順は `MONTASH_FFMPEG` / `--ffmpeg-path` → **`~/.local/share/montash/ffmpeg/bin`（montash 管理を最優先）** → `PATH` → Homebrew keg（`/opt/homebrew/opt/ffmpeg-full/bin`）。PATH 上に機能不足の ffmpeg があっても、montash 管理のフル機能ビルドが選ばれる。
 - **理由**: Ubuntu 22.04 の apt は 4.4.2、Debian 12 は 5.1 で、WSL 利用者の多くがここに該当する（13 章 A-3）。「6.0 以上」を要件にすると主要ターゲットで導入できない。一方、必要な機能は 4.4 でも揃っており、真に必要なのは「libx264 / libass 入りのビルドか」である。static ビルドは sudo 不要でユーザー領域に閉じ、CI でも同じものを使える。
 - **リスク**: BtbN のアセット名の変更（`ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz` 形式）→ 取得失敗時は johnvansickle にフォールバックし、それも失敗すれば手動導入を案内。チェックサム検証は未実装（HTTPS + `ffmpeg -version` の実行確認のみ。要改善）。
 - **影響**: 02 章 N-2、04 章 `doctor`、08 章 `ffmpeg/locate.ts`、`scripts/install-deps.sh`（`--static`, `--dry-run` 追加）。
