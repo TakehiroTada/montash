@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { HistoryStore, formatId } from "../../../../src/core/history/store.ts";
 import { MontashError } from "../../../../src/cli/errors.ts";
+import { formatId, HistoryStore } from "../../../../src/core/history/store.ts";
 import { tempDir } from "./helpers.ts";
 
 let dir: string;
@@ -10,12 +10,30 @@ let cleanup: () => Promise<void>;
 beforeEach(async () => ({ dir, cleanup } = await tempDir()));
 afterEach(() => cleanup());
 
-const opBody = { parent: null, at: "t", actor: "ai" as const, command: [], summary: "", before: "sha1:a", after: "sha1:b", changes: [], affects: { clips: [], range_f: null }, commit: null };
+const opBody = {
+  parent: null,
+  at: "t",
+  actor: "ai" as const,
+  command: [],
+  summary: "",
+  before: "sha1:a",
+  after: "sha1:b",
+  changes: [],
+  affects: { clips: [], range_f: null },
+  commit: null,
+};
 
 describe("HistoryStore", () => {
   test("open は .montash/history と空ファイルを作る。再 open でも壊さない", async () => {
     const store = await HistoryStore.open(dir);
-    expect((await readdir(store.dir)).sort()).toEqual(["HEAD", "commits.jsonl", "moves.jsonl", "objects", "ops.jsonl", "tags.json"]);
+    expect((await readdir(store.dir)).sort()).toEqual([
+      "HEAD",
+      "commits.jsonl",
+      "moves.jsonl",
+      "objects",
+      "ops.jsonl",
+      "tags.json",
+    ]);
     expect(await store.getHead()).toBeNull();
     await store.setHead("o_0001");
     const again = await HistoryStore.open(dir);
@@ -46,7 +64,16 @@ describe("HistoryStore", () => {
     const o1 = await store.appendOp(opBody);
     const o2 = await store.appendOp({ ...opBody, parent: o1.id });
     expect([o1.id, o2.id]).toEqual(["o_0001", "o_0002"]);
-    const k1 = await store.appendCommit({ parent: null, at: "t", author: "ai", message: "m", ops: [o1.id], head: o1.id, tags: [], stats: { ops: 1, clips_added: 0, clips_removed: 0, clips_modified: 0 } });
+    const k1 = await store.appendCommit({
+      parent: null,
+      at: "t",
+      author: "ai",
+      message: "m",
+      ops: [o1.id],
+      head: o1.id,
+      tags: [],
+      stats: { ops: 1, clips_added: 0, clips_removed: 0, clips_modified: 0 },
+    });
     expect(k1.id).toBe("k_0001");
     expect(await store.readOps()).toEqual([o1, o2]);
     expect(await store.readCommits()).toEqual([k1]);

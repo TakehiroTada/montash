@@ -10,7 +10,7 @@
 
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MontashError, ExitCode } from "../../cli/errors.ts";
+import { ExitCode, MontashError } from "../../cli/errors.ts";
 import { canonicalHash, type HashFn } from "./hash.ts";
 import type { Commit, Move, Op, TagMap } from "./types.ts";
 
@@ -98,7 +98,10 @@ export class HistoryStore {
     try {
       return JSON.parse(text) as unknown;
     } catch (err) {
-      throw new MontashError("E_HISTORY_CORRUPT", `history object ${hash} is not valid JSON`, { detail: { hash, path }, cause: err });
+      throw new MontashError("E_HISTORY_CORRUPT", `history object ${hash} is not valid JSON`, {
+        detail: { hash, path },
+        cause: err,
+      });
     }
   }
 

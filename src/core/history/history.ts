@@ -6,18 +6,18 @@
  * - 警告（W_*）は例外にせず戻り値の `warnings` に含める。
  */
 
-import { MontashError, warning, type Warning } from "../../cli/errors.ts";
+import { MontashError, type Warning, warning } from "../../cli/errors.ts";
 import {
   ancestors,
   buildIndex,
   descendants,
   isValidTagName,
+  type OpIndex,
   pathToRoot,
   preferredChild,
+  type ResolvedRef,
   resolveRef,
   tipOf,
-  type OpIndex,
-  type ResolvedRef,
 } from "./dag.ts";
 import { diffJson, extractAffects, findConflicts, invertChanges } from "./diff.ts";
 import type { HashFn } from "./hash.ts";
@@ -228,10 +228,14 @@ export class History {
     const headOp = s.head === null ? null : (s.index.byId.get(s.head) ?? null);
     if (headOp && headOp.after !== beforeHash) {
       warnings.push(
-        warning("W_DIRTY_WORKTREE", `project.json did not match HEAD (${headOp.id}) before this command; it may have been edited by hand`, {
-          hint: "The op is recorded with the actual before-state. Use `montash commit --from-worktree -m <msg>` to record manual edits explicitly, or `montash checkout HEAD` to discard them.",
-          detail: { head: headOp.id, expected: headOp.after, actual: beforeHash },
-        }),
+        warning(
+          "W_DIRTY_WORKTREE",
+          `project.json did not match HEAD (${headOp.id}) before this command; it may have been edited by hand`,
+          {
+            hint: "The op is recorded with the actual before-state. Use `montash commit --from-worktree -m <msg>` to record manual edits explicitly, or `montash checkout HEAD` to discard them.",
+            detail: { head: headOp.id, expected: headOp.after, actual: beforeHash },
+          },
+        ),
       );
     }
     const changes = diffJson(input.before, input.after);
@@ -269,10 +273,14 @@ export class History {
         throw new MontashError("E_USAGE", `--last must be a positive integer (got ${input.last})`);
       }
       if (input.last > pending.length) {
-        throw new MontashError("E_USAGE", `--last ${input.last} exceeds the number of pending ops (${pending.length})`, {
-          hint: `Omit --last to commit all ${pending.length} pending ops.`,
-          detail: { pending: pending.length },
-        });
+        throw new MontashError(
+          "E_USAGE",
+          `--last ${input.last} exceeds the number of pending ops (${pending.length})`,
+          {
+            hint: `Omit --last to commit all ${pending.length} pending ops.`,
+            detail: { pending: pending.length },
+          },
+        );
       }
       selected = pending.slice(-input.last);
     }
@@ -322,7 +330,8 @@ export class History {
     if (s.head === null) throw nothingTo("undo", 0, n);
     const chain = pathToRoot(s.index, s.head);
     const available = chain.length - 1;
-    if (!Number.isInteger(n) || n < 1) throw new MontashError("E_USAGE", `undo count must be a positive integer (got ${n})`);
+    if (!Number.isInteger(n) || n < 1)
+      throw new MontashError("E_USAGE", `undo count must be a positive integer (got ${n})`);
     if (available < n) throw nothingTo("undo", available, n);
     return this.moveTo(s, chain[n] as string, "undo", actor, actorDetail, `HEAD~${n}`);
   }
@@ -331,7 +340,8 @@ export class History {
   async redo(n = 1, actor: Actor = "human", actorDetail?: string): Promise<MoveResult> {
     const s = await this.load();
     if (s.head === null) throw nothingTo("redo", 0, n);
-    if (!Number.isInteger(n) || n < 1) throw new MontashError("E_USAGE", `redo count must be a positive integer (got ${n})`);
+    if (!Number.isInteger(n) || n < 1)
+      throw new MontashError("E_USAGE", `redo count must be a positive integer (got ${n})`);
     const warnings: Warning[] = [];
     let cur = s.head;
     for (let i = 0; i < n; i++) {
@@ -339,10 +349,14 @@ export class History {
       if (choice.chosen === null) throw nothingTo("redo", i, n);
       if (choice.candidates.length > 1) {
         warnings.push(
-          warning("W_MULTIPLE_CHILDREN", `${cur} has ${choice.candidates.length} children; following the most recently used branch (${choice.chosen})`, {
-            hint: `To follow another branch use \`montash checkout <op>\` with one of: ${choice.candidates.join(", ")}.`,
-            detail: { op: cur, chosen: choice.chosen, candidates: choice.candidates },
-          }),
+          warning(
+            "W_MULTIPLE_CHILDREN",
+            `${cur} has ${choice.candidates.length} children; following the most recently used branch (${choice.chosen})`,
+            {
+              hint: `To follow another branch use \`montash checkout <op>\` with one of: ${choice.candidates.join(", ")}.`,
+              detail: { op: cur, chosen: choice.chosen, candidates: choice.candidates },
+            },
+          ),
         );
       }
       cur = choice.chosen;
@@ -351,7 +365,14 @@ export class History {
     return { ...result, warnings: [...warnings, ...result.warnings] };
   }
 
-  private async moveTo(s: Snapshot, targetId: string, kind: MoveKind, actor: Actor, actorDetail: string | undefined, ref: string): Promise<MoveResult> {
+  private async moveTo(
+    s: Snapshot,
+    targetId: string,
+    kind: MoveKind,
+    actor: Actor,
+    actorDetail: string | undefined,
+    ref: string,
+  ): Promise<MoveResult> {
     const target = s.index.byId.get(targetId);
     if (!target) {
       throw new MontashError("E_HISTORY_REF_NOT_FOUND", `unknown op ${targetId}`, { detail: { ref, op: targetId } });
@@ -363,10 +384,14 @@ export class History {
       const leaving = pendingOps(s, s.head).filter((p) => !targetChain.has(p.id));
       if (leaving.length > 0) {
         warnings.push(
-          warning("W_LEAVING_PENDING", `leaving ${leaving.length} uncommitted op${leaving.length === 1 ? "" : "s"} (${leaving.map((p) => p.id).join(", ")}) behind at ${s.head}`, {
-            hint: `The ops are kept in the history. Return with \`montash checkout ${s.head}\`, or commit them first with \`montash commit -m <msg>\`.`,
-            detail: { from: s.head, pending: leaving.map((p) => p.id) },
-          }),
+          warning(
+            "W_LEAVING_PENDING",
+            `leaving ${leaving.length} uncommitted op${leaving.length === 1 ? "" : "s"} (${leaving.map((p) => p.id).join(", ")}) behind at ${s.head}`,
+            {
+              hint: `The ops are kept in the history. Return with \`montash checkout ${s.head}\`, or commit them first with \`montash commit -m <msg>\`.`,
+              detail: { from: s.head, pending: leaving.map((p) => p.id) },
+            },
+          ),
         );
       }
     }
@@ -410,13 +435,17 @@ export class History {
     }
     if (opts.grep !== undefined) {
       const needle = opts.grep.toLowerCase();
-      commits = commits.filter((c) => c.message.toLowerCase().includes(needle) || (c.body ?? "").toLowerCase().includes(needle));
+      commits = commits.filter(
+        (c) => c.message.toLowerCase().includes(needle) || (c.body ?? "").toLowerCase().includes(needle),
+      );
     }
     if (opts.author !== undefined) commits = commits.filter((c) => c.author === opts.author);
     commits.reverse();
     if (opts.limit !== undefined) commits = commits.slice(0, Math.max(0, opts.limit));
     const entries: LogEntry[] = commits.map((commit) =>
-      opts.ops ? { commit, ops: commit.ops.map((id) => s.index.byId.get(id)).filter((o): o is Op => o !== undefined) } : { commit },
+      opts.ops
+        ? { commit, ops: commit.ops.map((id) => s.index.byId.get(id)).filter((o): o is Op => o !== undefined) }
+        : { commit },
     );
     return { entries, pending: uncommitted };
   }
@@ -508,7 +537,10 @@ export class History {
     if (resolved.commit !== undefined && resolved.back === 0) {
       const commit = s.commits.find((c) => c.id === resolved.commit) as Commit;
       const range = commitRange(s, commit);
-      const [before, after] = await Promise.all([this.store.getObject(range.before), this.store.getObject(range.after)]);
+      const [before, after] = await Promise.all([
+        this.store.getObject(range.before),
+        this.store.getObject(range.after),
+      ]);
       forward = diffJson(before, after);
     } else {
       forward = (s.index.byId.get(resolved.op) as Op).changes;
@@ -553,14 +585,17 @@ export class History {
     // 2. DAG の連続性・ID の重複
     const seen = new Set<string>();
     s.ops.forEach((op, i) => {
-      if (op.id !== `o_${String(i + 1).padStart(4, "0")}`) problems.push(`op #${i + 1} has id ${op.id} (expected o_${String(i + 1).padStart(4, "0")})`);
+      if (op.id !== `o_${String(i + 1).padStart(4, "0")}`)
+        problems.push(`op #${i + 1} has id ${op.id} (expected o_${String(i + 1).padStart(4, "0")})`);
       if (seen.has(op.id)) problems.push(`duplicate op id ${op.id}`);
       seen.add(op.id);
       if (op.parent !== null) {
         const parent = s.index.byId.get(op.parent);
         if (!parent) problems.push(`${op.id}.parent ${op.parent} does not exist`);
-        else if (parent.after !== op.before) problems.push(`${op.id}.before (${op.before}) != ${parent.id}.after (${parent.after})`);
-        if (parent && (s.index.order.get(parent.id) ?? 0) >= i) problems.push(`${op.id}.parent ${op.parent} appears later in ops.jsonl`);
+        else if (parent.after !== op.before)
+          problems.push(`${op.id}.before (${op.before}) != ${parent.id}.after (${parent.after})`);
+        if (parent && (s.index.order.get(parent.id) ?? 0) >= i)
+          problems.push(`${op.id}.parent ${op.parent} appears later in ops.jsonl`);
       }
     });
 
@@ -601,7 +636,8 @@ export class History {
           if (op.parent !== prevOp) problems.push(`${c.id}: ${id}.parent (${op.parent}) != previous op ${prevOp}`);
         }
       }
-      if (c.ops.length > 0 && c.head !== c.ops[c.ops.length - 1]) problems.push(`${c.id}.head (${c.head}) != last op ${c.ops[c.ops.length - 1]}`);
+      if (c.ops.length > 0 && c.head !== c.ops[c.ops.length - 1])
+        problems.push(`${c.id}.head (${c.head}) != last op ${c.ops[c.ops.length - 1]}`);
       if (c.ops.length === 0 && parentCommit) {
         // 空コミットは親コミットの head か、その子孫にいる
         if (c.head !== parentCommit.head && !descendants(s.index, parentCommit.head).has(c.head)) {
@@ -663,19 +699,27 @@ function selectSuffix(pending: Op[], ids: string[]): Op[] {
   const pendingIds = pending.map((o) => o.id);
   const unknown = ids.filter((id) => !pendingIds.includes(id));
   if (unknown.length > 0) {
-    throw new MontashError("E_USAGE", `op${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not pending`, {
-      hint: pendingIds.length > 0 ? `Pending ops: ${pendingIds.join(", ")}.` : "There are no pending ops.",
-      detail: { unknown, pending: pendingIds },
-    });
+    throw new MontashError(
+      "E_USAGE",
+      `op${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not pending`,
+      {
+        hint: pendingIds.length > 0 ? `Pending ops: ${pendingIds.join(", ")}.` : "There are no pending ops.",
+        detail: { unknown, pending: pendingIds },
+      },
+    );
   }
   const sorted = [...new Set(ids)].sort((a, b) => pendingIds.indexOf(a) - pendingIds.indexOf(b));
   const start = pendingIds.indexOf(sorted[0] as string);
   const expected = pendingIds.slice(start);
   if (sorted.length !== expected.length || sorted.some((id, i) => id !== expected[i])) {
-    throw new MontashError("E_USAGE", `--ops must select a contiguous range ending at HEAD (${pendingIds[pendingIds.length - 1]})`, {
-      hint: `For example --ops ${expected[0]}..${expected[expected.length - 1]}, or --last ${expected.length}.`,
-      detail: { selected: sorted, pending: pendingIds },
-    });
+    throw new MontashError(
+      "E_USAGE",
+      `--ops must select a contiguous range ending at HEAD (${pendingIds[pendingIds.length - 1]})`,
+      {
+        hint: `For example --ops ${expected[0]}..${expected[expected.length - 1]}, or --last ${expected.length}.`,
+        detail: { selected: sorted, pending: pendingIds },
+      },
+    );
   }
   return pending.slice(start);
 }
@@ -723,17 +767,30 @@ export function autoMessage(ops: Op[]): string {
 }
 
 function nothingToCommit(allowEmpty: boolean): MontashError {
-  return new MontashError("E_NOTHING_TO_COMMIT", allowEmpty ? "history is empty; nothing to commit" : "no pending ops to commit", {
-    hint: allowEmpty ? "Record at least one op first." : "Use --allow-empty to create a milestone commit without ops.",
-  });
+  return new MontashError(
+    "E_NOTHING_TO_COMMIT",
+    allowEmpty ? "history is empty; nothing to commit" : "no pending ops to commit",
+    {
+      hint: allowEmpty
+        ? "Record at least one op first."
+        : "Use --allow-empty to create a milestone commit without ops.",
+    },
+  );
 }
 
 function nothingTo(kind: "undo" | "redo", available: number, requested: number): MontashError {
   const code = kind === "undo" ? "E_NOTHING_TO_UNDO" : "E_NOTHING_TO_REDO";
-  const message = available === 0 ? `nothing to ${kind}` : `cannot ${kind} ${requested} step${requested === 1 ? "" : "s"}: only ${available} available`;
+  const message =
+    available === 0
+      ? `nothing to ${kind}`
+      : `cannot ${kind} ${requested} step${requested === 1 ? "" : "s"}: only ${available} available`;
   return new MontashError(code, message, {
-    hint: available > 0 ? `Use \`montash ${kind} ${available}\`.` : kind === "undo" ? "HEAD is at the root of the history." : "HEAD is at the tip of its branch. See `montash log --all` for other branches.",
+    hint:
+      available > 0
+        ? `Use \`montash ${kind} ${available}\`.`
+        : kind === "undo"
+          ? "HEAD is at the root of the history."
+          : "HEAD is at the tip of its branch. See `montash log --all` for other branches.",
     detail: { available, requested },
   });
 }
-

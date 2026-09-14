@@ -1,10 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { ancestors, buildIndex, childrenOf, isAncestor, isValidTagName, pathToRoot, preferredChild, resolveRef, suggest, tipOf } from "../../../../src/core/history/dag.ts";
 import { MontashError } from "../../../../src/cli/errors.ts";
+import {
+  ancestors,
+  buildIndex,
+  childrenOf,
+  isAncestor,
+  isValidTagName,
+  pathToRoot,
+  preferredChild,
+  resolveRef,
+  suggest,
+  tipOf,
+} from "../../../../src/core/history/dag.ts";
 import type { Commit, Move, Op } from "../../../../src/core/history/types.ts";
 
 function op(id: string, parent: string | null): Op {
-  return { id, parent, at: "t", actor: "ai", command: [], summary: id, before: `sha1:${parent ?? "root"}`, after: `sha1:${id}`, changes: [], affects: { clips: [], range_f: null }, commit: null };
+  return {
+    id,
+    parent,
+    at: "t",
+    actor: "ai",
+    command: [],
+    summary: id,
+    before: `sha1:${parent ?? "root"}`,
+    after: `sha1:${id}`,
+    changes: [],
+    affects: { clips: [], range_f: null },
+    commit: null,
+  };
 }
 function move(to: string, last_op: string): Move {
   return { at: "t", kind: "checkout", actor: "human", from: null, to, last_op };
@@ -12,11 +35,38 @@ function move(to: string, last_op: string): Move {
 
 //  o1 - o2 - o3 - o4
 //        \- o5 - o6
-const ops = [op("o_0001", null), op("o_0002", "o_0001"), op("o_0003", "o_0002"), op("o_0004", "o_0003"), op("o_0005", "o_0002"), op("o_0006", "o_0005")];
+const ops = [
+  op("o_0001", null),
+  op("o_0002", "o_0001"),
+  op("o_0003", "o_0002"),
+  op("o_0004", "o_0003"),
+  op("o_0005", "o_0002"),
+  op("o_0006", "o_0005"),
+];
 const index = buildIndex(ops);
 const commits: Commit[] = [
-  { id: "k_0001", parent: null, at: "t", author: "ai", message: "first", ops: ["o_0001", "o_0002"], head: "o_0002", tags: [], stats: { ops: 2, clips_added: 0, clips_removed: 0, clips_modified: 0 } },
-  { id: "k_0002", parent: "k_0001", at: "t", author: "ai", message: "second", ops: ["o_0003", "o_0004"], head: "o_0004", tags: [], stats: { ops: 2, clips_added: 0, clips_removed: 0, clips_modified: 0 } },
+  {
+    id: "k_0001",
+    parent: null,
+    at: "t",
+    author: "ai",
+    message: "first",
+    ops: ["o_0001", "o_0002"],
+    head: "o_0002",
+    tags: [],
+    stats: { ops: 2, clips_added: 0, clips_removed: 0, clips_modified: 0 },
+  },
+  {
+    id: "k_0002",
+    parent: "k_0001",
+    at: "t",
+    author: "ai",
+    message: "second",
+    ops: ["o_0003", "o_0004"],
+    head: "o_0004",
+    tags: [],
+    stats: { ops: 2, clips_added: 0, clips_removed: 0, clips_modified: 0 },
+  },
 ];
 const tags = { "before-bgm": { target: "o_0003", at: "t" }, release: { target: "k_0001", at: "t" } };
 const ctx = { ops, commits, tags, head: "o_0004" };
@@ -80,7 +130,7 @@ describe("resolveRef", () => {
     expect(err.hint).toContain("before-bgm");
     const err2 = catchErr(() => resolveRef("o_0099", ctx));
     expect(err2.code).toBe("E_HISTORY_REF_NOT_FOUND");
-    expect((err2.detail?.candidates as string[]).length).toBeGreaterThan(0);
+    expect(((err2.detail?.candidates as string[] | undefined) ?? []).length).toBeGreaterThan(0);
     const err3 = catchErr(() => resolveRef("k_0009", ctx));
     expect(err3.detail?.candidates).toContain("k_0001");
   });

@@ -152,7 +152,9 @@ export function applyChanges(value: unknown, changes: Change[]): unknown {
 }
 
 function patchError(change: Change, why: string): MontashError {
-  return new MontashError("E_PATCH_FAILED", `cannot ${change.op} ${change.path}: ${why}`, { detail: { change: change as unknown as Record<string, unknown> } });
+  return new MontashError("E_PATCH_FAILED", `cannot ${change.op} ${change.path}: ${why}`, {
+    detail: { change: change as unknown as Record<string, unknown> },
+  });
 }
 
 /**
@@ -212,6 +214,8 @@ export function summarizeChanges(changes: Change[], max = 5): string {
         return `- ${c.path} (was ${short(c.from)})`;
       case "replace":
         return `~ ${c.path}: ${short(c.from)} -> ${short(c.value)}`;
+      default:
+        return `? ${(c as Change).path}`;
     }
   });
   const rest = changes.length - parts.length;

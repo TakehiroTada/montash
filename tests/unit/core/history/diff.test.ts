@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { applyChanges, diffJson, extractAffects, findConflicts, invertChanges, summarizeChanges } from "../../../../src/core/history/diff.ts";
 import { MontashError } from "../../../../src/cli/errors.ts";
+import {
+  applyChanges,
+  diffJson,
+  extractAffects,
+  findConflicts,
+  invertChanges,
+  summarizeChanges,
+} from "../../../../src/core/history/diff.ts";
 import type { Change } from "../../../../src/core/history/types.ts";
 
 describe("diffJson", () => {
@@ -40,7 +47,10 @@ describe("diffJson", () => {
 describe("applyChanges / invertChanges", () => {
   const cases: [unknown, unknown][] = [
     [{ a: 1 }, { a: 2 }],
-    [{ a: [1, 2, 3], b: { c: "x" } }, { a: [1, 9], b: { c: "x", d: [true] }, e: null }],
+    [
+      { a: [1, 2, 3], b: { c: "x" } },
+      { a: [1, 9], b: { c: "x", d: [true] }, e: null },
+    ],
     [{ tracks: [{ clips: [{ id: "c1" }, { id: "c2" }] }] }, { tracks: [{ clips: [{ id: "c2" }] }, { clips: [] }] }],
     [[], [1, 2, 3]],
     [{ x: { y: { z: 1 } } }, { x: 5 }],
@@ -88,13 +98,25 @@ describe("summarizeChanges", () => {
     expect(s).toContain("+ /a = 1");
     expect(s).toContain("- /b");
     expect(s).toContain("~ /c: 1 -> 2");
-    const many = summarizeChanges(Array.from({ length: 8 }, (_, i) => ({ op: "add" as const, path: `/k${i}`, value: i })));
+    const many = summarizeChanges(
+      Array.from({ length: 8 }, (_, i) => ({ op: "add" as const, path: `/k${i}`, value: i })),
+    );
     expect(many).toContain("(+3 more)");
   });
 });
 
 describe("extractAffects", () => {
-  const before = { tracks: [{ id: "V1", clips: [{ id: "c1", start_f: 0, duration_f: 100 }, { id: "c2", start_f: 100, duration_f: 50 }] }] };
+  const before = {
+    tracks: [
+      {
+        id: "V1",
+        clips: [
+          { id: "c1", start_f: 0, duration_f: 100 },
+          { id: "c2", start_f: 100, duration_f: 50 },
+        ],
+      },
+    ],
+  };
   test("after の該当クリップの id と範囲を拾う", () => {
     const after = structuredClone(before);
     after.tracks[0]!.clips[1]!.start_f = 120;
@@ -109,7 +131,13 @@ describe("extractAffects", () => {
     expect(a.range_f).toEqual([100, 150]);
   });
   test("クリップ以外の変更は clips: [] / range_f: null", () => {
-    expect(extractAffects([{ op: "replace", path: "/settings/fps", value: 1 }], {}, {})).toEqual({ clips: [], range_f: null });
-    expect(extractAffects([{ op: "replace", path: "/tracks/0/clips/5/x", value: 1 }], before, before)).toEqual({ clips: [], range_f: null });
+    expect(extractAffects([{ op: "replace", path: "/settings/fps", value: 1 }], {}, {})).toEqual({
+      clips: [],
+      range_f: null,
+    });
+    expect(extractAffects([{ op: "replace", path: "/tracks/0/clips/5/x", value: 1 }], before, before)).toEqual({
+      clips: [],
+      range_f: null,
+    });
   });
 });

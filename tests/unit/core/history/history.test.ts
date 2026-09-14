@@ -3,7 +3,7 @@ import { appendFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MontashError } from "../../../../src/cli/errors.ts";
 import { applyChanges, autoMessage, canonicalHash, History } from "../../../../src/core/history/index.ts";
-import { init, newClip, openHistory, sampleProject, step, tempDir, type Project } from "./helpers.ts";
+import { init, newClip, openHistory, type Project, sampleProject, step, tempDir } from "./helpers.ts";
 
 let dir: string;
 let cleanup: () => Promise<void>;
@@ -28,7 +28,14 @@ async function expectError(p: Promise<unknown>, code: string): Promise<MontashEr
 
 describe("recordOp", () => {
   test("空の履歴では HEAD が null。op を記録すると HEAD が進み parent が繋がる", async () => {
-    expect(await h.status()).toEqual({ head: null, headOp: null, commit: null, pending: [], detached: false, tip: null });
+    expect(await h.status()).toEqual({
+      head: null,
+      headOp: null,
+      commit: null,
+      pending: [],
+      detached: false,
+      tip: null,
+    });
     const { project: p0, op: o1 } = await init(h);
     expect(o1).toMatchObject({ id: "o_0001", parent: null, actor: "system", commit: null });
     expect(o1.before).toBe(o1.after);
@@ -72,7 +79,16 @@ describe("recordOp", () => {
 
   test("durationMs / actorDetail / affects の明示指定を保持する", async () => {
     const p0 = sampleProject();
-    const { op } = await h.recordOp({ before: p0, after: p0, command: ["init"], actor: "ai", actorDetail: "sess-1", summary: "init", durationMs: 5, affects: { clips: ["c9"], range_f: [1, 2] } });
+    const { op } = await h.recordOp({
+      before: p0,
+      after: p0,
+      command: ["init"],
+      actor: "ai",
+      actorDetail: "sess-1",
+      summary: "init",
+      durationMs: 5,
+      affects: { clips: ["c9"], range_f: [1, 2] },
+    });
     expect(op).toMatchObject({ actor_detail: "sess-1", duration_ms: 5, affects: { clips: ["c9"], range_f: [1, 2] } });
     const [raw] = await h.store.readOps();
     expect(raw).toEqual(op);
@@ -182,7 +198,10 @@ describe("undo / redo / checkout", () => {
     expect((await h.checkout("tip", "human")).warnings.map((w) => w.code)).toEqual([]);
     expect((await h.status()).head).toBe("o_0004");
     // pending 系列内の移動（親へ）も pending は失われないが警告は出す
-    expect((await h.checkout("HEAD~1", "human")).warnings.map((w) => w.code)).toEqual(["W_LEAVING_PENDING", "W_DETACHED_HEAD"]);
+    expect((await h.checkout("HEAD~1", "human")).warnings.map((w) => w.code)).toEqual([
+      "W_LEAVING_PENDING",
+      "W_DETACHED_HEAD",
+    ]);
     expect((await h.checkout("v1", "human")).target.id).toBe("o_0002");
     expect((await h.checkout("o_0004", "web", "browser")).head.detached).toBe(false);
     await expectError(h.checkout("nope", "human"), "E_HISTORY_REF_NOT_FOUND");
@@ -196,7 +215,17 @@ describe("commit", () => {
     const { after: p2 } = await step(h, p1, (p) => (p.tracks[0]!.clips[0]!.duration_f = 200), "trim c1");
     await step(h, p2, (p) => p.tracks[0]!.clips.splice(1, 1), "delete");
     const k = await h.commit({ message: "edit", body: "why", author: "ai", authorDetail: "sess" });
-    expect(k).toMatchObject({ id: "k_0001", parent: null, ops: ["o_0001", "o_0002", "o_0003", "o_0004"], head: "o_0004", message: "edit", body: "why", author: "ai", author_detail: "sess", tags: [] });
+    expect(k).toMatchObject({
+      id: "k_0001",
+      parent: null,
+      ops: ["o_0001", "o_0002", "o_0003", "o_0004"],
+      head: "o_0004",
+      message: "edit",
+      body: "why",
+      author: "ai",
+      author_detail: "sess",
+      tags: [],
+    });
     expect(k.stats).toEqual({ ops: 4, clips_added: 1, clips_removed: 1, clips_modified: 1 });
     const st = await h.status();
     expect(st.pending).toEqual([]);
@@ -410,7 +439,11 @@ describe("verify", () => {
 
     // 5) commit の連続性
     const cpath = h.store.path("commits.jsonl");
-    const commit = JSON.parse((await readFile(cpath, "utf8")).trim()) as { ops: string[]; head: string; parent: string | null };
+    const commit = JSON.parse((await readFile(cpath, "utf8")).trim()) as {
+      ops: string[];
+      head: string;
+      parent: string | null;
+    };
     commit.ops = ["o_0001", "o_0003"];
     await writeFile(cpath, `${JSON.stringify(commit)}\n`);
     v = await h.verify();

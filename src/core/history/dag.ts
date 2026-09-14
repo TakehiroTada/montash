@@ -168,7 +168,9 @@ export const RESERVED_REFS = new Set(["HEAD", "tip"]);
 
 /** タグ名として使えるか（予約語・ID 形式・`~` を含まない） */
 export function isValidTagName(name: string): boolean {
-  return name.length > 0 && !RESERVED_REFS.has(name) && !OP_ID.test(name) && !COMMIT_ID.test(name) && !/[~\s/]/.test(name);
+  return (
+    name.length > 0 && !RESERVED_REFS.has(name) && !OP_ID.test(name) && !COMMIT_ID.test(name) && !/[~\s/]/.test(name)
+  );
 }
 
 /**
@@ -190,10 +192,14 @@ export function resolveRef(ref: string, ctx: RefContext): ResolvedRef {
     for (let i = 0; i < n; i++) {
       const op = index.byId.get(cur);
       if (!op || op.parent === null) {
-        throw new MontashError("E_HISTORY_REF_NOT_FOUND", `${trimmed} goes past the root of the history (${base || "HEAD"} has only ${i} ancestor${i === 1 ? "" : "s"})`, {
-          hint: `Use ${base || "HEAD"}~${i} or an explicit op id (see \`montash log --ops\`).`,
-          detail: { ref: trimmed, available: i },
-        });
+        throw new MontashError(
+          "E_HISTORY_REF_NOT_FOUND",
+          `${trimmed} goes past the root of the history (${base || "HEAD"} has only ${i} ancestor${i === 1 ? "" : "s"})`,
+          {
+            hint: `Use ${base || "HEAD"}~${i} or an explicit op id (see \`montash log --ops\`).`,
+            detail: { ref: trimmed, available: i },
+          },
+        );
       }
       cur = op.parent;
     }
@@ -219,7 +225,8 @@ export function resolveRef(ref: string, ctx: RefContext): ResolvedRef {
   if (COMMIT_ID.test(trimmed)) {
     const commit = ctx.commits.find((c) => c.id === trimmed);
     if (!commit) throw notFound(trimmed, ctx);
-    if (!index.byId.has(commit.head)) throw notFound(trimmed, ctx, `commit ${trimmed} points to unknown op ${commit.head}`);
+    if (!index.byId.has(commit.head))
+      throw notFound(trimmed, ctx, `commit ${trimmed} points to unknown op ${commit.head}`);
     return { op: commit.head, via: "commit", commit: commit.id, back: 0 };
   }
 
@@ -240,7 +247,10 @@ function notFound(ref: string, ctx: RefContext, message?: string): MontashError 
     ...RESERVED_REFS,
   ]);
   return new MontashError("E_HISTORY_REF_NOT_FOUND", message ?? `unknown history ref '${ref}'`, {
-    hint: candidates.length > 0 ? `Did you mean: ${candidates.join(", ")}? Refs: o_xxxx, k_xxxx, <tag>, HEAD, tip, <ref>~n.` : "Refs: o_xxxx, k_xxxx, <tag>, HEAD, tip, <ref>~n. See `montash log --ops` / `montash tag list`.",
+    hint:
+      candidates.length > 0
+        ? `Did you mean: ${candidates.join(", ")}? Refs: o_xxxx, k_xxxx, <tag>, HEAD, tip, <ref>~n.`
+        : "Refs: o_xxxx, k_xxxx, <tag>, HEAD, tip, <ref>~n. See `montash log --ops` / `montash tag list`.",
     detail: { ref, candidates },
   });
 }

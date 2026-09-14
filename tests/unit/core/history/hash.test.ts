@@ -3,7 +3,9 @@ import { canonicalHash, canonicalJson } from "../../../../src/core/history/hash.
 
 describe("canonicalJson", () => {
   test("キー順に依存しない", () => {
-    expect(canonicalJson({ b: 1, a: { d: [1, { z: 1, y: 2 }], c: null } })).toBe(canonicalJson({ a: { c: null, d: [1, { y: 2, z: 1 }] }, b: 1 }));
+    expect(canonicalJson({ b: 1, a: { d: [1, { z: 1, y: 2 }], c: null } })).toBe(
+      canonicalJson({ a: { c: null, d: [1, { y: 2, z: 1 }] }, b: 1 }),
+    );
     expect(canonicalJson({ b: 1, a: 2 })).toBe('{"a":2,"b":1}');
   });
   test("配列の順序は保つ・undefined は省く", () => {

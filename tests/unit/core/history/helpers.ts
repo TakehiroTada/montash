@@ -5,7 +5,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { History, type Actor, type Op } from "../../../../src/core/history/index.ts";
+import { type Actor, History, type Op } from "../../../../src/core/history/index.ts";
 
 export interface Clip {
   id: string;
@@ -42,7 +42,10 @@ export async function tempDir(): Promise<{ dir: string; cleanup: () => Promise<v
 /** 単調増加する擬似時刻（同一 ms 衝突を避け、並び順を決定的にする） */
 export function fakeClock(): () => string {
   let t = Date.parse("2026-09-14T00:00:00.000Z");
-  return () => new Date((t += 1000)).toISOString();
+  return () => {
+    t += 1000;
+    return new Date(t).toISOString();
+  };
 }
 
 export async function openHistory(dir: string): Promise<History> {
@@ -65,7 +68,13 @@ export async function step(
 
 /** 初期化 op（parent null。before = after = 初期状態） */
 export async function init(h: History, project: Project = sampleProject()): Promise<{ project: Project; op: Op }> {
-  const { op } = await h.recordOp({ before: project, after: project, command: ["init"], actor: "system", summary: "init" });
+  const { op } = await h.recordOp({
+    before: project,
+    after: project,
+    command: ["init"],
+    actor: "system",
+    summary: "init",
+  });
   return { project, op };
 }
 
