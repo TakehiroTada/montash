@@ -22,7 +22,6 @@ import {
   buildRenderPlan,
   HWACCEL_CHOICES,
   type HwaccelChoice,
-  PRESET_NAMES,
   type PresetSpec,
   parseReframe,
   type RenderOptions,

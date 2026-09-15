@@ -29,7 +29,6 @@ import {
 } from "./types.ts";
 
 export const MANIFEST_FILE = "montash-plugin.json";
-const DEFAULT_ENTRY = "index.js";
 const ENTRY_CANDIDATES = ["index.js", "index.ts", "index.mjs"];
 
 /** ユーザー共通のプラグイン置き場（ffmpeg と同じ `~/.local/share/montash` の下） */

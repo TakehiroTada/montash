@@ -5,7 +5,7 @@
  * AI が自律的に導入してはいけない（docs/10）。`--yes` 無しでは capabilities を提示して確認する。
  */
 import { cp, mkdir, rm } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { loadedPlugins, MANIFEST_FILE, pluginSearchPaths, userPluginDir } from "../../plugins/loader.ts";
 import { parseManifest } from "../../plugins/manifest.ts";
 import type { PluginManifest } from "../../plugins/types.ts";
