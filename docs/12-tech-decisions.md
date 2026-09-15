@@ -29,6 +29,7 @@
 | HTML import 開発サーバ | `import index from "./web/index.html"; Bun.serve({ routes: { "/": index }, development: true })` で React/TSX がその場でバンドルされ配信された |
 | `bun build ./web/index.html --outdir dist --minify` | `index.html` + ハッシュ付き JS（React 込み 0.43MB）を生成 |
 
+- **Node を混ぜない運用**: `node_modules/.bin/*` の shim は `#!/usr/bin/env node` なので、`bun run lint`（biome）や `bunx tsc` はそのままだと **Node で実行される**（2026-09-15 に実機確認）。npm スクリプトは `bunx --bun <cmd>` に固定し、CI には「node を潰した PATH で typecheck と lint が通る」ことを確かめるステップを置いて回帰を防ぐ。`bun test` と `bun <script>.ts` は元から Bun ランタイム。
 - **代替案**: Node.js 20 LTS（当初案）。安定性・エコシステムは最大だが、TS 実行に tsx/ts-node が要り、Web サーバに fastify、テストに vitest、バンドラに Vite、単一バイナリに SEA と依存が増える。Deno も候補だが npm 互換の成熟度とツール（yargs/chokidar/React）の実績で Bun を優先。
 - **リスク・影響**:
   - Bun の Node 互換は完全ではない。**ファイル監視（ADR-05）のように「Bun 標準 API が期待どおり動かない」ケースがある** ため、Node API に依存する箇所は spike で確認してから採用する。
