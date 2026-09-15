@@ -115,8 +115,19 @@ assert_exit 0 "ids rebuild exits 0"
 assert_json "$out" '.result.counters.c' '1' "no clips → counter c == 1"
 assert_json "$out" '.op' 'null' "ids rebuild records no op"
 assert_json "$(cat "$proj/.montash/ids.json")" '.counters.c' '1' "ids.json rewritten"
-out=$(montash -C "$proj" history prune --json)
-assert_exit 1 "history prune is not implemented"
-assert_json "$out" '.error.code' 'E_NOT_IMPLEMENTED' "history prune → E_NOT_IMPLEMENTED"
+out=$(montash -C "$proj" history prune --dry-run --json)
+assert_exit 0 "history prune --dry-run exits 0"
+assert_json "$out" '.result.dry_run' 'true' "prune は --dry-run で対象を列挙するだけ"
+assert_json "$out" '.result.ops' '[]' "HEAD 系列とタグの op は消さない"
+out=$(montash -C "$proj" history export -o "$proj/history.jsonl" --json)
+assert_exit 0 "history export exits 0"
+assert_json "$out" '.result.counts.ops' '3' "3 op を書き出す"
+assert_file_exists "$proj/history.jsonl" "JSONL が書かれる"
+rm -rf "$proj/.montash/history"
+out=$(montash -C "$proj" history import "$proj/history.jsonl" --json)
+assert_exit 0 "history import exits 0"
+assert_json "$out" '.result.added.ops' '3' "3 op を取り込む"
+out=$(montash -C "$proj" history verify --json)
+assert_json "$out" '.result.ok' 'true' "import した履歴も verify を通る"
 
 finish

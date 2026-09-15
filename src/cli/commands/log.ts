@@ -60,6 +60,8 @@ export const log = defineCommand<Args>({
       })),
       // pending は新しい順（コミット一覧と揃える）
       pending: [...res.pending].reverse().map(opBrief),
+      // `reset --hard` で既定表示から外れている op（--all のときだけ入る。docs/11 §4.3）
+      reset: res.reset,
       all: Boolean(args.all),
       limit,
     };

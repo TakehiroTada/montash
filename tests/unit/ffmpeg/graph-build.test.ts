@@ -197,13 +197,25 @@ test("serializeGraph emits one -filter_complex argument and pins the frame count
   expect(serializeGraph(videoOnly, { path: "/o.mp4", format: "mp4", video: { codec: "libx264" } })).toContain("-an");
 });
 
+// テロップの焼き込み（#21）とダッキング / loudnorm（#22）は結線済みなので、ここでは扱わない。
+// まだ残っている未対応は「ループ」「クリップエフェクト」「3D LUT」「3ch 以上の音声」だけ。
 test("unsupported constructs still fail with E_NOT_IMPLEMENTED", () => {
   const looped = base();
   looped.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { loop: true }));
   expect(() => graphOf(looped)).toThrow(/looped clips/);
+
+  const effects = base();
+  effects.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { effects: [{ type: "blur", params: { sigma: 4 } }] }));
+  expect(() => graphOf(effects)).toThrow(/clip effects/);
+
   const lut = base();
   const c = clip("c1", 0, 0, 30);
   c.video = { ...c.video, lut: "/tmp/x.cube" } as typeof c.video;
   lut.tracks[0]!.clips.push(c);
   expect(() => graphOf(lut)).toThrow(/LUT/);
+
+  const surround = base();
+  surround.settings.channels = 6;
+  surround.tracks[0]!.clips.push(clip("c1", 0, 0, 30));
+  expect(() => graphOf(surround)).toThrow(/two audio channels/);
 });

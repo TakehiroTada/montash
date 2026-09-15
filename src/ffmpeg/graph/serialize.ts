@@ -52,6 +52,7 @@ export function serializeGraph(graph: FilterGraph, out: OutputSpec): string[] {
   // 映像と音声の両方を持つ出力だけ、尺を秒でも固定する（音声側の 1 サンプルの余りを落とす）
   if (out.video && out.audio) args.push("-t", framesToSecString(graph.totalFrames, graph.fps));
   if (out.faststart) args.push("-movflags", "+faststart");
+  if (out.extraArgs) args.push(...out.extraArgs);
   args.push("-f", out.format, out.path);
   return args;
 }
