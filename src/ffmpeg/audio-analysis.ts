@@ -167,6 +167,39 @@ export async function analyzeGraph(
 }
 
 /**
+ * 音声ファイル 1 つをそのまま解析する（グラフを組まない）。
+ *
+ * `suggest highlights` は書き起こし用に 16kHz モノラル WAV をすでに書き出しているので、
+ * その 1 本を測るだけでよく、タイムラインのグラフを組み直す必要が無い。
+ */
+export async function analyzeAudioFile(
+  bins: Binaries,
+  path: string,
+  duration: number,
+  opts: AnalyzeOptions = {},
+): Promise<AudioAnalysis> {
+  const noise = opts.noiseDb ?? DEFAULT_NOISE_DB;
+  const minSilence = opts.minSilence ?? DEFAULT_MIN_SILENCE;
+  const args = [
+    "-i",
+    path,
+    "-vn",
+    "-af",
+    `ebur128=peak=true,volumedetect,silencedetect=noise=${noise}dB:d=${minSilence}`,
+    "-f",
+    "null",
+    "-",
+  ];
+  const lines: string[] = [];
+  await runFfmpeg(bins, args, {
+    onStderrLine: (l) => lines.push(l),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    timeoutMs: opts.timeoutMs ?? 300_000,
+  });
+  return parseAnalysisOutput(lines, duration);
+}
+
+/**
  * プロジェクトの一部（1 トラック、1 クリップ、素材 1 つ）だけを鳴らした音声グラフを作る。
  * 対象以外の音声トラック・クリップを muted にした複製を作るので、実際のレンダーと同じ経路を通る。
  */

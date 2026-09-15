@@ -865,6 +865,50 @@ c2 — media clip on track V1 (video)
 
 解釈できない要素（未導入プラグインの `opaque` クリップ、未登録の効果・ジェネレータ）は「読み書きはできるがレンダーできない」ことを `notes` に書く（F-EXT-4）。存在しない ID は形から種別を当てて `E_CLIP_NOT_FOUND` / `E_TRANSITION_NOT_FOUND` / `E_TRACK_NOT_FOUND` / `E_DUCKING_NOT_FOUND` / `E_ASSET_NOT_FOUND` を返し、`hint` に候補を出す。
 
+### `montash suggest highlights [--asset <id>] [--max <t>] [--count N] [--min-length <t>] [--max-length <t>] [--pause <s>] [--threshold 0..1] [--pad <s>] [--keywords N] [--no-transcribe] [--lang ja] [--vocabulary <語,語>] [--engine <name>] [--engine-path <p>] [--model <p>] [--threads N] [--timeout <s>] [--noise-db <db>] [--min-silence <s>] [--json]` — W-23
+
+長い録画から「どこを使うか」を決める材料を出す。**候補を提示するだけで、タイムラインには一切触れない**（読み取り系。op を作らない）。出力を見て人（または人の指示を受けた AI）が `clip add` を打つ、という流れを前提にする（docs/13 D-23。実地で AI が独断で区間を選び、重要な話題を落としてやり直しになったのが起票の理由）。
+
+**検出に使うシグナル**（すべて機械的に出せるもの。LLM は使わない）:
+
+| シグナル | 出どころ | 使い方 |
+|----------|----------|--------|
+| 間（ま） | `silencedetect`（`audio analyze` と同じ 1 パス）と書き起こしトークンの隙間 | 長い間ほど「切ってよい所」 |
+| 語彙の移り変わり | 書き起こしの前後 45 秒の窓で使う語のコサイン類似度 | 類似度が落ちる所が話題の変わり目 |
+| 切り出しの語 | 「では」「続いて」「次に」「ということで」など | 話の頭に来る表現があれば境界を強める |
+| 発話密度 | 無音でない割合・1 秒あたりの文字数 | 密度が低い区間は切り抜きに向かない |
+
+話者の識別（diarization）は**使っていない**。whisper.cpp は話者を返さないので、話者交代は「長い間 + 語彙の入れ替わり」として間接的にしか見えない。
+
+**要約に LLM を使わない。** `lead` は書き起こしの**先頭の文をそのまま切り出したもの**、`keywords` はその区間に偏って出る語（tf-idf。日本語は字種の連なりを 1 語として拾う。形態素解析器は入れない）。どちらも「人が判断するための材料」であって判断そのものではないので、`evidence` に**何を根拠にしたか**（前後の間の長さ・語彙の移り変わり・切り出しの語・発話密度）を必ず載せる。
+
+- `--max <t>` は**選ぶ合計の長さの枠**（`5:00` のような時間表記。§1.3）。`--count N` は本数の枠。
+  **枠に入らなかった候補もリストから消さない**（`selected: false` になるだけ）。枠は提案であって決定ではない。
+- `--min-length` / `--max-length` は 1 候補の長さの下限・上限（既定 30 秒 / 180 秒）。上限を超える塊は中で一番強い切れ目で割る。
+- `--no-transcribe` は書き起こしエンジンを呼ばず、無音区間だけで区切る（whisper もモデルも要らないが `lead` / `keywords` は空になる）。
+- 書き起こしまわりのオプション（`--lang` `--vocabulary` `--engine` `--engine-path` `--model` `--threads` `--timeout`）は `subtitle generate`（§12）と同じ。エンジンとモデルは**人の手で**導入する（montash は取得しない）。
+- 候補ごとに `command`（`montash clip add --asset <id> --in <tc> --out <tc>`）を添えるが、**montash は実行しない**。`--asset` を省いた（タイムラインのミックスを見た）ときは `null`。
+
+```
+$ montash suggest highlights --asset rec --max 5:00
+20 candidate(s) from 21:06 (signals: transcript + silence)
+* # 1  02:57-03:32    35s  score 0.89  speech 75%
+        keywords: PML / コンフレンス / スペース / プロジェクトマニュメント / 何人
+        lead: はいありがとうございますじゃあえっとやすもと君はいおはようございますえーとPMLの方から…
+        why: pause 2.84s before, 0.91s after; lexical shift 1; 6.43 chars/s
+        montash clip add --asset rec --in 00:02:57.067 --out 00:03:32.233
+...
+selected 8 candidate(s), 296s total — montash does not place them; you decide.
+```
+
+`--json` では候補ごとに `start_s` / `end_s` / `start_f` / `end_f` / `start_tc` / `end_tc`（§1.3a）・`score`・`speech_ratio`・`lead`・`keywords`・`evidence`・`command`・`selected` を返し、`result.applied` は常に `false`（このコマンドは何も適用しない）。`result.options` に実際に使ったしきい値が載るので、後から「何で出した候補か」が分かる。
+
+話し声が見つからなければ `E_NO_HIGHLIGHTS`（終了コード 3）。勝手に区間をでっち上げない。
+
+**このスコアは「面白さ」ではない。** 機械的に測れるのは「その区間がまとまって喋っているか」までで、話の重要度は測れない。実素材（21 分の社内ミーティング。人が選んだ 10 区間が手元にある）で確かめたところ、**候補のリストは人が選んだ 10 区間のすべてを 93〜100% 覆う**一方、人と同じ合計時間の枠で上位から採ると人の選択と 76% しか一致しなかった（同じ長さを無作為に採ったときの一致は 69%）。**取りこぼさないためのリストとしては使えるが、順位をそのまま信じて選ぶものではない。**
+
+---
+
 ---
 
 ## 17. コマンドと手順・要件の対応（抜粋）
@@ -886,3 +930,4 @@ c2 — media clip on track V1 (video)
 | `batch` | W-20 | F-AI-5 |
 | `explain` | W-21 | F-AI-4, F-EXT-4 |
 | `subtitle generate` | W-22 | F-FX-1, N-2 |
+| `suggest highlights` | W-23 | F-AI-4, F-AU-4, N-2 |
