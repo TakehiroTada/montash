@@ -16,12 +16,15 @@ describe("GET /api/*", () => {
     removeTemp(dir);
   });
 
-  test("/api/project returns project.json verbatim with an ETag", async () => {
+  test("/api/project returns project.json plus computed, with an ETag", async () => {
     const res = await fetch(`${srv.url}/api/project`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
     expect(res.headers.get("etag")).toMatch(/^sha1:[0-9a-f]{40}$/);
-    expect(await res.json()).toEqual(SAMPLE_PROJECT);
+    const { computed, ...project } = (await res.json()) as Record<string, unknown>;
+    // project.json は透過する。派生値だけを computed として足す（docs/13 D-1）
+    expect(project).toEqual(SAMPLE_PROJECT);
+    expect(computed).toMatchObject({ duration_f: 90, span_f: 90 });
   });
 
   test("/api/status has the docs/06 §3.2 shape (no history or preview yet)", async () => {

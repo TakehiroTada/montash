@@ -3,7 +3,7 @@
  * History = op の一覧。Assets タブは components/Assets/AssetsPanel.tsx が担当する。
  */
 import { checkout } from "../cli-client.ts";
-import { type ClipLike, clipEnd, useStore } from "../store.ts";
+import { type ClipLike, clipSpan, computedIndex, useStore } from "../store.ts";
 
 function findClip(id: string | null): { clip: ClipLike; trackId: string } | null {
   if (!id) return null;
@@ -27,6 +27,8 @@ export function Inspector() {
     );
   }
   const { clip, trackId } = hit;
+  // 区間はサーバの computed が正（字幕はクリップ単体からは長さが分からない。docs/13 D-1）
+  const span = clipSpan(clip, computedIndex(project));
   const examples = [
     `clip split ${clip.id} --at f:${useStore.getState().playhead_f}`,
     `clip trim ${clip.id} --in +f:15 --ripple`,
@@ -42,9 +44,11 @@ export function Inspector() {
         <dt>asset</dt>
         <dd>{clip.asset ?? "—"}</dd>
         <dt>start_f</dt>
-        <dd>{clip.start_f}</dd>
+        <dd>{span.start_f}</dd>
         <dt>end_f</dt>
-        <dd>{clipEnd(clip)}</dd>
+        <dd>{span.end_f}</dd>
+        <dt>duration_f</dt>
+        <dd>{span.duration_f}</dd>
         <dt>in_f / out_f</dt>
         <dd>
           {clip.in_f ?? "—"} / {clip.out_f ?? "—"}

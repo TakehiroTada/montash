@@ -7,39 +7,41 @@
  */
 import { create } from "zustand";
 import type { AssetSort, AssetTypeFilter, AssetView } from "./lib/assets.ts";
+import type { Fps, ProjectLike } from "./lib/timeline.ts";
 
-export interface Fps {
-  num: number;
-  den: number;
-}
-
-export interface ClipLike {
-  id: string;
-  asset?: string;
-  label?: string;
-  start_f: number;
-  in_f?: number;
-  out_f?: number;
-  speed?: number;
-  [k: string]: unknown;
-}
-
-export interface TrackLike {
-  id: string;
-  kind?: "video" | "audio" | "text" | string;
-  name?: string;
-  muted?: boolean;
-  clips?: ClipLike[];
-  [k: string]: unknown;
-}
-
-export interface ProjectLike {
-  name?: string;
-  settings?: { fps?: Fps; resolution?: { width: number; height: number }; [k: string]: unknown };
-  assets?: Record<string, unknown>;
-  tracks?: TrackLike[];
-  [k: string]: unknown;
-}
+// 派生値（純関数）は lib/timeline.ts が本体。既存の import 元を変えずに済むよう再エクスポートする
+export type {
+  ClipKind,
+  ClipLike,
+  ClipSpan,
+  Computed,
+  ComputedClip,
+  Fps,
+  ProjectLike,
+  TrackLike,
+} from "./lib/timeline.ts";
+export {
+  clipCount,
+  clipDuration,
+  clipEnd,
+  clipKindOf,
+  clipLabel,
+  clipSpan,
+  computedIndex,
+  DEFAULT_FPS,
+  displayTracks,
+  EMPTY_SCALE_SECONDS,
+  formatTc,
+  fpsOf,
+  framesToSeconds,
+  LABEL_MAX_CHARS,
+  secondsToFrames,
+  TAIL_MARGIN_SECONDS,
+  timelineDuration,
+  timelineScaleFrames,
+  timelineSpan,
+  truncateLabel,
+} from "./lib/timeline.ts";
 
 export interface StatusLike {
   watching: boolean;
@@ -213,60 +215,3 @@ export const useStore = create<State>()((set) => ({
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
-
-// ---- 派生値（純関数。canvas と React の両方から使う） ----
-
-export const DEFAULT_FPS: Fps = { num: 30, den: 1 };
-
-export function fpsOf(p: ProjectLike | null): Fps {
-  const f = p?.settings?.fps;
-  return f && f.num > 0 && f.den > 0 ? f : DEFAULT_FPS;
-}
-
-/** クリップの長さ（フレーム）。docs/05 §6.1: duration_f = max(1, round((out_f - in_f) / speed)) */
-export function clipDuration(c: ClipLike): number {
-  const inF = c.in_f ?? 0;
-  const outF = c.out_f ?? inF;
-  const speed = c.speed && c.speed > 0 ? c.speed : 1;
-  return Math.max(1, Math.round((outF - inF) / speed));
-}
-
-export function clipEnd(c: ClipLike): number {
-  return c.start_f + clipDuration(c);
-}
-
-/** タイムライン尺（全クリップの最大 end_f）。project.json 側の計算値が来るまでの暫定 */
-export function timelineDuration(p: ProjectLike | null): number {
-  let max = 0;
-  for (const t of p?.tracks ?? []) for (const c of t.clips ?? []) max = Math.max(max, clipEnd(c));
-  return max;
-}
-
-export function clipCount(p: ProjectLike | null): number {
-  let n = 0;
-  for (const t of p?.tracks ?? []) n += t.clips?.length ?? 0;
-  return n;
-}
-
-/** 表示順: T*（上）→ V*（配列逆順）→ A*（下）。docs/06 §2.4 */
-export function displayTracks(p: ProjectLike | null): TrackLike[] {
-  const tracks = p?.tracks ?? [];
-  const text = tracks.filter((t) => t.kind === "text");
-  const video = tracks.filter((t) => t.kind === "video").reverse();
-  const audio = tracks.filter((t) => t.kind === "audio");
-  const other = tracks.filter((t) => t.kind !== "text" && t.kind !== "video" && t.kind !== "audio");
-  return [...text, ...video, ...audio, ...other];
-}
-
-export function framesToSeconds(f: number, fps: Fps): number {
-  return (f * fps.den) / fps.num;
-}
-
-/** HH:MM:SS.mmm */
-export function formatTc(f: number, fps: Fps): string {
-  const s = framesToSeconds(f, fps);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${sec.toFixed(3).padStart(6, "0")}`;
-}

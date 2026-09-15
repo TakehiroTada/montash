@@ -9,12 +9,16 @@ import { useEffect, useRef } from "react";
 import { getWaveform, onDerivedLoaded, waveformColumns } from "../../lib/derived.ts";
 import {
   type ClipLike,
-  clipEnd,
+  type ComputedClip,
+  clipLabel,
+  clipSpan,
+  computedIndex,
   displayTracks,
   formatTc,
   fpsOf,
   type TrackLike,
-  timelineDuration,
+  timelineScaleFrames,
+  timelineSpan,
   useStore,
 } from "../../store.ts";
 
@@ -25,6 +29,8 @@ const PAD_R = 24;
 interface Layout {
   pxPerFrame: number;
   tracks: TrackLike[];
+  /** サーバが返した正規化済みの区間（クリップ ID 引き。docs/13 D-1） */
+  spans: Map<string, ComputedClip>;
   width: number;
   height: number;
 }
@@ -32,11 +38,15 @@ interface Layout {
 function layout(width: number, height: number): Layout {
   const st = useStore.getState();
   const p = st.project;
-  const fps = fpsOf(p);
-  const dur = timelineDuration(p);
-  // 最低 10 秒分は表示し、それ以上は尺に合わせる（ズーム／スクロールは後続）
-  const frames = Math.max(dur, Math.round((10 * fps.num) / fps.den), st.playhead_f + 1);
-  return { pxPerFrame: (width - PAD_R) / frames, tracks: displayTracks(p), width, height };
+  // 既定のスケールはプロジェクト尺 + 1 秒。クリップが無いときだけ 10 秒（docs/13 D-2）
+  const frames = timelineScaleFrames(timelineSpan(p), fpsOf(p), { playhead_f: st.playhead_f });
+  return {
+    pxPerFrame: (width - PAD_R) / frames,
+    tracks: displayTracks(p),
+    spans: computedIndex(p),
+    width,
+    height,
+  };
 }
 
 /** クリップ矩形のヒットテスト（canvas 側で自前実装。docs/06 §4） */
@@ -45,7 +55,10 @@ export function hitTest(x: number, y: number, lay: Layout): { clip: ClipLike; tr
   const track = lay.tracks[row];
   if (!track) return null;
   const f = x / lay.pxPerFrame;
-  for (const c of track.clips ?? []) if (f >= c.start_f && f < clipEnd(c)) return { clip: c, track };
+  for (const c of track.clips ?? []) {
+    const span = clipSpan(c, lay.spans);
+    if (f >= span.start_f && f < span.end_f) return { clip: c, track };
+  }
   return null;
 }
 
@@ -88,7 +101,7 @@ function drawWaveform(
 function draw(ctx: CanvasRenderingContext2D, lay: Layout): void {
   const st = useStore.getState();
   const fps = fpsOf(st.project);
-  const { width, height, pxPerFrame, tracks } = lay;
+  const { width, height, pxPerFrame, tracks, spans } = lay;
   ctx.clearRect(0, 0, width, height);
 
   // ルーラー: 1 秒刻み（詰まるときは 5 / 10 秒）
@@ -120,8 +133,10 @@ function draw(ctx: CanvasRenderingContext2D, lay: Layout): void {
     ctx.lineTo(width, y + ROW_H - 0.5);
     ctx.stroke();
     for (const c of t.clips ?? []) {
-      const x0 = c.start_f * pxPerFrame;
-      const w = Math.max(2, (clipEnd(c) - c.start_f) * pxPerFrame);
+      // テキスト・字幕も映像と同じく区間の矩形で描く（長さの持ち方の差は clipSpan が吸収する）
+      const span = clipSpan(c, spans);
+      const x0 = span.start_f * pxPerFrame;
+      const w = Math.max(2, span.duration_f * pxPerFrame);
       const base = COLORS[t.kind ?? ""] ?? "#555b66";
       ctx.globalAlpha = t.muted ? 0.4 : 1;
       ctx.fillStyle = base;
@@ -143,7 +158,7 @@ function draw(ctx: CanvasRenderingContext2D, lay: Layout): void {
         ctx.beginPath();
         ctx.rect(x0, y, w - 4, ROW_H);
         ctx.clip();
-        ctx.fillText(`${c.id}${c.label ? ` ${c.label}` : c.asset ? ` ${c.asset}` : ""}`, x0 + 4, y + ROW_H / 2);
+        ctx.fillText(clipLabel(c, spans), x0 + 4, y + ROW_H / 2);
         ctx.restore();
       }
       ctx.globalAlpha = 1;
