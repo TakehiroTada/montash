@@ -78,8 +78,35 @@
 - **History 連動**: History ノードを hover すると、その op/commit の `affects.range` を時間軸上に帯でハイライトし、`affects.clips` のクリップを強調する。checkout 直後は変化したクリップを 2 秒間フラッシュ表示。
 
 ### 2.5 Inspector タブ
-- 選択要素の全プロパティ（整形表示 + 生 JSON トグル）。
-- **由来**: その要素を最後に変更した op / commit / actor（`GET /api/blame/:id`）。クリックで History の該当ノードへ。
+
+**spec 駆動**。クリップ種別ごとの固定フォームは持たず、`GET /api/specs`（§3.2）が返す定義から画面を組む。
+プラグインが供給する効果・パラメータ・コマンドが、**Web のコードを 1 行も変えずに** UI に出ることが要件
+（14 章「Web への UI プラグインコード投入はしない。フォームは spec からの自動生成のみ」）。
+
+- **プロパティ**: 選択要素が実際に持つキーをそのまま並べる（+ サーバが計算した `start_f` / `end_f` /
+  `duration_f`）。固定リストにしないので、プラグイン由来のフィールドも欠けない。生 JSON も併記。
+- **効果（`clip.effects[]`）**: 掛かっている順に一覧し、各効果のパラメータを `/api/specs` の
+  `effects[].params` に従った入力で出す。
+
+  | パラメータ定義 | 入力 |
+  |----------------|------|
+  | `type: "number"` で `min` と `max` あり | スライダー + 数値入力（`min`/`max`/`default` がすべて整数なら 1 刻み） |
+  | `type: "number"`（範囲なし） | 数値入力 |
+  | `type: "string"` で `choices` あり | セレクト |
+  | `type: "string"` | テキスト入力 |
+  | `type: "boolean"` | チェックボックス |
+
+  値を変えると **`POST /api/cli` で `effect set <clip> <index> --<param> <value>` を発行する**（§1.1。
+  `project.json` は直接書かない）。効果は名前ではなく **`effects[]` の index** で指す（同じ効果を 2 回
+  掛けても取り違えないため）。書かれていないパラメータは既定値を「(既定)」として表示し、定義に無い
+  パラメータは読み取り専用で並べる（プラグインを外しても値を失わないことを見せる）。
+- **プラグイン不足バッジ**: 未知種別のクリップ（`kind: "opaque"`）と、`/api/specs` に定義が無い効果
+  （`effect list` の `missing: true` に相当）に赤いバッジを出し、「値は保持される・レンダーで
+  `E_PLUGIN_MISSING`・`montash plugin doctor` で確認」を添える。
+- **実行できないときは無効化して理由を出す**: `serve --read-only`、または `effect set` が
+  `GET /api/cli/allowlist` に無いとき（§3.3 の既定はこちら）は入力を `disabled` にし、理由と
+  手で打つコマンドを見せる。許可リストが開けば（`serve --allow`）同じフォームがそのまま編集可能になる。
+- **由来**: その要素を最後に変更した op / commit / actor（`GET /api/blame/:id`）。クリックで History の該当ノードへ — **未実装**。
 - **CLI examples**: 選択要素・再生ヘッドに応じたコマンド例（§3.6）。コピー用ボタン。
 
 ### 2.6 Assets タブ（素材管理）
@@ -190,7 +217,8 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 | `GET /api/assets/:id` | 詳細（probe 要約、usage、テキスト本文） |
 | `GET /api/assets/:id/thumbs.json` / `thumbs.jpg` / `waveform.json` / `proxy.mp4`（Range） / `file`（画像・テキスト原本、Range） | 派生物・原本 |
 | `GET /preview/timeline.mp4`（Range, `ETag`=project_hash） / `GET /preview/audio.m4a`（`--audio-only` 用） / `GET /preview/timeline.json` | 合成プレビュー。マニフェストに載っていないファイル名・シンボリックリンクは 404 |
-| `GET /api/cli-examples?select=<id>&t=<sec>` | コマンド例 — **未実装**（Inspector が `defineCommand` の例をクライアント側で組み立てる） |
+| `GET /api/specs` | `{ version, commands[], effects[] }`。`commands` は `montash schema --json` と同一、`effects` は `montash effect presets --json` と同一（パラメータの型・範囲・choices・既定値）。Inspector のフォームと CLI 例はこれだけで組む（§2.5, §3.6）。読み取り専用・`no-store`・`--read-only` でも返す |
+| ~~`GET /api/cli-examples?select=<id>&t=<sec>`~~ | **`GET /api/specs` に置き換えた**（§3.6）。コマンド例はサーバで文字列に組まず、定義を渡して UI 側で組ませる |
 | `GET /api/fonts` | `fonts list` 相当 — **未実装** |
 | `GET /api/cli/allowlist` | 現在 Web から実行可能なコマンド一覧（UI がボタンの有効／無効に使う） |
 
@@ -283,7 +311,22 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 - `project.json` 変更をデバウンス（既定 1500ms）後 `preview build`。ビルド中にさらに変更があればキャンセルして再開。
 - `cause: checkout` の場合は、その状態の映像セグメントがキャッシュにあれば concat + 音声 1 パス + mux のみ（通常 1〜3 秒。音声関連が不変なら < 1 秒）。
 
-### 3.6 CLI コマンド例の生成ルール（`/api/cli-examples`）
+### 3.6 CLI コマンド例の生成ルール（`/api/specs` から導出）
+
+**`/api/cli-examples` は作らない。** 選択状態（クリップ ID・再生ヘッド）は刻々と変わるのに定義は起動中
+不変なので、定義を `GET /api/specs` で 1 度渡し、例の組み立ては UI 側の純関数が行う（`web/src/lib/specs.ts`）。
+コマンドが増えても Web に表を足さなくて済む、という P3-2 の狙いも同じ。
+
+クリップ選択時の規則:
+
+- 対象は `/api/specs` の `commands` のうち、**`mutates: true` かつ第 1 位置引数が「clip ID(s)」** のもの
+  （`clip move` / `clip trim` / `clip split` / `clip delete` / `clip set` / `effect add` / `effect set` / `effect remove`）。
+- 各コマンドの `examples[].cmd` を雛形にし、第 1 位置引数を**選択中のクリップ ID** に差し替える。
+- `time: true` のオプションの**絶対**時刻は再生ヘッド `f:<n>` に差し替える（`+0.5` のような相対指定は意味が
+  変わるのでそのまま）。`--json` は落とす（人間がコピーして打つための例なので）。
+- 別のクリップ ID を値に取る例（`clip move c3 --before c2`）は埋めようがないので出さない。
+
+下表は上記の規則で得られる例と、選択がクリップ以外のときに出す例（**トランジション以下は未実装**）。
 
 | 選択 | 例 |
 |------|----|

@@ -799,3 +799,83 @@ input[type="search"]:focus {
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
+
+/* Inspector の spec 駆動フォーム（docs/06 §2.5、計画 P3-2） */
+.inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* クリップ ID をそのまま見せる（.side h3 の uppercase を打ち消す） */
+  text-transform: none;
+}
+.inspector-title .badge.err {
+  color: var(--err);
+  border-color: var(--err);
+}
+.effects {
+  margin-top: 12px;
+}
+.effect-list li.effect-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.effect-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.effect-head .badge.err {
+  color: var(--err);
+  border-color: var(--err);
+}
+.effect-param {
+  gap: 3px;
+}
+.effect-param > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.slider-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.field input.num,
+input[type="number"] {
+  font: inherit;
+  width: 76px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.effect-param select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.effect-param input:disabled,
+.effect-param select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.effect-add {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.effect-add summary {
+  cursor: pointer;
+  padding: 4px 0;
+}

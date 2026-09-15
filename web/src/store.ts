@@ -7,6 +7,7 @@
  */
 import { create } from "zustand";
 import type { AssetSort, AssetTypeFilter, AssetView } from "./lib/assets.ts";
+import type { Specs } from "./lib/specs.ts";
 import type { Fps, ProjectLike } from "./lib/timeline.ts";
 
 // 派生値（純関数）は lib/timeline.ts が本体。既存の import 元を変えずに済むよう再エクスポートする
@@ -134,6 +135,8 @@ export interface State {
   logs: LogLine[];
   toasts: Toast[];
   allowlist: string[];
+  /** `GET /api/specs`: コマンド定義 + エフェクトのパラメータ定義（docs/06 §3.2） */
+  specs: Specs | null;
   assets: AssetView[] | null;
   selectedAssetId: string | null;
   assetsUi: AssetsUi;
@@ -153,6 +156,7 @@ export interface State {
   setHover(id: string | null): void;
   setTab(t: SideTab): void;
   setAllowlist(a: string[]): void;
+  setSpecs(s: Specs | null): void;
   log(level: LogLine["level"], message: string, actor?: string): void;
   toast(level: Toast["level"], text: string): void;
   dismissToast(id: number): void;
@@ -174,6 +178,7 @@ export const useStore = create<State>()((set) => ({
   logs: [],
   toasts: [],
   allowlist: [],
+  specs: null,
   assets: null,
   selectedAssetId: null,
   assetsUi: DEFAULT_ASSETS_UI,
@@ -206,6 +211,7 @@ export const useStore = create<State>()((set) => ({
   setHover: (hoverClipId) => set({ hoverClipId }),
   setTab: (tab) => set({ tab }),
   setAllowlist: (allowlist) => set({ allowlist }),
+  setSpecs: (specs) => set({ specs }),
   log: (level, message, actor) =>
     set((s) => ({ logs: [...s.logs.slice(-499), { at: Date.now(), level, message, actor }] })),
   toast: (level, text) => {
