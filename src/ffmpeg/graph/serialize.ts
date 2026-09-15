@@ -15,9 +15,17 @@ export function serializeGraph(graph: FilterGraph, out: OutputSpec): string[] {
   const rate = `${graph.fps.num}/${graph.fps.den}`;
   const args: string[] = [];
   for (const input of graph.inputs) args.push(...input);
+  // ソフト字幕はフィルタを通さず素通しで多重化するので、入力の末尾に足す（docs/07 §7）
+  const subs = out.subtitles ?? [];
+  const subtitleInput = graph.inputs.length;
+  for (const sub of subs) {
+    if (sub.offsetS !== undefined) args.push("-itsoffset", sub.offsetS);
+    args.push("-i", sub.path);
+  }
   args.push("-filter_complex_threads", "1", "-filter_complex", graph.filterComplex);
   if (out.video) args.push("-map", graph.mapVideo);
   if (out.audio) args.push("-map", graph.mapAudio);
+  for (let i = 0; i < subs.length; i++) args.push("-map", `${subtitleInput + i}:s:0`);
   if (!out.video) args.push("-vn");
   if (!out.audio) args.push("-an");
 
@@ -34,6 +42,11 @@ export function serializeGraph(graph: FilterGraph, out: OutputSpec): string[] {
     args.push("-c:a", out.audio.codec);
     if (out.audio.bitrate) args.push("-b:a", out.audio.bitrate);
     args.push("-ar", String(out.audio.sampleRate), "-ac", String(out.audio.channels));
+  }
+  for (const [i, sub] of subs.entries()) {
+    args.push(`-c:s:${i}`, sub.codec);
+    if (sub.language !== undefined) args.push(`-metadata:s:s:${i}`, `language=${sub.language}`);
+    if (sub.default) args.push(`-disposition:s:${i}`, "default");
   }
   if (out.threads !== undefined) args.push("-threads", String(out.threads));
   // 映像と音声の両方を持つ出力だけ、尺を秒でも固定する（音声側の 1 サンプルの余りを落とす）

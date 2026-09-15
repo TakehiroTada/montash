@@ -1,0 +1,26 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`テキストトラックは overlay の後・出力 format の前に subtitles で 1 回焼かれる 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=150,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=150,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=150,settb=expr=1/30,setpts=N,subtitles=filename='<tmp>/<hash>.ass':fontsdir='<tmp>/fonts':original_size=640x360,format=yuv420p[V1]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=240000[a2]",
+  "[a2]volume=0dB,apad=whole_len=240000,atrim=end_sample=240000,asetpts=PTS-STARTPTS[a3]",
+]
+`;
+
+exports[`区間レンダーでは ASS の時刻がセグメント先頭基準にシフトする 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=90:end_frame=150,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=60,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=60,settb=expr=1/30,setpts=N,subtitles=filename='<tmp>/<hash>.ass':fontsdir='<tmp>/fonts':original_size=640x360,format=yuv420p[V1]",
+]
+`;
+
+exports[`libass 無しビルドは drawtext にフォールバックして W_TEXT_ENGINE_LIMITED を出す 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=150,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=150,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=150,settb=expr=1/30,setpts=N,drawtext=textfile='<tmp>/<hash>.txt':font='Noto Sans CJK JP':fontsize=24:fontcolor=0xFFEE00@1:box=1:boxcolor=0x000000@0.8:boxborderw=4:x=(w-tw)/2:y=h-th-9:alpha='if(lt(n\\,45)\\,1*(n-30)/15\\,if(gt(n\\,75)\\,1*(90-n)/15\\,1))':enable='between(n\\,30\\,89)',format=yuv420p[V1]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=240000[a2]",
+  "[a2]volume=0dB,apad=whole_len=240000,atrim=end_sample=240000,asetpts=PTS-STARTPTS[a3]",
+]
+`;

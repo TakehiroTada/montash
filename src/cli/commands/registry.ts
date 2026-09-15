@@ -34,6 +34,7 @@ import { schema } from "./schema.ts";
 import { serve } from "./serve.ts";
 import { show } from "./show.ts";
 import { status } from "./status.ts";
+import { subtitleAdd, subtitleList, subtitleRemove, subtitleSet } from "./subtitle.ts";
 import { tag, tagDelete, tagList } from "./tag.ts";
 import { textAdd, textList, textPresets, textRemove, textSet } from "./text.ts";
 import { timelineGaps, timelineShow } from "./timeline.ts";
@@ -97,7 +98,12 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(textRemove),
   spec(textList),
   spec(textPresets),
-  // オーバーレイ / 音声 / 字幕                                        → M3/M4
+  // 字幕（docs/04 §12）
+  spec(subtitleAdd),
+  spec(subtitleSet),
+  spec(subtitleRemove),
+  spec(subtitleList),
+  // オーバーレイ / 音声                                                → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
   spec(previewBuild),

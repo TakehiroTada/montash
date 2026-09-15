@@ -59,7 +59,7 @@ async function setup(name: string, fps: Fps, fixture: string, durationF: number)
 }
 
 async function render(project: Project, dir: string, output: string, crf = 35) {
-  const plan = buildRenderPlan(project, dir, output, {
+  const plan = await buildRenderPlan(project, dir, output, {
     preset: "web-preview",
     resolution: RESOLUTION,
     crf,

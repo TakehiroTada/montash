@@ -12,6 +12,7 @@ import { serializeGraph } from "./graph/serialize.ts";
 import type { OutputSpec } from "./graph/types.ts";
 import type { Binaries } from "./locate.ts";
 import { runFfprobeJson } from "./run.ts";
+import { prepareText, type TextEngine } from "./text-prepare.ts";
 
 export const RENDER_PRESETS = {
   "youtube-1080p": { resolution: { width: 1920, height: 1080 }, crf: 18, speed: "slow", abitrate: "192k" },
@@ -25,6 +26,10 @@ export interface RenderOptions {
   crf?: number;
   speed?: string;
   threads?: number;
+  /** テキストエンジンの検出に使う（libass の有無。docs/07 §6.1） */
+  bins?: Binaries;
+  /** 検出結果を上書きする（テスト用） */
+  textEngine?: TextEngine;
 }
 export interface RenderPlan {
   args: string[];
@@ -35,7 +40,12 @@ export interface RenderPlan {
   warnings: Array<{ code: string; message: string }>;
 }
 
-export function buildRenderPlan(project: Project, dir: string, output: string, opts: RenderOptions): RenderPlan {
+export async function buildRenderPlan(
+  project: Project,
+  dir: string,
+  output: string,
+  opts: RenderOptions,
+): Promise<RenderPlan> {
   const validation = validateProject(project, { dir, checkFiles: true });
   if (!validation.ok)
     throw new MontashError("E_VALIDATION_FAILED", "project validation failed before render", {
@@ -45,9 +55,15 @@ export function buildRenderPlan(project: Project, dir: string, output: string, o
   const preset = RENDER_PRESETS[opts.preset];
   const resolution = opts.resolution ?? preset.resolution;
   const fps = project.settings.fps;
+  // ASS の生成・書き出し（I/O）はグラフの外で行い、書き出し済みのパスだけを渡す（docs/07 §6）
+  const text = await prepareText(project, dir, {
+    ...(opts.bins !== undefined ? { bins: opts.bins } : {}),
+    ...(opts.textEngine !== undefined ? { engine: opts.textEngine } : {}),
+  });
   const graph = buildGraph(project, {
     resolution,
     source: (asset) => resolveAssetPath(dir, asset.path),
+    ...(text.burn !== undefined ? { text: text.burn } : {}),
   });
   const spec: OutputSpec = {
     path: output,
@@ -66,12 +82,14 @@ export function buildRenderPlan(project: Project, dir: string, output: string, o
       channels: project.settings.channels,
     },
     faststart: true,
+    ...(text.soft.length ? { subtitles: text.soft } : {}),
     ...(opts.threads !== undefined ? { threads: opts.threads } : {}),
   };
   const total = timelineDurationF(project);
   const warnings = [
     ...validation.warnings.map((w) => ({ code: w.code, message: w.message })),
     ...graph.warnings.map((w) => ({ code: w.code, message: w.message })),
+    ...text.warnings.map((w) => ({ code: w.code, message: w.message })),
   ];
   if (project.audio.normalize.enabled)
     warnings.push({

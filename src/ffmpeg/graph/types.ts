@@ -8,6 +8,7 @@
 import { MontashError, type Warning } from "../../cli/errors.ts";
 import type { Asset, Fps, Project, Resolution } from "../../core/schema.ts";
 import { framesToSamples, framesToSecString } from "../../core/time.ts";
+import type { TextBurn } from "./text.ts";
 
 /** 1 入力ぶんの ffmpeg 引数（`["-i", path]` / `["-loop","1","-framerate","30/1","-i",path]`） */
 export type GraphInput = string[];
@@ -42,6 +43,12 @@ export interface GraphOptions {
   video?: boolean;
   /** 音声を組み立てる（既定 true） */
   audio?: boolean;
+  /**
+   * テキスト・字幕の焼き込み（docs/07 §6）。ASS の生成・書き出しは `src/ffmpeg/text-prepare.ts` が
+   * 行い、ここには**書き出し済みのパス**だけが渡る（グラフを純関数に保つため）。
+   * `range` を指定する場合、渡す ASS は区間の先頭を 0 とした時刻にシフト済みであること。
+   */
+  text?: TextBurn;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +84,22 @@ export interface OutputSpec {
   threads?: number;
   /** `-movflags +faststart` */
   faststart?: boolean;
+  /** ソフト字幕の多重化（docs/07 §7 `mode: soft`）。入力はグラフの入力の後ろに足される */
+  subtitles?: SoftSubtitle[];
+}
+
+/** 多重化するだけの字幕ストリーム 1 本（`-i subs.srt -c:s mov_text -metadata:s:s:N language=ja`） */
+export interface SoftSubtitle {
+  /** 字幕ファイル（絶対パス） */
+  path: string;
+  /** 出力側のコーデック（MP4 は `mov_text`、MKV は `srt` / `ass`） */
+  codec: string;
+  /** `language` メタデータ（ISO 639） */
+  language?: string;
+  /** 秒単位のずらし（`-itsoffset`） */
+  offsetS?: string;
+  /** `-disposition:s:N default` を付ける */
+  default?: boolean;
 }
 
 // ---------------------------------------------------------------------------
