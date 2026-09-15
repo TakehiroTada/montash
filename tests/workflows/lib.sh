@@ -15,6 +15,7 @@ export MONTASH_REPO
 
 _PASS=0
 _FAIL=0
+_SKIP=0
 _FAILED_NAMES=""
 _TMP_DIRS=""
 # 直前の montash の終了コード。`out=$(montash ...)` のようにサブシェルで呼ばれても
@@ -37,6 +38,30 @@ last_exit() {
 pass() {
   _PASS=$((_PASS + 1))
   printf '  ok   %s\n' "$1"
+}
+
+# まだ実装されていない依存コマンドなどで検証を飛ばす（失敗にはしない）
+skip() {
+  _SKIP=$((_SKIP + 1))
+  printf '  skip %s\n' "$1"
+  if [ $# -gt 1 ]; then
+    shift
+    printf '       %s\n' "$@"
+  fi
+}
+
+# has_command <path...>  montash schema にそのコマンドが登録されているか。
+# 別エージェントが並行実装中のコマンドを skip するために使う（last_exit を汚さないよう直接 bun を呼ぶ）。
+_SCHEMA_CACHE=""
+has_command() {
+  local path="$*"
+  if [ -z "$_SCHEMA_CACHE" ]; then
+    _SCHEMA_CACHE=$(bun "$MONTASH_REPO/src/cli/index.ts" schema --json 2>/dev/null)
+  fi
+  case "$_SCHEMA_CACHE" in
+    *"\"path\":\"$path\""* | *"\"path\": \"$path\""*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 fail() {
@@ -131,7 +156,11 @@ finish() {
     for d in $_TMP_DIRS; do rm -rf "$d"; done
   fi
   rm -f "$_EXIT_FILE"
-  printf '\n%s: %d passed, %d failed\n' "$(basename "$0")" "$_PASS" "$_FAIL"
+  if [ "$_SKIP" -gt 0 ]; then
+    printf '\n%s: %d passed, %d failed, %d skipped\n' "$(basename "$0")" "$_PASS" "$_FAIL" "$_SKIP"
+  else
+    printf '\n%s: %d passed, %d failed\n' "$(basename "$0")" "$_PASS" "$_FAIL"
+  fi
   if [ "$_FAIL" -gt 0 ]; then
     printf 'failed:%s\n' "$_FAILED_NAMES" >&2
     exit 1

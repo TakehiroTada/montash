@@ -348,13 +348,20 @@ git ライクな DAG モデル。詳細は **11 章** を正とする。要点:
 ```json
 {
   "project_hash": "sha1:...",
+  "fingerprint": "sha1:...",
   "built_at": "...",
   "duration_f": 1335,
   "fps": { "num": 30000, "den": 1001 },
+  "resolution": { "width": 640, "height": 360 },
   "video_segments": [ { "from_f": 0, "to_f": 375, "hash": "sha1:...", "path": "segments/ab12.mp4", "clips": ["c1", "x1"] } ],
   "audio": { "hash": "sha1:...", "path": "audio.m4a" }
 }
 ```
+
+- `project_hash` は `project.json` の内容ハッシュ。`GET /preview/timeline.mp4` の `ETag` と Web の `?v=` に使う。
+- `fingerprint` は `project.json` + 参照している素材ファイルの指紋（サイズ・mtime）+ 出力解像度。現在値と一致すれば `ready`、違えば `stale`（素材を差し替えただけでも検出する）。
+- `video_segments[].hash` は**セグメント内をローカル座標に直した内容**のハッシュなので、リップル編集で位置だけが動いたセグメントは同じキャッシュを指す。`path` は `segments/<sha1>.mp4` 固定で、この形以外のマニフェストは無効として読み捨てる。
+- このファイルの書き込みが公開点。書かれるまで `timeline.mp4` は差し替わらない。
 
 ## 13. バージョニングとマイグレーション
 

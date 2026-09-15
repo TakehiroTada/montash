@@ -15,6 +15,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import pkg from "../../package.json";
 import { CliExecutor, type CliExecutorOptions, resolveCliCommand } from "./cli-exec.ts";
 import { readHistoryView } from "./history.ts";
+import { PreviewCoordinator, servePreview } from "./preview.ts";
 import { createWatcher, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
 
 export const SERVER_VERSION: string = pkg.version;
@@ -28,6 +29,7 @@ export interface StartServerOptions {
   dev: boolean;
   /** 監視モード。false で監視しない（`--no-watch`） */
   watch?: WatchMode | false;
+  autoPreview?: boolean;
   /** ログ出力先（既定: console.error）。テストでは差し替える */
   log?: (line: string) => void;
   /** テスト用に CliExecutor の設定を上書きする */
@@ -124,11 +126,18 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 
   const executor = new CliExecutor({ projectDir, ...opts.cliExec });
 
-  const status = () => ({
+  const preview = new PreviewCoordinator(
+    projectDir,
+    opts.autoPreview !== false,
+    (msg) => server.publish("events", JSON.stringify(msg)),
+    log,
+  );
+
+  const status = async () => ({
     watching: watcher !== null,
     watch_mode: watcher?.mode ?? null,
     head: readHistoryView(projectDir, readJsonFile(targets.project)).state,
-    preview: { state: "missing" as const },
+    preview: await preview.status(),
     server: {
       version: SERVER_VERSION,
       read_only: readOnly,
@@ -146,7 +155,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         return json(p, 200, { etag: hashProjectFile(targets.project) ?? "" });
       },
     },
-    "/api/status": { GET: () => json(status()) },
+    "/api/status": { GET: async () => json(await status()) },
     "/api/history": {
       GET: () => {
         return json(readHistoryView(projectDir).history);
@@ -181,6 +190,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
             message: `${Array.isArray(args) ? args.join(" ") : "?"} → ${res.body.ok ? "ok" : String((res.body.error as { code?: string } | undefined)?.code ?? "error")}`,
           }),
         );
+        if (res.body.ok) preview.changed();
         return json(res.body, res.status);
       },
     },
@@ -219,6 +229,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     routes,
     fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname.startsWith("/preview/")) return servePreview(projectDir, req);
       if (!opts.dev) {
         const dir = distDir ?? resolveDistDir();
         if (dir) {
@@ -250,6 +261,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       mode: opts.watch ?? "auto",
       onEvent(ev) {
         if (ev.target === "project") {
+          preview.changed();
           publish({
             type: "project.changed",
             hash: hashProjectFile(targets.project),
@@ -275,6 +287,8 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     });
   }
 
+  preview.start();
+
   const url = `http://${opts.host.includes(":") ? `[${opts.host}]` : opts.host}:${server.port}`;
   return {
     server,
@@ -283,6 +297,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     watcher,
     async stop() {
       await watcher?.close();
+      await preview.stop();
       await server.stop(true);
     },
   };
