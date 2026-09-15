@@ -67,10 +67,11 @@
 
 ### M5. v1.0 — 11〜12 週目
 
-- **Phase 0: カーネル整備**（プラグイン以前の宿題。D-13〜D-18。詳細は `docs/plans/2026-09-15-plugin-architecture.md`）
-  - D-13 マイグレーション機構（`schema_version` 2→3 の土台）／ D-14 クリップ種別の開放（`type` 必須 + 未知種別は保持）／ D-15 エフェクトレジストリと挿入スロット
+- **Phase 0: カーネル整備 ✅ 完了**（PR #35〜#39。詳細は `docs/plans/2026-09-15-plugin-architecture.md`）
+  - D-14 クリップ種別の開放（`type` 必須 + 未知種別は `OpaqueClip` として保持、判別を 1 実装に統合、`schema_version` 3）
+  - D-15 エフェクトレジストリと挿入スロット（組み込みの色補正を builtin エフェクトへ載せ替え）
   - D-16 プリセット統合（`createRegistry<T>()`）／ D-17 ID プレフィックス開放／ D-18 コマンド・機能宣言の合成
-  - **クリップ種別の開放は `schema_version` を上げる破壊的変更なので v1.0 より前に済ませる**
+  - D-13 マイグレーション機構は **deferred**。リリース前なので移行は提供せず、旧 `schema_version` は `E_SCHEMA_TOO_OLD` で拒否して作り直す
 - ドキュメント（本仕様と実装の差分ゼロ確認、`schema` から 04 章の表を自動生成）
 - パフォーマンス（N-3〜N-5）計測と改善
 - npm 公開（`bunx montash`）、`bun build --compile` による OS 別単一バイナリ（linux-x64 / linux-arm64 / darwin-arm64 / darwin-x64。WSL は linux バイナリ）のリリース、`install-deps.sh` からのバイナリ取得オプション
