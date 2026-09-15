@@ -1,9 +1,12 @@
 /**
  * 編集タイムラインの canvas 描画（docs/06 §4, docs/12 ADR-06）。
  * rAF ループで `useStore.getState()` を直接読み、React の再レンダーを経由しない。
- * この段階はルーラー・クリップ矩形（start_f / end_f）・再生ヘッド・選択枠・ヒットテストのみ。
+ * ルーラー・クリップ矩形（start_f / end_f）・音声クリップの波形・再生ヘッド・選択枠・ヒットテスト。
+ * 波形（docs/06 §2.4）は `GET /api/assets/:id/waveform.json` を lib/derived.ts のキャッシュ越しに読み、
+ * まだ無ければ従来どおり矩形だけを描く。
  */
 import { useEffect, useRef } from "react";
+import { getWaveform, onDerivedLoaded, waveformColumns } from "../../lib/derived.ts";
 import {
   type ClipLike,
   clipEnd,
@@ -47,6 +50,40 @@ export function hitTest(x: number, y: number, lay: Layout): { clip: ClipLike; tr
 }
 
 const COLORS: Record<string, string> = { video: "#3a5f9e", audio: "#2f7d5a", text: "#8a5fb8" };
+/** 波形の色（クリップ色の上に重ねる） */
+const WAVE_COLOR = "#a8f0c8";
+
+/**
+ * 音声クリップの矩形の中に波形を描く。データが無ければ何もしない（矩形だけが残る）。
+ * ピークは素材内フレーム `in_f..out_f` の範囲を矩形幅ぶんの列に畳んだもの。
+ */
+function drawWaveform(
+  ctx: CanvasRenderingContext2D,
+  clip: ClipLike,
+  fps: { num: number; den: number },
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  const assetId = typeof clip.asset === "string" ? clip.asset : null;
+  if (assetId === null || w < 2 || h < 4) return;
+  const waveform = getWaveform(assetId);
+  if (!waveform) return;
+  const columns = waveformColumns(waveform, fps, clip.in_f ?? 0, clip.out_f ?? 0, Math.max(1, Math.floor(w)));
+  if (columns.length === 0) return;
+  const mid = y + h / 2;
+  const half = h / 2 - 1;
+  const alpha = ctx.globalAlpha;
+  ctx.fillStyle = WAVE_COLOR;
+  // ミュートトラックの薄さ（呼び出し側の globalAlpha）を保ったまま、さらに少し透かす
+  ctx.globalAlpha = alpha * 0.75;
+  for (let i = 0; i < columns.length; i++) {
+    const amp = Math.max(0.5, (columns[i] ?? 0) * half);
+    ctx.fillRect(x + i, mid - amp, 1, amp * 2);
+  }
+  ctx.globalAlpha = alpha;
+}
 
 function draw(ctx: CanvasRenderingContext2D, lay: Layout): void {
   const st = useStore.getState();
@@ -89,6 +126,7 @@ function draw(ctx: CanvasRenderingContext2D, lay: Layout): void {
       ctx.globalAlpha = t.muted ? 0.4 : 1;
       ctx.fillStyle = base;
       ctx.fillRect(x0, y + 3, w - 1, ROW_H - 6);
+      if (t.kind === "audio") drawWaveform(ctx, c, fps, x0, y + 3, w - 1, ROW_H - 6);
       const selected = st.selection?.id === c.id;
       const hovered = st.hoverClipId === c.id;
       if (selected || hovered) {
@@ -146,6 +184,10 @@ export function TimelineCanvas() {
     const unsub = useStore.subscribe(() => {
       dirty = true;
     });
+    // 波形は zustand の外（lib/derived.ts）にあるので、届いたことを別途購読して描き直す
+    const unsubDerived = onDerivedLoaded(() => {
+      dirty = true;
+    });
     const ro = new ResizeObserver(() => {
       dirty = true;
     });
@@ -172,6 +214,7 @@ export function TimelineCanvas() {
     return () => {
       cancelAnimationFrame(raf);
       unsub();
+      unsubDerived();
       ro.disconnect();
     };
   }, []);

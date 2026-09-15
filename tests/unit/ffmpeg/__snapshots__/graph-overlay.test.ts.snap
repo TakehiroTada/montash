@@ -1,0 +1,48 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`one overlay scales, keeps alpha and is enabled by base frame numbers 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=120,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=120,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=end_frame=120,settb=expr=1/30,setpts=N,scale=iw*0.12:-2:flags=bicubic,setsar=1,format=yuva420p,colorchannelmixer=aa=0.9,trim=end_frame=120,settb=expr=1/30,setpts=N[v1]",
+  "[v0][v1]overlay=x=W-w-24:y=24:enable='between(n,0,119)':eof_action=pass:shortest=0:format=auto,settb=expr=1/30,setpts=N[v2]",
+  "[v2]fps=30/1,trim=end_frame=120,settb=expr=1/30,setpts=N,format=yuv420p[V3]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=192000[a4]",
+  "[a4]volume=0dB,apad=whole_len=192000,atrim=end_sample=192000,asetpts=PTS-STARTPTS[a5]",
+]
+`;
+
+exports[`two overlays on separate tracks stack in array order 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=120,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=120,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=end_frame=120,settb=expr=1/30,setpts=N,scale=iw*0.12:-2:flags=bicubic,setsar=1,format=yuva420p,trim=end_frame=120,settb=expr=1/30,setpts=N[v1]",
+  "[v0][v1]overlay=x=W-w-24:y=24:enable='between(n,0,119)':eof_action=pass:shortest=0:format=auto,settb=expr=1/30,setpts=N[v2]",
+  "[2:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=60:end_frame=90,settb=expr=1/30,setpts=N,scale=iw*0.3:-2:flags=bicubic,setsar=1,format=yuva420p,trim=end_frame=30,settb=expr=1/30,setpts=N[v3]",
+  "[v3]setpts=PTS+1.000000/TB[v4]",
+  "[v2][v4]overlay=x=W-w-16:y=H-h-16:enable='between(n,30,59)':eof_action=pass:shortest=0:format=auto,settb=expr=1/30,setpts=N[v5]",
+  "[v5]fps=30/1,trim=end_frame=120,settb=expr=1/30,setpts=N,format=yuv420p[V6]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=192000[a7]",
+  "[a7]volume=0dB,apad=whole_len=192000,atrim=end_sample=192000,asetpts=PTS-STARTPTS[a8]",
+]
+`;
+
+exports[`percent coordinates resolve against the output resolution 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=120,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=120,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=end_frame=60,settb=expr=1/30,setpts=N,scale=iw*0.5:-2:flags=bicubic,setsar=1,format=yuva420p,trim=end_frame=60,settb=expr=1/30,setpts=N[v1]",
+  "[v0][v1]overlay=x=320*10/100:y=180*75/100:enable='between(n,0,59)':eof_action=pass:shortest=0:format=auto,settb=expr=1/30,setpts=N[v2]",
+  "[v2]fps=30/1,trim=end_frame=120,settb=expr=1/30,setpts=N,format=yuv420p[V3]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=192000[a4]",
+  "[a4]volume=0dB,apad=whole_len=192000,atrim=end_sample=192000,asetpts=PTS-STARTPTS[a5]",
+]
+`;
+
+exports[`an alpha PNG overlay keeps yuva420p through keep_alpha 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=120,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=120,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=end_frame=60,settb=expr=1/30,setpts=N,setsar=1,format=yuva420p,trim=end_frame=60,settb=expr=1/30,setpts=N[v1]",
+  "[v0][v1]overlay=x=(W-w)/2:y=(H-h)/2:enable='between(n,0,59)':eof_action=pass:shortest=0:format=auto,settb=expr=1/30,setpts=N[v2]",
+  "[v2]fps=30/1,trim=end_frame=120,settb=expr=1/30,setpts=N,format=yuv420p[V3]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=192000[a4]",
+  "[a4]volume=0dB,apad=whole_len=192000,atrim=end_sample=192000,asetpts=PTS-STARTPTS[a5]",
+]
+`;

@@ -735,3 +735,67 @@ input[type="search"]:focus {
 .asset-row.missing .icon {
   color: var(--err);
 }
+
+/* --- シークバーと hover サムネイル（docs/06 §2.3） --- */
+.transport .scrub {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.transport .scrub .fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px 0 0 4px;
+  pointer-events: none;
+}
+.transport .scrub-preview {
+  position: absolute;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 5;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.transport .scrub-preview .tile {
+  background-repeat: no-repeat;
+  border-radius: 2px;
+}
+
+/* --- Assets タブ: サムネイルストリップと波形（docs/06 §2.6） --- */
+.asset-detail .thumb-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.asset-detail .thumb-strip .tile {
+  background-repeat: no-repeat;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+}
+.asset-detail .waveform {
+  display: block;
+  width: 100%;
+  height: 48px;
+  margin-top: 6px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  fill: none;
+  stroke: var(--audio);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}

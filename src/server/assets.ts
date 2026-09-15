@@ -5,6 +5,7 @@
  * - `GET /api/assets/:id`        詳細（probe 要約、usage、テキスト素材は本文）
  * - `GET /api/assets/:id/file`   原本の Range 配信（プロジェクト外でも `project.json` に登録済みなら可）
  * - `GET /api/assets/:id/proxy.mp4` `.montash/cache/<id>/proxy.mp4` の Range 配信
+ * - `GET /api/assets/:id/thumbs.json` / `thumbs.jpg` / `waveform.json` 派生物（無ければ 404）
  * - `POST /api/upload`           multipart 保存（`assets/incoming/<YYYYMMDD>/`）→ `import <path> --proxy`
  *
  * 状態変更は必ず CLI（`POST /api/cli`）を通す（docs/06 §1.1）。このモジュールは
@@ -17,7 +18,7 @@ import { assetUsage } from "../core/assets.ts";
 import { loadProject, projectPaths } from "../core/project.ts";
 import type { Asset, Project } from "../core/schema.ts";
 import { resolveAssetPath } from "../core/validate.ts";
-import { assetCacheDir, proxyEligible, proxyState } from "../ffmpeg/proxy.ts";
+import { assetCacheDir, derivedEligible, derivedStateOf, proxyEligible, proxyState } from "../ffmpeg/proxy.ts";
 import { serveFileRange } from "./range.ts";
 
 /** docs/13 A-5: `req.formData()` はメモリに載るので上限を 2GB に下げ、それ以上はパス指定 import を案内する */
@@ -53,6 +54,12 @@ export interface AssetView extends Record<string, unknown> {
   proxy: "ready" | "building" | "missing" | "stale" | null;
   /** プロキシが配信可能か（`/api/assets/:id/proxy.mp4`） */
   has_proxy: boolean;
+  /** サムネイル・波形の状態（対象外は null。docs/05 §12） */
+  thumbs: "ready" | "building" | "missing" | "stale" | null;
+  waveform: "ready" | "building" | "missing" | "stale" | null;
+  /** 派生物が配信可能か（`/api/assets/:id/thumbs.json` / `waveform.json`） */
+  has_thumbs: boolean;
+  has_waveform: boolean;
 }
 
 /** ID がパスやプロトタイプ汚染に使われないことを保証する（`assetCacheDir` と同じ規則） */
@@ -86,12 +93,33 @@ async function proxyStateOf(dir: string, asset: Asset, project: Project): Promis
   }
 }
 
+/** `thumbs` / `waveform` の状態。`building` の宣言は project.json 側が正（ファイルはまだ無い） */
+async function derivedStateFor(
+  dir: string,
+  asset: Asset,
+  project: Project,
+  kind: "thumbs" | "waveform",
+): Promise<AssetView["thumbs"]> {
+  if (!derivedEligible(asset, kind)) return null;
+  if (asset.derived?.[kind]?.state === "building") return "building";
+  try {
+    return await derivedStateOf(dir, asset, project, kind);
+  } catch {
+    return "missing";
+  }
+}
+
 /** 1 素材の一覧向けビュー */
 export async function assetView(dir: string, project: Project, asset: Asset): Promise<AssetView> {
   const abs = resolveServablePath(dir, asset.path) ?? resolveAssetPath(dir, asset.path);
   const proxy = await proxyStateOf(dir, asset, project);
+  const thumbs = await derivedStateFor(dir, asset, project, "thumbs");
+  const waveform = await derivedStateFor(dir, asset, project, "waveform");
   const derived: AssetView["derived"] = { ...(asset.derived ?? {}) };
   if (proxy !== null) derived.proxy = { ...(derived.proxy ?? {}), state: proxy };
+  if (thumbs !== null) derived.thumbs = { ...(derived.thumbs ?? {}), state: thumbs };
+  if (waveform !== null) derived.waveform = { ...(derived.waveform ?? {}), state: waveform };
+  const cache = assetCacheDir(dir, asset.id);
   return {
     ...asset,
     abs_path: abs,
@@ -106,7 +134,11 @@ export async function assetView(dir: string, project: Project, asset: Asset): Pr
     },
     derived,
     proxy,
-    has_proxy: proxy !== null && existsSync(join(assetCacheDir(dir, asset.id), "proxy.mp4")),
+    has_proxy: proxy !== null && existsSync(join(cache, "proxy.mp4")),
+    thumbs,
+    waveform,
+    has_thumbs: thumbs !== null && existsSync(join(cache, "thumbs.json")) && existsSync(join(cache, "thumbs.jpg")),
+    has_waveform: waveform !== null && existsSync(join(cache, "waveform.json")),
   };
 }
 
@@ -318,6 +350,37 @@ export async function handleAssetFile(deps: AssetsHttpDeps, id: string, req: Req
   return (
     res ??
     deps.jsonError(404, "E_ASSET_MISSING", `no file at ${path}`, `Run \`montash assets relink ${id} --path <p>\`.`)
+  );
+}
+
+/** `/api/assets/:id/<name>` で配信してよいキャッシュ内の派生物（docs/06 §3.2） */
+const DERIVED_FILES: Record<string, { contentType: string; command: string }> = {
+  "thumbs.json": { contentType: "application/json; charset=utf-8", command: "--thumbs" },
+  "thumbs.jpg": { contentType: "image/jpeg", command: "--thumbs" },
+  "waveform.json": { contentType: "application/json; charset=utf-8", command: "--waveform" },
+};
+
+/** `GET /api/assets/:id/thumbs.json` / `thumbs.jpg` / `waveform.json` — 派生物（無ければ 404） */
+export async function handleAssetDerived(
+  deps: AssetsHttpDeps,
+  id: string,
+  name: string,
+  req: Request,
+): Promise<Response> {
+  if (!isSafeAssetId(id)) return deps.jsonError(400, "E_USAGE", `unsafe asset id: ${id}`);
+  const spec = Object.hasOwn(DERIVED_FILES, name) ? DERIVED_FILES[name] : undefined;
+  if (!spec) return deps.jsonError(404, "E_NOT_FOUND", `unknown derived file "${name}"`);
+  const res = await serveFileRange(join(assetCacheDir(deps.projectDir, id), name), req, {
+    contentType: spec.contentType,
+  });
+  return (
+    res ??
+    deps.jsonError(
+      404,
+      "E_NOT_FOUND",
+      `no ${name} for asset "${id}"`,
+      `Run \`montash proxy build ${id} ${spec.command}\` (the web UI can issue it via POST /api/cli).`,
+    )
   );
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M1: 取り込み → プロキシ → 一覧・詳細（サムネイルと波形は M3）。
+# M1/M3: 取り込み → プロキシ・サムネイル・波形 → 一覧・詳細。
 source "$(dirname "$0")/lib.sh"
 root=$(tmp_project_dir)
 _TMP_DIRS="$root"
@@ -15,11 +15,20 @@ assert_json "$out" '.result.imported[0].id' 'a' "filename slug"
 assert_json "$out" '.result.imported[0].duration_f' '150' "project-frame duration"
 assert_json "$out" '.result.imported[1].type' 'audio' "audio detected"
 assert_json "$out" '.op' 'o_0002' "import is one history operation"
-out=$(montash -C "$proj" proxy build --all --height 64 --json)
-assert_exit 0 "proxy build exits 0"
+out=$(montash -C "$proj" proxy build --all --height 64 --thumbs --waveform --json)
+assert_exit 0 "proxy build --thumbs --waveform exits 0"
+assert_json "$out" '.result.thumbs[0].id' 'a' "thumbnail sprite built for the video"
+assert_json "$out" '.result.waveforms[0].id' 'a' "waveform built for the video"
+assert_file_exists "$proj/.montash/cache/a/thumbs.jpg" "sprite written"
+assert_file_exists "$proj/.montash/cache/a/thumbs.json" "thumbnail index written"
+assert_file_exists "$proj/.montash/cache/tone/waveform.json" "waveform written"
 out=$(montash -C "$proj" proxy status --json)
 assert_json "$out" '.result.proxies[0].state' 'ready' "video proxy ready"
+assert_json "$out" '.result.proxies[0].thumbs' 'ready' "video thumbs ready"
+assert_json "$out" '.result.proxies[0].waveform' 'ready' "video waveform ready"
 assert_json "$out" '.result.proxies[1].state' 'ready' "audio proxy ready"
+assert_json "$out" '.result.proxies[1].thumbs' 'null' "audio has no thumbnails"
+assert_json "$out" '.result.proxies[1].waveform' 'ready' "audio waveform ready"
 out=$(montash -C "$proj" assets list --json)
 assert_json "$out" '.result.assets[0].id' 'a' "assets listed"
 out=$(montash -C "$proj" assets show a --probe --json)
@@ -31,6 +40,14 @@ out=$(montash -C "$proj" import "$root/missing.mp4" "$fixtures/logo.png" --json)
 assert_exit 4 "partial failure exits 4"
 assert_json "$out" '.result.imported[0].type' 'image' "good input retained"
 assert_json "$out" '.result.failed[0].error.code' 'E_ASSET_MISSING' "missing input reported"
+out=$(montash -C "$proj" proxy build logo --thumbs --json)
+assert_exit 0 "proxy build --thumbs on an image exits 0"
+assert_json "$out" '.result.proxies' '[]' "images have no proxy"
+assert_json "$out" '.result.thumbs[0].state' 'ready' "image thumbnail built"
+out=$(montash -C "$proj" proxy status --json)
+assert_json "$out" '.result.proxies[2].id' 'logo' "image listed in proxy status"
+assert_json "$out" '.result.proxies[2].state' 'null' "image has no proxy state"
+assert_json "$out" '.result.proxies[2].thumbs' 'ready' "image thumbs ready"
 
 section "W-02 organise, text assets and fonts"
 out=$(montash -C "$proj" assets set a --label "冒頭ドローン" --tags 空撮,冒頭 --add-tag drone --remove-tag 冒頭 --color "#3B82F6" --json)
