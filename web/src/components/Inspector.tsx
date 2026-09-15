@@ -1,6 +1,6 @@
 /**
- * 右ペインのタブ内容（docs/06 §2.5〜2.7）。この段階は Inspector = 選択クリップの生 JSON、
- * Assets / History はプレースホルダ一覧。
+ * 右ペインのタブ内容（docs/06 §2.5, §2.7）。Inspector = 選択クリップの生 JSON と CLI 例、
+ * History = op の一覧。Assets タブは components/Assets/AssetsPanel.tsx が担当する。
  */
 import { checkout } from "../cli-client.ts";
 import { type ClipLike, clipEnd, useStore } from "../store.ts";
@@ -63,36 +63,6 @@ export function Inspector() {
       </ul>
       <h3 style={{ marginTop: 12 }}>raw</h3>
       <pre>{JSON.stringify(clip, null, 2)}</pre>
-    </div>
-  );
-}
-
-export function AssetsTab() {
-  const assets = useStore((s) => s.project?.assets ?? null);
-  const ids = assets ? Object.keys(assets) : [];
-  return (
-    <div>
-      <h3>Assets ({ids.length})</h3>
-      {ids.length === 0 ? (
-        <p className="placeholder-note">素材はまだありません。`montash import {"<path>"}` で取り込みます。</p>
-      ) : null}
-      <ul className="list">
-        {ids.map((id) => {
-          const a = (assets?.[id] ?? {}) as { type?: string; label?: string; path?: string };
-          return (
-            <li key={id}>
-              <span className="id">{id}</span>
-              <span className="dim">{a.type ?? "?"}</span>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {a.label ?? a.path ?? ""}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      <p className="placeholder-note" style={{ marginTop: 10 }}>
-        取り込み・ラベル・再リンクなどの操作は後続で追加（すべて `POST /api/cli` 経由）。
-      </p>
     </div>
   );
 }

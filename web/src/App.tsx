@@ -5,9 +5,10 @@
  */
 import { useEffect } from "react";
 import { redo, undo } from "./cli-client.ts";
+import { AssetsPanel } from "./components/Assets/AssetsPanel.tsx";
 import { Header } from "./components/Header.tsx";
 import { HistoryStrip } from "./components/History/HistoryStrip.tsx";
-import { AssetsTab, HistoryTab, Inspector } from "./components/Inspector.tsx";
+import { HistoryTab, Inspector } from "./components/Inspector.tsx";
 import { LogPane } from "./components/LogPane.tsx";
 import { Player } from "./components/Player.tsx";
 import { TimelineView } from "./components/Timeline/TimelineView.tsx";
@@ -87,7 +88,7 @@ export function App() {
         </div>
         <div className="content">
           {tab === "inspector" && <Inspector />}
-          {tab === "assets" && <AssetsTab />}
+          {tab === "assets" && <AssetsPanel />}
           {tab === "history" && <HistoryTab />}
         </div>
       </aside>

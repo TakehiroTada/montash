@@ -2,7 +2,7 @@
  * WebSocket クライアント（docs/06 §3.4）。サーバ → クライアントの push のみ。
  * 切断時は指数バックオフで再接続する（docs/06 §5「切断バッジと自動再接続」）。
  */
-import { refreshAll, refreshHistory, refreshProject, refreshStatus } from "./api.ts";
+import { refreshAll, refreshAssets, refreshHistory, refreshProject, refreshStatus } from "./api.ts";
 import { useStore } from "./store.ts";
 
 export interface WsMessage {
@@ -32,10 +32,38 @@ export function handleMessage(msg: WsMessage): void {
       void refreshProject();
       void refreshStatus();
       break;
+    case "assets.changed": {
+      const count = (n: unknown) => (Array.isArray(n) ? n.length : 0);
+      st.log("info", `assets.changed (+${count(msg.added)} -${count(msg.removed)} ~${count(msg.updated)})`, "ws");
+      void refreshAssets();
+      break;
+    }
+    case "proxy.state":
+      void refreshAssets();
+      break;
+    case "job.progress":
+      st.upsertJob({
+        id: String(msg.job_id ?? "j_?"),
+        kind: String(msg.kind ?? "job"),
+        percent: typeof msg.percent === "number" ? msg.percent : 0,
+        ...(typeof msg.message === "string" ? { message: msg.message } : {}),
+      });
+      break;
+    case "job.done":
+      st.upsertJob({
+        id: String(msg.job_id ?? "j_?"),
+        kind: String(msg.kind ?? "job"),
+        percent: 100,
+        done: true,
+        ok: msg.ok === true,
+      });
+      void refreshAssets();
+      break;
     case "history.moved":
       void refreshProject();
       void refreshHistory();
       void refreshStatus();
+      void refreshAssets();
       break;
     case "history.appended":
       void refreshHistory();
