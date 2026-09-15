@@ -55,15 +55,21 @@
 - History タイムラインの hover 差分表示と編集タイムラインへのハイライト（`affects`）
 - 完了条件: `W-05.sh, W-06.sh, W-07.sh, W-17.sh` が通る。README のクイックスタートがそのまま動く
 
-### M4. 仕上げと拡張 — 9〜10 週目 🚧 進行中
+### M4. 仕上げと拡張 — 9〜10 週目 ✅ 完了
 
 - ~~**W-08**: `overlay add|set|remove|list`~~ → M3 で前倒し実装済み（`W-08.sh`）
 - **W-11**: `render --last`, `diff`, `show`, `blame`, `revert`, `reset --hard`, `commit --amend`, `history prune|verify|export|import`、Web History の右クリック操作（タグ付け・revert・差分）、`log --graph`
 - **W-12**: `render batch`, `--reframe`, 全プリセット、`--hwaccel`
 - ~~**W-13**: `assets relink`~~ → M3 で前倒し実装済み（`W-13.sh`）
 - ~~**W-14**: `subtitle add|set|remove|list`~~ → M3 で前倒し実装済み（`W-14.sh`）
-- `batch --atomic`, `explain`, `schema --format *-tools`
-- 完了条件: 全 W-xx.sh が 3 OS の CI で通る（残りは `W-11.sh` / `W-12.sh`。CI は当面 Ubuntu のみ）
+- ~~`batch --atomic`, `explain`, `schema --format *-tools`~~ → すべて実装済み
+  - `schema --format anthropic-tools|openai-tools`（先行実装済み）
+  - **`batch`**（PR #62）: JSON Lines / 素のコマンド行を一括実行。`--atomic` は全体で 1 op にまとめ、
+    失敗時は `History.checkout` で開始前の状態へ戻す（新しいロールバック機構は作っていない）
+  - **`explain`**（PR #61）: 要素・`timeline`・`render` を自然言語 + JSON で説明。派生値の計算は
+    既存関数をそのまま呼び、複製していない
+- 完了条件: 全 W-xx.sh が通る（**W-01〜W-21 の 21 本すべて pass**）。3 OS の CI は D-6 で
+  動かさない方針にしたため、ローカルの `bun run verify` が正とする
 
 ### M5. v1.0 — 11〜12 週目
 
