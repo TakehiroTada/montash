@@ -206,9 +206,10 @@ test("unsupported constructs still fail with E_NOT_IMPLEMENTED", () => {
   expect(() => graphOf(looped)).toThrow(/looped clips/);
 
   // 未登録のエフェクト種別はプラグイン不足として扱う（docs/13 D-15。「未実装」ではない）
+  // 組み込みに無い名前を使うこと（`blur` / `mosaic` などは P1-3 で builtin になった）
   const effects = base();
-  effects.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { effects: [{ type: "blur", params: { sigma: 4 } }] }));
-  expect(() => graphOf(effects)).toThrow(/unknown video effect 'blur'/);
+  effects.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { effects: [{ type: "glow", params: { radius: 4 } }] }));
+  expect(() => graphOf(effects)).toThrow(/unknown video effect 'glow'/);
 
   const lut = base();
   const c = clip("c1", 0, 0, 30);

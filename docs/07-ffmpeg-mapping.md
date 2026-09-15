@@ -81,14 +81,33 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
 
 **組み込みエフェクト**
 
-| 名前 | 対象 | ffmpeg | 備考 |
-|------|------|--------|------|
-| `color` | video | `eq=brightness=…:contrast=…:saturation=…:gamma=…` | `clip.video.color` の実体。指定されたキーだけを固定順に並べる |
+| 名前 | 対象 | パラメータ（既定） | ffmpeg | 要求（`requires`） | 要件 |
+|------|------|--------------------|--------|--------------------|------|
+| `color` | video | `brightness` / `contrast` / `saturation` / `gamma` | `eq=brightness=…:contrast=…:saturation=…:gamma=…` | `eq` | F-FX-4 |
+| `blur` | video | `sigma`（4、0〜128）、`steps`（1、1〜6） | `gblur=sigma={sigma}[:steps={steps}]` | `gblur` | F-FX-7 |
+| `mosaic` | video | `size`（16、2〜256）、`mode`（`avg` / `min` / `max`） | `pixelize=w={size}:h={size}:mode={mode}` | `pixelize` | F-FX-7 |
+| `lut3d` | video | `file`（**必須**）、`interp`（`nearest` / `trilinear` / `tetrahedral` / `pyramid` / `prism`） | `lut3d=file='{file}'[:interp={interp}]` | `lut3d` | F-FX-4 |
+| `flip` | video | `direction`（`horizontal` / `vertical` / `both`） | `hflip` / `vflip` / `hflip,vflip` | `hflip`, `vflip` | F-FX-3 |
+| `rotate` | video | `angle`（**必須**。`"90"` / `"180"` / `"270"` の文字列）、`fit`（true） | 下記 | `transpose`, `hflip`, `vflip` | F-FX-3 |
 
+- `color` は `clip.video.color` の実体。指定されたキーだけを固定順に並べる（何も指定が無ければフィルタを足さない）。
+- `blur` は `sigma=0` のときフィルタを足さない。`steps` は 1 以外のときだけ出す。
+- `mosaic` が `scale` の縮小→拡大ではなく `pixelize` を使うのは、**エフェクトがフレームの大きさを変えてはいけない**から（挿入位置が `scale`/`pad` の後ろなので、大きさが変わると `concat` / `xfade` / overlay が壊れる）。`scale=iw/n:ih/n` → `scale=iw*n:ih*n` の往復は n で割り切れないと元に戻らず、`build()` は純関数なので戻す先（`fit` か `native` か）を知りようがない。代償として **FFmpeg 5.1 以降**が要る（`MIN_FFMPEG` は 4.4）が、不足は `requires` の宣言で `doctor` が名指しで報告する。
+- `rotate` の **90 / 270 は幅と高さが入れ替わる**。挿入位置が `scale`/`pad` の後ろなので、`transpose` だけを流すと `concat`（全入力が同じ大きさ・同じ SAR であることを要求する）が ffmpeg 側の分かりにくいエラーで落ちる。そのため既定（`fit: true`）では回転のあとに**タイムライン解像度へ戻す**:
+
+  ```
+  transpose=1                                                      # 90（270 は transpose=2）
+  scale={W}:{H}:force_original_aspect_ratio=decrease:flags=bicubic
+  pad={W}:{H}:(ow-iw)/2:(oh-ih)/2
+  setsar=1        # force_original_aspect_ratio は DAR 維持のため SAR を動かす（実測 405:406）。戻さないと concat が拒否する
+  ```
+
+  180 は大きさが変わらないので `hflip,vflip` だけ（`transpose` 2 回より安い）。overlay の `native` クリップは戻す先がタイムライン解像度ではないので `fit: false` を指定して回転だけを掛ける。余白の色は `pad` の既定（黒）で、`settings.background` を変えている場合だけ色が食い違う。
+- `clip.video.lut`（クリップ直下の LUT フィールド）は**引き続き未対応**（`E_NOT_IMPLEMENTED`）。LUT は `effects[]` の `lut3d` を使う。
 - エフェクトが宣言した `requires`（必要な ffmpeg フィルタ）は `registry/requirements.ts` 経由で `doctor` の検査対象に合成される。
 - 未登録の種別は `E_PLUGIN_MISSING`（「未実装」ではなく**プラグイン不足**として扱う）。
 - キーフレーム（`keyframes`）は `E_NOT_IMPLEMENTED`（F-FX-8）。
-- **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）を参照するエフェクトを足すときだけ、指紋計算に入力を加える必要がある（§11）。
+- **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）を参照するエフェクトはここが穴で、**パスが同じまま中身を差し替えても無効化されない**（`lut3d` が唯一の該当。§11、docs/13 D-19）。当面の回避策は `preview build --force`、またはファイル名を変えること。
 
 ## 4. トラック内の連結（映像）
 
@@ -258,6 +277,8 @@ libass 無しの環境のみ。テキストクリップごとに `drawtext=fontf
 
 `normalizeAudioClip` のチェーンで `volume=…dB` の直後、`afade` の前に `effects[]` を配列順で差し込む。対象は `target: "audio"` のエフェクトのみで、映像とはレジストリが別（同名でも混ざらない）。
 
+**組み込みの音声エフェクトはまだ無い**（計画 P1-3 は映像だけ）。スロットと契約は用意してあるので、宣言エフェクト（Phase 1）とプラグイン（Phase 2）はそのまま載る。
+
 ## 9. 出力段（レンダー）
 
 | プリセット | 映像 | 音声 | コンテナ／備考 |
@@ -300,6 +321,8 @@ ffmpeg -i A -vf "fps={num}/{den},scale=-2:{height},format=yuv420p" -c:v libx264 
 2. 各セグメントについて、関係するクリップ・効果・`settings`・ASS からハッシュを計算。`.montash/preview/segments/<hash>.mp4` があれば再利用。
 3. 無いセグメントだけ §2〜§7 の映像グラフを `--from_f/--to_f` で生成する（入力はプロキシ、`-an`、出力は `libx264 -preset ultrafast -crf 30 -g 30 -pix_fmt yuv420p -r {num}/{den}`、全セグメント同一パラメータ）。`--parallel N` で並列。テキストは **セグメント開始を 0 とした時刻にシフトした ASS** を生成して焼く。
 4. `ffmpeg -f concat -safe 0 -i list.txt -c copy video.mp4`（無再エンコード。全セグメントがフレーム数で切れているため継ぎ目は正確）。
+
+> **指紋の穴（docs/13 D-19）**: 2 のハッシュは `filterComplex` 由来なので、エフェクトの増減・パラメータ変更には自動で追随する。ただし **外部ファイルを参照するエフェクト（`lut3d`）は、パスが同じまま中身を差し替えても無効化されない**。当面は `preview build --force`（またはファイル名を変える）で回避する。
 
 ### 11.2 音声（全体 1 パス）
 

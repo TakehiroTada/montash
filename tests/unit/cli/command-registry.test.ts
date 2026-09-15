@@ -130,10 +130,10 @@ describe("buildCli()", () => {
 });
 
 describe("ffmpeg 機能要求の合成", () => {
-  // 組み込みエフェクト（`registry/effects.ts` の color）が `eq` を宣言しているので、
-  // 拡張の登録が空でもこれだけは常に足される（docs/13 D-15）。組み込み由来なので
-  // `clearRegisteredRequirements()` では消えない。
-  const BUILTIN_EFFECT_FILTERS = ["eq"];
+  // 組み込みエフェクト（`registry/effects.ts`）が宣言したフィルタは、拡張の登録が空でも常に足される
+  // （docs/13 D-15、計画 P1-3）。組み込み由来なので `clearRegisteredRequirements()` では消えない。
+  // 並びは BUILTIN_VIDEO_EFFECTS の宣言順（color / blur / mosaic / lut3d / flip / rotate）の重複除去。
+  const BUILTIN_EFFECT_FILTERS = ["eq", "gblur", "pixelize", "lut3d", "hflip", "vflip", "transpose"];
   const baseFilters = [...REQUIRED_FILTERS, ...BUILTIN_EFFECT_FILTERS];
 
   test("拡張の登録が空なら、組み込み由来のぶんだけが足された集合", () => {
@@ -145,15 +145,15 @@ describe("ffmpeg 機能要求の合成", () => {
   });
 
   test("拡張が宣言したフィルタが必須集合の後ろに足される", () => {
-    registerRequirements("plugin:glow", { filters: ["gblur"], encoders: ["libvpx"] });
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...baseFilters, "gblur"]);
+    registerRequirements("plugin:glow", { filters: ["unsharp"], encoders: ["libvpx"] });
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...baseFilters, "unsharp"]);
     expect(requiredEncoders(REQUIRED_ENCODERS)).toEqual([...REQUIRED_ENCODERS, "libvpx"]);
   });
 
   test("組み込みと重複する宣言は二重に足さない", () => {
-    registerRequirements("plugin:dup", { filters: ["xfade", "gblur", "eq"] });
-    registerRequirements("plugin:dup2", { filters: ["gblur"] });
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...baseFilters, "gblur"]);
+    registerRequirements("plugin:dup", { filters: ["xfade", "unsharp", "gblur", "eq"] });
+    registerRequirements("plugin:dup2", { filters: ["unsharp"] });
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...baseFilters, "unsharp"]);
   });
 
   test("必須に上がったフィルタは推奨から落とす（doctor が二重に報告しない）", () => {
@@ -163,10 +163,10 @@ describe("ffmpeg 機能要求の合成", () => {
   });
 
   test("registerCommand の requires も doctor の検査対象になる", () => {
-    registerCommand(sample("plugin-demo run"), { requires: { filters: ["lut3d"] } });
-    expect(requiredFilters(REQUIRED_FILTERS)).toContain("lut3d");
+    registerCommand(sample("plugin-demo run"), { requires: { filters: ["deshake"] } });
+    expect(requiredFilters(REQUIRED_FILTERS)).toContain("deshake");
     // コマンドを外すと要求も消える
     clearRegisteredCommands();
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...REQUIRED_FILTERS, "eq"]);
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual(baseFilters);
   });
 });
