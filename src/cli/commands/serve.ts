@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { platform } from "node:os";
 import { loadedPlugins } from "../../plugins/loader.ts";
 import { getCommands } from "../../registry/commands.ts";
+import { MAX_UPLOAD_BYTES, parseUploadLimit } from "../../server/assets.ts";
 import {
   type AllowlistPlugin,
   FORBIDDEN_FLAGS,
@@ -14,7 +15,7 @@ import {
   type ResolvedAllowlist,
   resolveAllowlist,
 } from "../../server/cli-exec.ts";
-import { startServer } from "../../server/index.ts";
+import { isLoopback, startServer } from "../../server/index.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, type Warning, warning } from "../errors.ts";
 
@@ -27,6 +28,8 @@ interface Args extends Record<string, unknown> {
   watch: boolean;
   daemon: boolean;
   autoPreview: boolean;
+  maxUpload: string;
+  allowRemoteWrite: boolean;
   allow?: (string | number)[];
   deny?: (string | number)[];
 }
@@ -113,9 +116,23 @@ export const serve = defineCommand<Args>({
   workflows: ["W-02", "W-04", "W-16"],
   options: {
     port: { type: "number", describe: "TCP port (0 = random)", default: 7788 },
-    host: { type: "string", describe: "bind address. Non-loopback forces --read-only", default: "127.0.0.1" },
+    host: {
+      type: "string",
+      describe: "bind address. Non-loopback forces --read-only (see --allow-remote-write)",
+      default: "127.0.0.1",
+    },
     open: { type: "boolean", describe: "open the URL in the default browser", default: false },
     "read-only": { type: "boolean", describe: "disable POST /api/cli (viewing only)", default: false },
+    "allow-remote-write": {
+      type: "boolean",
+      describe: "allow writes even on a non-loopback --host (otherwise --read-only is forced)",
+      default: false,
+    },
+    "max-upload": {
+      type: "string",
+      describe: "POST /api/upload size limit (2G, 512M, bytes). Larger files go through `montash import <path>`",
+      default: "2G",
+    },
     allow: {
       type: "array",
       describe: 'add a command to the web allowlist (repeatable or comma-separated, e.g. --allow "effect set")',
@@ -141,6 +158,7 @@ export const serve = defineCommand<Args>({
     { cmd: "montash serve --open", note: "start and open the browser" },
     { cmd: "montash serve --port 8080 --read-only" },
     { cmd: 'montash serve --allow "effect set" --deny "reset --hard"', note: "adjust the web allowlist" },
+    { cmd: "montash serve --max-upload 512M", note: "lower the upload limit" },
     { cmd: "montash serve --dev", note: "frontend development with HMR" },
   ],
   async handler(ctx, args) {
@@ -149,6 +167,13 @@ export const serve = defineCommand<Args>({
       throw errors.usage(`invalid --port ${String(args.port)}`, "Use 0-65535.");
     // 許可リストの検証はプロジェクト解決より先（引数の誤りは即 E_USAGE で返す）
     const allowlist = await buildServeAllowlist(args);
+    // `--max-upload` は `POST /api/upload` の上限と Bun の maxRequestBodySize の両方を決める（docs/13 A-5）
+    const maxUploadBytes = args.maxUpload === undefined ? MAX_UPLOAD_BYTES : parseUploadLimit(String(args.maxUpload));
+    if (maxUploadBytes === null)
+      throw errors.usage(
+        `invalid --max-upload ${String(args.maxUpload)}`,
+        "Use a positive size such as 2G, 512M or a byte count (1073741824).",
+      );
     const projectDir = ctx.requireProjectDir();
     const warnings: Warning[] = [];
 
@@ -161,6 +186,8 @@ export const serve = defineCommand<Args>({
       dev: args.dev,
       watch: args.watch ? "auto" : false,
       autoPreview: args.autoPreview,
+      maxUploadBytes,
+      allowRemoteWrite: args.allowRemoteWrite,
       cliExec: { allowlist },
       log: (l) => ctx.stderr(`${l}\n`),
     });
@@ -175,8 +202,18 @@ export const serve = defineCommand<Args>({
     if (running.readOnly && !args.readOnly) {
       warnings.push(
         warning("W_REMOTE_HOST", `--host ${args.host} is not loopback; --read-only was forced`, {
-          hint: "Bind to 127.0.0.1 to allow web actions.",
+          hint: "Bind to 127.0.0.1 to allow web actions, or pass --allow-remote-write to keep writes on this host.",
         }),
+      );
+    }
+    // docs/13 A-7: 解除したなら、何が露出するかを毎回言う
+    if (!running.readOnly && args.allowRemoteWrite && !isLoopback(args.host)) {
+      warnings.push(
+        warning(
+          "W_REMOTE_WRITE",
+          `--allow-remote-write: anyone who can reach ${args.host}:${running.server.port} can run allowlisted commands, and \`import <path>\` reads any file this user can read`,
+          { hint: "Only do this on a trusted network. An SSH tunnel to 127.0.0.1 is safer." },
+        ),
       );
     }
 
@@ -190,6 +227,7 @@ export const serve = defineCommand<Args>({
       allowlist: allowlist.allowlist,
       allowlist_entries: allowlist.entries,
       allowlist_denied: allowlist.denied,
+      max_upload_bytes: running.maxUploadBytes,
     };
     if (ctx.globals.json) {
       ctx.stdout(`${JSON.stringify({ type: "listening", ...info })}\n`);

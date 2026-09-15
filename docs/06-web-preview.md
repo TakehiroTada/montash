@@ -201,10 +201,13 @@ CLI 実行ログをコミットと op の **時系列タイムライン**とし�
 ### 3.1 起動
 
 ```
-montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-preview] [--daemon] [--read-only] [--allow <cmd,...>] [--deny <cmd,...>]
+montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-preview] [--daemon]
+              [--read-only] [--allow-remote-write] [--allow <cmd,...>] [--deny <cmd,...>] [--max-upload 2G]
 ```
 
-- 既定で `127.0.0.1` のみ。`--host` が loopback 以外のときは起動ログに `W_REMOTE_HOST` を出し、**`--read-only` を強制**する（13 章 A-7。解除手段は設けていない）。
+- 既定で `127.0.0.1` のみ。`--host` が loopback（`127.0.0.0/8` / `localhost` / `::1`）以外のときは起動ログに `W_REMOTE_HOST` を出し、**`--read-only` を強制**する（13 章 A-7）。Web の `import <任意パス>` はサーバを動かしているユーザーが読めるファイルをすべて読めるため、LAN に出した時点で既定を閲覧のみに倒す。
+- `--allow-remote-write`: 上の強制を明示的に解除する（loopback 以外でも書き込みを許す）。解除したときは起動ログと `serve --json` の warnings に `W_REMOTE_WRITE` を出し、「到達できる誰でも許可リストのコマンドを実行でき、`import <path>` で任意のファイルを読める」ことを毎回知らせる。信頼できるネットワークでだけ使い、通常は `--host 127.0.0.1` + SSH トンネルを勧める。
+- `--max-upload <size>`: `POST /api/upload` の上限（既定 `2G`。§3.3）。
 - `--read-only`: `POST /api/cli` と `POST /api/upload` を無効化（405）。閲覧のみの旧動作。
 - `--allow/--deny` で許可コマンドを調整する（合成規則は §3.3）。繰り返し指定とカンマ区切りの両方を受ける（`--allow "effect set" --allow "effect add"` / `--allow "effect set,effect add"`）。
 - `--dev`: Web UI を Bun の HTML import 開発サーバ（HMR）で配信する。省略時は `web/dist`。
@@ -216,19 +219,21 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 | パス | 内容 |
 |------|------|
 | `GET /api/project` | `project.json` 全体 + 計算値（`duration`, 各クリップの `end`） |
-| `GET /api/status` | `{ preview, proxy, render, watching, head: {op, commit, pending, detached, tip} }` |
+| `GET /api/status` | `{ preview, proxy, render, watching, head: {op, commit, pending, detached, tip}, server: {version, read_only, dev, compiled, project_dir, max_upload_bytes} }` |
 | `GET /api/history?all=1&since=<id>` | `{ head, ops[], commits[], tags{}, moves[] }`（11 章のモデルそのまま。`since` で差分取得） |
-| `GET /api/history/:id` | op / commit / tag の詳細（`show` 相当）。`?patch=1` で差分 — **未実装** |
-| `GET /api/history/diff?a=<id>&b=<id>` | `diff` 相当 — **未実装** |
-| `GET /api/blame/:elementId` | 要素を最後に変更した op / commit — **未実装**（CLI の `blame` も M4） |
+| `GET /api/history/:id` | op / commit / tag の詳細（`montash show <ref>` 相当）。`:id` は `o_xxxx` / `k_xxxx` / タグ / `HEAD` / `tip` / `<ref>~n`。`?patch=1` で `changes` 全件（`show --patch`） |
+| `GET /api/history/diff?a=<ref>&b=<ref>` | `montash diff [<a>] [<b>]` 相当。**どちらも省略可**で、両方省くと「最終コミット → HEAD」（= pending 全体）、片方だけなら省いたほうが `HEAD`。CLI の位置引数と同じ既定 |
+| `GET /api/blame/:elementId` | 要素を最後に変更した op / commit（`montash blame <element>` 相当）。`?all=1` で全系列を探す（`--all`） |
 | `GET /api/assets` | アセット一覧 + `usage`（クリップ参照）+ `derived` 状態 |
 | `GET /api/assets/:id` | 詳細（probe 要約、usage、テキスト本文） |
 | `GET /api/assets/:id/thumbs.json` / `thumbs.jpg` / `waveform.json` / `proxy.mp4`（Range） / `file`（画像・テキスト原本、Range） | 派生物・原本 |
 | `GET /preview/timeline.mp4`（Range, `ETag`=project_hash） / `GET /preview/audio.m4a`（`--audio-only` 用） / `GET /preview/timeline.json` | 合成プレビュー。マニフェストに載っていないファイル名・シンボリックリンクは 404 |
 | `GET /api/specs` | `{ version, commands[], effects[] }`。`commands` は `montash schema --json` と同一、`effects` は `montash effect presets --json` と同一（パラメータの型・範囲・choices・既定値）。Inspector のフォームと CLI 例はこれだけで組む（§2.5, §3.6）。読み取り専用・`no-store`・`--read-only` でも返す |
 | ~~`GET /api/cli-examples?select=<id>&t=<sec>`~~ | **`GET /api/specs` に置き換えた**（§3.6）。コマンド例はサーバで文字列に組まず、定義を渡して UI 側で組ませる |
-| `GET /api/fonts` | `fonts list` 相当 — **未実装** |
+| `GET /api/fonts` | `fonts list` 相当 — **未実装**（06 章の範囲外。CLI の `montash fonts list` を使う） |
 | `GET /api/cli/allowlist` | 現在 Web から実行可能なコマンド一覧（UI がボタンの有効／無効に使う） |
+
+読み取り API は成功時に **結果そのもの**（`ok` エンベロープ無し）を `cache-control: no-store` で返し、失敗時だけ `{ ok: false, error: { code, message, hint? } }` を返す。履歴系 3 本（`/api/history/:id`、`/api/history/diff`、`/api/blame/:elementId`）の本文は、対応する CLI コマンドの `--json` 出力の `result` と**同一**（判定は `src/core/history/` を呼ぶだけで、サーバ側に別のロジックを持たない）。解決できない ref / 要素は 404 `E_HISTORY_REF_NOT_FOUND`。いずれも読み取り専用で、履歴がまだ無いディレクトリに `.montash/history/` を作ることもない。
 
 ### 3.3 HTTP API（書き込み = CLI 実行）
 
@@ -269,7 +274,7 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 | `flag` | `serve --allow` | 利用者の明示指定 |
 
 - **優先順位は `--deny` > `--allow` ≒ `webAllow` > 既定**。`--deny` は最後に引くので、**既定にも `--allow` にも `webAllow` にも勝つ**（明示的な拒否を常に最優先にする）。`--allow` と `webAllow` はどちらも「足す」だけなので互いに衝突しない。
-- **`--read-only` はさらに強い**。`--read-only`（および loopback 以外の `--host` による強制 read-only）では `POST /api/cli` 自体が 405 `E_READ_ONLY` になるため、`--allow` で足したコマンドも実行できない（許可リストは `GET /api/cli/allowlist` から見えるだけ）。`--allow` と併用すると `W_ALLOWLIST_IGNORED` を警告する。
+- **`--read-only` はさらに強い**。`--read-only`（および loopback 以外の `--host` による強制 read-only。`--allow-remote-write` で解除できる。§3.1）では `POST /api/cli` 自体が 405 `E_READ_ONLY` になるため、`--allow` で足したコマンドも実行できない（許可リストは `GET /api/cli/allowlist` から見えるだけ）。`--allow` と併用すると `W_ALLOWLIST_IGNORED` を警告する。
 - `--allow` / `--deny` に渡せるのは **コマンドパス 2 語まで**（`checkout` / `effect set`）。照合規則（`args[0]` と `args[0] args[1]`）に合わせている。`clip` のようなグループ名や存在しないコマンドは起動時に `E_USAGE` で弾く。2 語目がフラグの形（`reset --hard`）は 1 語目をコマンドとして検証する。`--json` などサーバが固定するグローバルオプション（08 章 §4.5）は `--allow` に渡せない。
 - 同じコマンドが複数の出自から来ても許可リストには 1 つだけ載り、出自が並ぶ（例: `checkout` → `["default", "plugin:com.example.glow"]`）。
 
@@ -293,7 +298,8 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 
 - `<project>/assets/incoming/<YYYYMMDD>/<original name>` に保存（同名は連番）。パスをプロジェクトルート配下に限定し、ファイル名をサニタイズ。
 - 保存後、自動で `POST /api/cli ["import", <path>, "--proxy", "--thumbs", "--waveform"]` 相当を実行し、結果を返す。
-- 上限 **2 GB**（13 章 A-5。`MAX_UPLOAD_BYTES`。`--max-upload` での変更は未実装）。`Content-Length` の申告値と実ファイルサイズの両方で判定し、超過は 413。それ以上の素材はパス指定の `import` を案内する。
+- 上限 **2 GB**（13 章 A-5。`MAX_UPLOAD_BYTES`）。`serve --max-upload <size>`（`2G` / `512M` / バイト数）で起動時に変えられ、実効値は `GET /api/status` の `server.max_upload_bytes` に出る。`Content-Length` の申告値と実ファイルサイズの両方で判定し、超過は 413 `E_UPLOAD_TOO_LARGE`。hint で **パス指定の取り込み**（`montash import <path> --proxy` / UI の「+ 取り込み」にパスを入れる）を案内する。
+- `req.formData()` はメモリに載るので、`Bun.serve({ maxRequestBodySize })` を **上限 + 8 MB**（multipart の枠のぶん）に設定する。上限ちょうどにすると Bun が本文を読む前に素の 413 を返してしまい、`E_UPLOAD_TOO_LARGE` の hint を出せないため。桁違いに大きい本文は Bun 側で切れる（本文なしの 413）。ストリーミング保存は 13 章 B-3 の結果しだい。
 
 ### 3.4 WebSocket（`/ws`）
 
