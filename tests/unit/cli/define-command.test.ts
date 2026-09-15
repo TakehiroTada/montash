@@ -5,6 +5,7 @@ import {
   type CommandSpec,
   commandSignature,
   defineCommand,
+  RESERVED_ALIASES,
   registerCommands,
   toSchema,
   toToolDefinition,
@@ -47,6 +48,37 @@ describe("defineCommand", () => {
   test("rejects invalid paths", () => {
     expect(() => defineCommand({ path: "Clip Trim", summary: "", handler: () => ({}) })).toThrow();
     expect(() => defineCommand({ path: "clip  trim", summary: "", handler: () => ({}) })).toThrow();
+  });
+
+  // docs/13 B-11: `-m` は常に `--message`。コマンド側のオプションに横取りさせない
+  test("rejects command options that claim a reserved global alias", () => {
+    for (const alias of RESERVED_ALIASES) {
+      expect(() =>
+        defineCommand({
+          path: "overlay set",
+          summary: "",
+          options: { margin: { type: "string", describe: "margin", alias } },
+          handler: () => ({}),
+        }),
+      ).toThrow(/reserved global alias/);
+    }
+    // 配列で渡した場合も弾く。予約外の短縮形（-o など）はそのまま使える
+    expect(() =>
+      defineCommand({
+        path: "overlay set",
+        summary: "",
+        options: { margin: { type: "string", describe: "margin", alias: ["mg", "m"] } },
+        handler: () => ({}),
+      }),
+    ).toThrow(/reserved global alias/);
+    expect(() =>
+      defineCommand({
+        path: "render",
+        summary: "",
+        options: { output: { type: "string", describe: "output", alias: "o" } },
+        handler: () => ({}),
+      }),
+    ).not.toThrow();
   });
 
   test("builds a tree grouped by first token", () => {

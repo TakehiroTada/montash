@@ -13,6 +13,7 @@ import { createContext, findProjectDirFrom, type GlobalOptions } from "./context
 import { type CommandSpec, registerCommands } from "./define-command.ts";
 import { ExitCode, MontashError, toMontashError } from "./errors.ts";
 import { printFailure, printSuccess } from "./output.ts";
+import { findSwallowedNegativeTime, NEGATIVE_TIME_HINT } from "./time-input.ts";
 
 export const VERSION = "0.0.1";
 
@@ -225,12 +226,16 @@ export async function buildCli(rawArgv: string[]) {
     .fail((msg, err, yy) => {
       // 使用法エラーは JSON でも返す（AI が読めるように）
       const wantJson = argv.includes("--json") || process.env.MONTASH_JSON === "1";
+      // `--in -f:300` は yargs が短縮フラグとして読む。`=` 形式を案内する（docs/13 B-11）
+      const swallowed = findSwallowedNegativeTime(argv);
       const e =
         err instanceof MontashError
           ? err
           : new MontashError("E_USAGE", msg ?? err?.message ?? "usage error", {
               exitCode: ExitCode.USAGE,
-              hint: "Run `montash <command> --help` or `montash schema --json`.",
+              hint: swallowed
+                ? `"${swallowed.value}" after "${swallowed.option}" is read as short flags; write it as \`${swallowed.option}=${swallowed.value}\`. ${NEGATIVE_TIME_HINT}`
+                : "Run `montash <command> --help` or `montash schema --json`.",
             });
       if (wantJson) {
         process.stdout.write(

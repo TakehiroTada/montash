@@ -33,6 +33,14 @@ async function describeAsset(dir: string, project: Project, asset: Asset) {
   };
 }
 
+/**
+ * 名前・パスの照合キー。Unicode 正規化（macOS は NFD、Linux は NFC）で
+ * 日本語ファイル名が外れないよう NFC に揃える（docs/13 A-12）。
+ */
+export function searchKey(text: string): string {
+  return text.normalize("NFC").toLowerCase();
+}
+
 export const assetsList = defineCommand({
   path: "assets list",
   summary: "list imported assets with metadata, usage and proxy state",
@@ -58,8 +66,8 @@ export const assetsList = defineCommand({
         (!args.tag || a.tags.includes(String(args.tag))) &&
         (!args.unused || a.usage.clips.length === 0) &&
         (!args.missing || a.missing) &&
-        (!args.search ||
-          `${a.id} ${a.label ?? ""} ${a.path}`.toLowerCase().includes(String(args.search).toLowerCase())),
+        // NFC に揃えてから比べる（macOS は NFD で名前を返す。docs/13 A-12）
+        (!args.search || searchKey(`${a.id} ${a.label ?? ""} ${a.path}`).includes(searchKey(String(args.search)))),
     );
     return {
       result: { assets },

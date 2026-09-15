@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { MontashError } from "../../../src/cli/errors.ts";
-import { type ParsedTime, parseTimeInput, resolveAbsolute } from "../../../src/cli/time-input.ts";
+import {
+  findSwallowedNegativeTime,
+  type ParsedTime,
+  parseTimeInput,
+  resolveAbsolute,
+} from "../../../src/cli/time-input.ts";
 import { FPS_PRESETS } from "../../../src/core/time.ts";
 
 const NTSC30 = FPS_PRESETS["29.97"]!;
@@ -207,5 +212,50 @@ describe("resolveAbsolute", () => {
     const e = catchError(() => resolveAbsolute(p, { fps: FPS30, current: 0, end: 0, timelineLength: 0 }));
     expect(e.code).toBe("E_INVALID_TIME");
     expect(e.hint).toContain("audio offset");
+  });
+});
+
+/**
+ * docs/13 B-11: yargs（17）の負数引数。実機で確かめた挙動を固定する。
+ * - `--in -10` / `--in -0.5` … 数値に見えるので値として渡り、`--in=-10` と同じ結果になる
+ * - `--in -f:300` / `--out -12:30` … 短縮フラグとして読まれ `E_USAGE: Unknown argument: f`
+ *   → どちらも `=` 形式なら確実に値として渡るので、エラーの hint でその書き方を案内する
+ */
+describe("負の時間表記（B-11）", () => {
+  test("= は yargs 側の話で、値として届けば解釈は同じ relative", () => {
+    // `--in -10` / `--in=-10` / `--in=-f:300` はいずれもここには同じ文字列で届く
+    expect(parseTimeInput("-10", FPS30).value).toEqual({ kind: "relative", deltaFrames: -300 });
+    expect(parseTimeInput("-f:300", FPS30).value).toEqual({ kind: "relative", deltaFrames: -300 });
+  });
+
+  test("`-` で始まる入力のエラーは = 形式を案内する", () => {
+    const e = catchError(() => parseTimeInput("-abc", FPS30, ALL));
+    expect(e.code).toBe("E_INVALID_TIME");
+    expect(e.hint).toContain("--in=-10");
+    expect(e.hint).toContain("--in=-f:300");
+    // `-` で始まらない入力には足さない
+    expect(catchError(() => parseTimeInput("abc", FPS30, ALL)).hint).not.toContain("--in=-10");
+  });
+
+  test("findSwallowedNegativeTime は短縮フラグとして食われる並びだけを拾う", () => {
+    // yargs が短縮フラグとして読んでしまう形（数値に見えない負値）
+    expect(findSwallowedNegativeTime(["clip", "add", "--in", "-f:300"])).toEqual({
+      option: "--in",
+      value: "-f:300",
+    });
+    expect(findSwallowedNegativeTime(["clip", "trim", "c1", "--out", "-12:30"])).toEqual({
+      option: "--out",
+      value: "-12:30",
+    });
+    expect(findSwallowedNegativeTime(["audio", "offset", "a", "--by", "-s:960"])).toEqual({
+      option: "--by",
+      value: "-s:960",
+    });
+    // yargs が値として渡してくれる形・すでに = 形式・無関係な並びは拾わない
+    expect(findSwallowedNegativeTime(["clip", "add", "--in", "-10"])).toBeNull();
+    expect(findSwallowedNegativeTime(["clip", "add", "--in", "-0.5"])).toBeNull();
+    expect(findSwallowedNegativeTime(["clip", "add", "--in=-f:300"])).toBeNull();
+    expect(findSwallowedNegativeTime(["clip", "add", "--asset", "a"])).toBeNull();
+    expect(findSwallowedNegativeTime(["-f:300"])).toBeNull();
   });
 });

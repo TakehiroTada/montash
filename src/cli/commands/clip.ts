@@ -1,6 +1,7 @@
 import { clipAssetId, timelineDurationF } from "../../core/assets.ts";
-import { addClip, assertSourceRange } from "../../core/clip-create.ts";
+import { addClip, assertSourceRange, parseOnOverlap } from "../../core/clip-create.ts";
 import { loadProject } from "../../core/project.ts";
+import { parseRippleScope } from "../../core/ripple.ts";
 import { clipDurationF, clipEndF, type TrackClip } from "../../core/schema.ts";
 import { framesToSeconds } from "../../core/time.ts";
 import { requireTrack, trackEnd } from "../../core/timeline.ts";
@@ -9,11 +10,14 @@ import { errors, MontashError, type Warning, warning } from "../errors.ts";
 import { runMutation } from "../mutate.ts";
 import { parseTimeInput, resolveAbsolute } from "../time-input.ts";
 import { requireAsset } from "./assets.ts";
-import { createIdAllocator } from "./clip-edit.ts";
+import { createIdAllocator, onOverlapOption, rippleOption } from "./clip-edit.ts";
 
 export const clipAdd = defineCommand({
   path: "clip add",
   summary: "place a trimmed asset, linking video and audio clips",
+  description:
+    "--on-overlap push (or --ripple) inserts: the destination's following elements move back by the new clip's length. " +
+    "The ripple covers every track by default; --ripple=track limits it to the destination track and its linked audio track (docs/04 §6a).",
   workflows: ["W-03"],
   mutates: true,
   options: {
@@ -29,7 +33,8 @@ export const clipAdd = defineCommand({
     "audio-only": { type: "boolean", describe: "place audio only" },
     id: { type: "string", describe: "explicit primary clip ID" },
     label: { type: "string", describe: "clip label" },
-    "on-overlap": { type: "string", describe: "overlap policy (M1: error)", choices: ["error"], default: "error" },
+    "on-overlap": onOverlapOption,
+    ripple: rippleOption,
   },
   examples: [
     {
@@ -38,12 +43,20 @@ export const clipAdd = defineCommand({
     },
     { cmd: "montash clip add --asset clip_b --at end" },
     { cmd: "montash clip add --asset bgm --track A2 --at 0 --audio-only", note: "background music from the head" },
+    {
+      cmd: "montash clip add --asset clip_c --at 0 --on-overlap push --ripple=track",
+      note: "insert at the head, pushing only the destination track (and its linked audio)",
+    },
   ],
   async handler(ctx, args) {
     if (args.out !== undefined && args.duration !== undefined) throw errors.usage("use either --out or --duration");
     if ([args.at, args.after, args.before].filter((v) => v !== undefined).length > 1)
       throw errors.usage("use only one of --at, --after, --before");
     if (args.videoOnly && args.audioOnly) throw errors.usage("--video-only and --audio-only are mutually exclusive");
+    const scope = parseRippleScope(args.ripple);
+    const onOverlap = parseOnOverlap(args.onOverlap);
+    // `--ripple` だけでも挿入になる（`clip move --ripple` が移動先で押し出すのと同じ）
+    const pushing = scope !== false || onOverlap === "push";
     return runMutation(ctx, async ({ project, dir, fps }) => {
       const asset = requireAsset(project, String(args.asset));
       const audioOnly = Boolean(args.audioOnly) || asset.type === "audio";
@@ -87,11 +100,13 @@ export const clipAdd = defineCommand({
       if (args.after !== undefined || args.before !== undefined) {
         const ref = track.clips.find((c) => c.id === String(args.after ?? args.before));
         if (!ref) throw new MontashError("E_CLIP_NOT_FOUND", `reference clip not found on ${track.id}`);
-        startF = args.after !== undefined ? clipEndF(ref) : ref.start_f - (outF - inF);
+        // 押し出すなら参照クリップの位置そのものへ差し込む（`clip move --before --ripple` と同じ）
+        startF = args.after !== undefined ? clipEndF(ref) : pushing ? ref.start_f : ref.start_f - (outF - inF);
       }
       if (startF < 0) throw errors.usage("placement starts before the timeline");
+      const oldTimeline = timelineDurationF(project);
       const allocate = await createIdAllocator(ctx, dir, project, args.id ? [String(args.id)] : []);
-      const { clip, linked } = await addClip(
+      const { clip, linked, moved } = await addClip(
         project,
         {
           asset: asset.id,
@@ -103,13 +118,20 @@ export const clipAdd = defineCommand({
           label: args.label === undefined ? undefined : String(args.label),
           audioOnly,
           linkAudio: !audioOnly && hasAudio && !args.videoOnly,
+          onOverlap,
+          ripple: scope,
         },
         allocate,
+        warnings,
       );
       return {
-        result: { clip, linked_clip: linked },
+        result: { clip, linked_clip: linked, moved_clips: moved },
         summary: `add ${clip.id} (${asset.id}) on ${track.id} at f:${startF}`,
-        affects: { clips: linked ? [clip.id, linked.id] : [clip.id], range_f: [startF, startF + outF - inF] },
+        affects: {
+          clips: [...(linked ? [clip.id, linked.id] : [clip.id]), ...moved],
+          // リップルで動かしたときは §6a のとおり [p_f, 旧タイムライン末尾] まで広げる
+          range_f: [startF, moved.length === 0 ? startF + outF - inF : Math.max(oldTimeline, startF + outF - inF)],
+        },
         warnings,
         human: `${clip.id}  ${track.id}  f:${startF}..f:${startF + outF - inF}  ${asset.id}${linked ? ` (linked ${linked.id})` : ""}`,
       };

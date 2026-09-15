@@ -46,7 +46,7 @@ montash [global-options] <command> [<subcommand>] [args] [options]
 | サンプル（音声補正のみ） | `s:-960` | `audio offset` の `--by` で使うサンプル数 |
 
 - 秒／タイムコード入力がフレーム境界に無い場合は最寄りフレームに丸め、警告 `W_SNAPPED`（`{ input: "12.5", frame: 375, seconds: 12.5125 }`）を返す。AI は以後 `f:375` を使うことで丸めの再発を避けられる。
-- 負の数値を値として渡す場合は `--in=-10` の形式を使う（yargs がオプションと誤認しないため）。`--in -10` も可能な限り解釈するが、`=` 形式を推奨。
+- 負の値は **`--in=-10` の形式（`=` を挟む）** で渡す。`--in -10` のように数値に見えるものは空白区切りでも解釈できるが、`--in -f:300` / `--out -12:30` は yargs が短縮フラグとして読み `E_USAGE` になる（docs/13 B-11）。この形を検出したときは `E_USAGE` / `E_INVALID_TIME` の `hint` が `=` 形式を案内する。短縮形 `-m` は常にグローバルの `--message`（`--margin` などは長形式のみ。§1.2）。
 - 29.97 のような分数 fps では「1 秒」がフレームの整数倍にならない（`30000/1001` では 30 フレーム = 1.001 秒）。相対指定 `+1` は `round(1 * num/den) = 30` フレームになる。
 
 ### 1.3a 時間の表記（出力）
@@ -187,7 +187,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 |----------|--------------------|------|
 | `import` | `--thumbs`, `--waveform` | `proxy build --thumbs/--waveform` は実装済み |
 | `assets show` | `--keyframes` | `--probe` は実装済み |
-| `clip add` | `--loop`, `--ripple`, `--on-overlap overwrite|push` | `clip add` の `--on-overlap` は `error` のみ（`overwrite` / `push` は `clip move/trim/set` 側に実装済み）。`--ripple` も `clip move/trim/delete/set` にはある（docs/13 D-9） |
+| `clip add` | `--loop` | `--ripple` と `--on-overlap overwrite|push` は実装済み（docs/13 D-9）。意味論は `clip move` と同じ |
 | `render` | `--from`, `--to`, `--skip-validate` | 区間レンダーは `render gif --from/--to` で可能。それ以外（`--last` `--vcodec` `--acodec` `--vbitrate` `--abitrate` `--pix-fmt` `--fps` `--two-pass` `--hwaccel` `--reframe`）は**すべて実装済み**、プリセットは 10 種 |
 | `log` | `--since` | |
 | `commit` | `--body-file`, `--amend`, `--from-worktree` | `-m` / `--body` / `--last` / `--ops` / `--tag` / `--author` / `--allow-empty` / `--auto-message` は実装済み |
@@ -340,6 +340,8 @@ ID、種別、ラベル、タグ、パス、尺、解像度、fps、音声 ch、
 
 `--search` はファイル名一致→サイズ一致→（`--match hash`）先頭 1MB ハッシュ一致で照合し、一括更新。結果に `relinked`/`unresolved` を返す。
 
+名前の照合は両辺を **NFC に正規化**してから行う（macOS は NFD、Linux は NFC でファイル名を返すため。docs/13 A-12）。`assets list --search` の部分一致も同じく NFC で揃える。
+
 ### `montash proxy build [--all | <id...>] [--force] [--height 360] [--parallel 2] [--thumbs] [--waveform]` — W-02
 
 プロキシ（H.264 baseline、指定高さ、CRF 28、AAC 96k、キーフレーム 1 秒）、サムネイル（`--thumbs`、既定 1 枚/秒、160px 幅、スプライト JPEG + JSON インデックス）、波形（`--waveform`、`astats`/`ebur128` ではなく PCM ダウンサンプルからピーク配列、100 点/秒）を `.montash/cache/<asset_id>/` に生成。
@@ -395,20 +397,22 @@ ID、種別、ラベル、タグ、パス、尺、解像度、fps、音声 ch、
 ```
 montash clip add --asset <id> [--track V1] [--in <t>] [--out <t>] [--duration <t>]
                (--at <t> | --at end | --after <clip> | --before <clip>)
-               [--on-overlap error|overwrite|push] [--video-only|--audio-only]
-               [--loop] [--id <id>] [--label <str>]
+               [--on-overlap error|overwrite|push] [--ripple[=all|track]]
+               [--video-only|--audio-only] [--loop] [--id <id>] [--label <str>]
 ```
 
-`--loop` と `--ripple` は未実装（§1.9）。
+`--loop` は未実装（§1.9）。
 
 - `--in/--out` 省略時はアセット全体（`out_f = asset.duration_f`）。負値は末尾基準（`--in=-10` = 末尾 10 秒、`--in=-f:300` = 末尾 300 フレーム）。`--duration` は `--out` の代替。画像アセットは `--duration` 必須（省略時 `settings.default_image_duration_f`）。
 - in/out はアセットの native fps ではなく **プロジェクト fps のフレーム**で指定する（アセットが 29.97fps でプロジェクトが 30fps なら、`f:30` は 1.0 秒地点）。
 - 既定では映像アセットの映像を `--track`、音声を対応する音声トラック（`V1`→`A1`）に **リンククリップ** として同時配置する。`--video-only` / `--audio-only` で片方のみ。
 - `--at end` はトラック末尾に隙間なく追加。`--after <clip>` はそのクリップ直後。
 - `--loop` は `--duration` がアセット尺より長い場合に繰り返す（音声 BGM 用）。無ければ `W_CLIP_SHORTER_THAN_REQUESTED`。
-- `--on-overlap push` は追加位置以降を追加尺ぶん後ろへずらす（リップル挿入。§6a の規則で **全トラック**。`--ripple=track` を併用すると当該トラックのみ）。`overwrite` は重なった部分を既存クリップから削る。
+- `--on-overlap push` は追加位置以降を追加尺ぶん後ろへずらす（リップル挿入。§6a の規則で **全トラック**。`--ripple=track` を併用すると当該トラック（とリンク先の音声トラック）のみ）。`overwrite` は重なった部分を既存クリップから削る。`error`（既定）は重なれば `E_CLIP_OVERLAP` で何も書かない。
+- `--ripple` だけを付けた場合も挿入になる（`clip move --ripple` が移動先で後続を押し出すのと同じ。§6a）。`--before <clip>` と併用すると、そのクリップの位置に差し込んで以降を押し出す。
+- 押し出し・上書きで動いた（消えた）クリップは結果の `moved_clips` に入る。ロックされたトラックは対象外（`E_TRACK_LOCKED`）。
 
-結果: `{ clip: {...}, linked_clip: {...}|null }`。
+結果: `{ clip: {...}, linked_clip: {...}|null, moved_clips: [<id>...] }`。
 
 ### `montash clip list [--track <t>] [--asset <id>] [--json]` — W-04
 

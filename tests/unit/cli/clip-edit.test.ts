@@ -144,6 +144,104 @@ describe("clip trim", () => {
   });
 });
 
+// docs/13 D-9: `clip add` の `--ripple` と `--on-overlap overwrite|push`
+describe("clip add --on-overlap / --ripple", () => {
+  /** V1/A1 に 30f を 3 組、A2 に BGM（60f、c7）を置く */
+  async function threeCutsWithBgm() {
+    await threeCuts();
+    await call(trackAdd, { kind: "audio", name: "A2" });
+    await call(clipAdd, { asset: "bgm", track: "A2", at: "f:0", duration: "f:60" });
+  }
+
+  test("--ripple を付けない従来の呼び出しは従来どおり（末尾に追記、重なりは E_CLIP_OVERLAP）", async () => {
+    await threeCuts();
+    const res = await call(clipAdd, { asset: "a", in: "f:0", duration: "f:30", at: "end" });
+    const result = res.result as { clip: { start_f: number }; moved_clips: string[] };
+    expect(result.clip.start_f).toBe(90);
+    expect(result.moved_clips).toEqual([]);
+    await expect(call(clipAdd, { asset: "a", in: "f:0", duration: "f:30", at: "f:0" })).rejects.toMatchObject({
+      code: "E_CLIP_OVERLAP",
+    });
+    expect(await layout()).toEqual([
+      { id: "V1", clips: ["c1@0", "c3@30", "c5@60", "c7@90"] },
+      { id: "A1", clips: ["c2@0", "c4@30", "c6@60", "c8@90"] },
+    ]);
+  });
+
+  test("--on-overlap push（既定 = ripple all）は BGM トラックも押し出す", async () => {
+    await threeCutsWithBgm();
+    const res = await call(clipAdd, { asset: "a", in: "f:0", duration: "f:15", at: "f:0", onOverlap: "push" });
+    expect((res.result as { moved_clips: string[] }).moved_clips).toEqual(
+      expect.arrayContaining(["c1", "c2", "c3", "c4", "c5", "c6", "c7"]),
+    );
+    expect(await layout()).toEqual([
+      { id: "V1", clips: ["c8@0", "c1@15", "c3@45", "c5@75"] },
+      { id: "A1", clips: ["c9@0", "c2@15", "c4@45", "c6@75"] },
+      { id: "A2", clips: ["c7@15"] },
+    ]);
+    expect(validateProject(await loadProject(dir)).ok).toBe(true);
+  });
+
+  test("--on-overlap push --ripple=track は当該トラックとリンク先だけを押し出す", async () => {
+    await threeCutsWithBgm();
+    const res = await call(clipAdd, {
+      asset: "a",
+      in: "f:0",
+      duration: "f:15",
+      at: "f:0",
+      onOverlap: "push",
+      ripple: "track",
+    });
+    expect((res.result as { moved_clips: string[] }).moved_clips).not.toContain("c7");
+    expect(await layout()).toEqual([
+      { id: "V1", clips: ["c8@0", "c1@15", "c3@45", "c5@75"] },
+      { id: "A1", clips: ["c9@0", "c2@15", "c4@45", "c6@75"] },
+      { id: "A2", clips: ["c7@0"] },
+    ]);
+    expect(validateProject(await loadProject(dir)).ok).toBe(true);
+  });
+
+  test("--ripple だけでも挿入になる（clip move --ripple と同じ意味論）", async () => {
+    await threeCutsWithBgm();
+    await call(clipAdd, { asset: "a", in: "f:0", duration: "f:15", at: "f:0", ripple: "track" });
+    expect(await layout()).toEqual([
+      { id: "V1", clips: ["c8@0", "c1@15", "c3@45", "c5@75"] },
+      { id: "A1", clips: ["c9@0", "c2@15", "c4@45", "c6@75"] },
+      { id: "A2", clips: ["c7@0"] },
+    ]);
+  });
+
+  test("--on-overlap overwrite は重なった分を既存クリップから削る", async () => {
+    await threeCutsWithBgm();
+    await call(clipAdd, { asset: "bgm", track: "A2", at: "f:40", duration: "f:30", onOverlap: "overwrite" });
+    const project = await loadProject(dir);
+    const a2 = project.tracks.find((t) => t.id === "A2")!;
+    expect(a2.clips.map((c) => `${c.id}@${c.start_f}+${clipDurationF(c)}`)).toEqual(["c7@0+40", "c8@40+30"]);
+    // 映像側は動かない
+    expect(project.tracks[0]!.clips.map((c) => `${c.id}@${c.start_f}`)).toEqual(["c1@0", "c3@30", "c5@60"]);
+    expect(validateProject(project).ok).toBe(true);
+  });
+
+  test("--before --ripple は参照クリップの位置に差し込む", async () => {
+    await threeCuts();
+    await call(clipAdd, { asset: "a", in: "f:0", duration: "f:15", before: "c3", ripple: "" });
+    expect(await layout()).toEqual([
+      { id: "V1", clips: ["c1@0", "c7@30", "c3@45", "c5@75"] },
+      { id: "A1", clips: ["c2@0", "c8@30", "c4@45", "c6@75"] },
+    ]);
+  });
+
+  test("知らない --ripple / --on-overlap の値は E_USAGE", async () => {
+    await threeCuts();
+    await expect(call(clipAdd, { asset: "a", duration: "f:15", at: "end", ripple: "some" })).rejects.toMatchObject({
+      code: "E_USAGE",
+    });
+    await expect(call(clipAdd, { asset: "a", duration: "f:15", at: "end", onOverlap: "shift" })).rejects.toMatchObject({
+      code: "E_USAGE",
+    });
+  });
+});
+
 describe("clip move", () => {
   test("--before --ripple で順序を入れ替える", async () => {
     await threeCuts();

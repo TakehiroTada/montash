@@ -78,9 +78,25 @@ export interface CommandSpec<A extends Record<string, unknown> = Record<string, 
   handler: (ctx: CommandContext, args: A) => Promise<CommandResult> | CommandResult;
 }
 
+/**
+ * グローバルが握っている短縮形（docs/04 §1.2）。コマンド側のオプションが横取りすると
+ * `-m` が `--message` でなくなるなど解釈が変わるので、定義時に弾く（docs/13 B-11）。
+ * 例: `overlay set --margin` は長形式のみで、`-m` は常に `--message`。
+ */
+export const RESERVED_ALIASES = ["C", "q", "v", "y", "m", "h"] as const;
+
 export function defineCommand<A extends Record<string, unknown>>(spec: CommandSpec<A>): CommandSpec<A> {
   if (!/^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*)*$/.test(spec.path)) {
     throw new Error(`invalid command path: "${spec.path}"`);
+  }
+  for (const [name, option] of Object.entries(spec.options ?? {})) {
+    const aliases = option.alias === undefined ? [] : Array.isArray(option.alias) ? option.alias : [option.alias];
+    for (const alias of aliases) {
+      if ((RESERVED_ALIASES as readonly string[]).includes(alias))
+        throw new Error(
+          `"${spec.path} --${name}" cannot claim the reserved global alias "-${alias}" (docs/04 §1.2); use the long form only`,
+        );
+    }
   }
   return spec;
 }
