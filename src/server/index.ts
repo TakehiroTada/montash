@@ -46,7 +46,7 @@ export interface StartServerOptions {
   autoPreview?: boolean;
   /** ログ出力先（既定: console.error）。テストでは差し替える */
   log?: (line: string) => void;
-  /** テスト用に CliExecutor の設定を上書きする */
+  /** CliExecutor の設定を上書きする（`serve` は合成済みの許可リストをここで渡す。テストでも使う） */
   cliExec?: Partial<CliExecutorOptions>;
   /** `POST /api/upload` の上限バイト数（既定 2GB。docs/13 A-5） */
   maxUploadBytes?: number;
@@ -279,7 +279,16 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         return json(readHistoryView(projectDir).history);
       },
     },
-    "/api/cli/allowlist": { GET: () => json({ allowlist: executor.allowlist, read_only: readOnly }) },
+    // `allowlist` は従来どおりの文字列配列。`entries` / `denied` は合成の内訳（docs/06 §3.3）
+    "/api/cli/allowlist": {
+      GET: () =>
+        json({
+          allowlist: executor.allowlist,
+          entries: executor.allowlistDetail.entries,
+          denied: executor.allowlistDetail.denied,
+          read_only: readOnly,
+        }),
+    },
     "/api/cli": {
       POST: async (req) => {
         const denied = requireWritable();
