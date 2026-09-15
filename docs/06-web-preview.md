@@ -187,7 +187,7 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 | `GET /api/assets` | アセット一覧 + `usage`（クリップ参照）+ `derived` 状態 |
 | `GET /api/assets/:id` | 詳細（probe 要約、usage、テキスト本文） |
 | `GET /api/assets/:id/thumbs.json` / `thumbs.jpg` / `waveform.json` / `proxy.mp4`（Range） / `file`（画像・テキスト原本、Range） | 派生物・原本 |
-| `GET /preview/timeline.mp4`（Range, `ETag`=project_hash） / `GET /preview/timeline.json` | 合成プレビュー |
+| `GET /preview/timeline.mp4`（Range, `ETag`=project_hash） / `GET /preview/audio.m4a`（`--audio-only` 用） / `GET /preview/timeline.json` | 合成プレビュー。マニフェストに載っていないファイル名・シンボリックリンクは 404 |
 | `GET /api/cli-examples?select=<id>&t=<sec>` | コマンド例 |
 | `GET /api/fonts` | `fonts list` 相当 |
 | `GET /api/cli/allowlist` | 現在 Web から実行可能なコマンド一覧（UI がボタンの有効／無効に使う） |

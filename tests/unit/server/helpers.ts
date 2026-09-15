@@ -39,6 +39,7 @@ export async function boot(projectDir: string, over: Partial<StartServerOptions>
     open: false,
     dev: false,
     watch: false,
+    autoPreview: false,
     log: () => {},
     ...over,
   });

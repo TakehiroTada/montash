@@ -24,6 +24,7 @@ import { idsRebuild } from "./ids.ts";
 import { importAssets } from "./import.ts";
 import { init } from "./init.ts";
 import { log } from "./log.ts";
+import { previewBuild, previewStatus } from "./preview.ts";
 import { projectSet, projectShow } from "./project.ts";
 import { proxyBuild, proxyStatus } from "./proxy.ts";
 import { redo } from "./redo.ts";
@@ -84,6 +85,8 @@ export const commands: ReadonlyArray<AnySpec> = [
   // トランジション / テキスト / オーバーレイ / 音声 / 字幕             → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
+  spec(previewBuild),
+  spec(previewStatus),
   spec(render),
   spec(renderVerify),
   spec(renderPresets),

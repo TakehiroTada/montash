@@ -13,6 +13,7 @@
     "dev": "bun src/cli/index.ts",
     "doctor": "bun src/cli/index.ts doctor",
     "test": "bun test",
+    "e2e:preview": "bun scripts/e2e-preview.ts",
     "typecheck": "bunx tsc --noEmit",
     "check": "bun run typecheck && bun run lint && bun test",
     "build:web": "bun build web/index.html --outdir web/dist --minify",

@@ -526,6 +526,8 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 
 ### `montash preview build [--from <t>] [--to <t>] [--force] [--audio-only] [--height 360]` — W-04, W-06, W-07
 
+M2実装。`--from/--to`（部分再生成）、`--force`、`--audio-only`、`--height`、グローバル `--dry-run`（セグメント分割と各ハッシュを表示）に対応する。マニフェスト `.montash/preview/timeline.json`（05章 §12）の書き込みが公開点で、フレーム数・音声尺・解像度を検証してから差し替えるため、途中状態の `timeline.mp4` が読まれることはない。生成中は `.montash/preview/build.lock` を持ち、二重起動は `E_PREVIEW_BUSY`。生成中でも古い `timeline.mp4` は再生できる（`preview status` は `building`、直前版の `built_at` を返す）。トランジション・テキスト・速度変更を含むプロジェクトは `E_NOT_IMPLEMENTED`。
+
 タイムラインをプロキシ品質で 1 本の MP4（`.montash/preview/timeline.mp4`）にレンダー。**映像**はフレーム境界のセグメントキャッシュ（`.montash/preview/segments/<hash>.mp4`、音声なし）を再利用して `concat`、**音声**はタイムライン全体を毎回 1 パスで生成（`audio.m4a`。音声関連が不変ならキャッシュ）、最後に `-c copy` で mux する（07 章 §11）。`--from/--to` で部分再生成。
 
 ### `montash preview status [--json]`

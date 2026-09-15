@@ -17,6 +17,7 @@ interface Args extends Record<string, unknown> {
   dev: boolean;
   watch: boolean;
   daemon: boolean;
+  autoPreview: boolean;
 }
 
 function isWsl(): boolean {
@@ -63,6 +64,11 @@ export const serve = defineCommand<Args>({
       default: false,
     },
     watch: { type: "boolean", describe: "watch project.json and history (use --no-watch to disable)", default: true },
+    "auto-preview": {
+      type: "boolean",
+      describe: "automatically rebuild preview (use --no-auto-preview to disable)",
+      default: true,
+    },
     daemon: { type: "boolean", describe: "run in the background (not implemented yet)", default: false },
   },
   examples: [
@@ -85,6 +91,7 @@ export const serve = defineCommand<Args>({
       open: args.open,
       dev: args.dev,
       watch: args.watch ? "auto" : false,
+      autoPreview: args.autoPreview,
       log: (l) => ctx.stderr(`${l}\n`),
     });
     if (running.readOnly && !args.readOnly) {

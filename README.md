@@ -67,7 +67,11 @@ bun run dev -C ./my-edit render verify ./my-edit/out/edit.mp4 --json
 
 クリップ編集は `clip move|trim|split|delete|set` とトラック操作（`track add|list|remove|mute|lock|move`）、ギャップ操作（`timeline gaps [--fill close|black]`）に対応します。`--ripple`（既定で全トラック、`--ripple=track` で当該トラックのみ、`locked` トラックは対象外）で編集点以降を詰め／押し出し、`clip split` は前半が元の ID を維持します。`clip move` は `--on-overlap error|overwrite|push` を受け付けます。
 
-トランジション、テキスト合成、ループ、サムネイル・波形、自動プレビュー生成は今後の実装です。音量正規化もM3予定で、現在は警告を出して素材の音量を保持します。Web画面の履歴表示は実際のHEAD・pending・コミット・タグに追従し、履歴ノードのクリックと `[` / `]` で移動できます。動画プレビューの接続はM2で進めます。
+プレビューは `preview build` で `.montash/preview/timeline.mp4` を作ります。映像はカット点で切ったセグメントを `.montash/preview/segments/<hash>.mp4` にキャッシュして `concat`、音声はタイムライン全体を毎回1パスで `audio.m4a` に生成し、最後に `-c copy` で mux します（AACのpriming由来の継ぎ目クリックを避けるため。12章 ADR-11）。編集で位置だけが動いたセグメントはそのまま再利用されるので、2回目以降は concat と音声だけで済みます。`--from/--to` で部分再生成、`--audio-only` で音声のみ、`--height` で解像度を指定できます。状態は `preview status`（`ready` / `building` / `stale` / `missing`）。
+
+`serve` は `project.json` の変更を1.5秒デバウンスしてから `preview build` を自動実行し、WebSocketで `preview.state` を通知します。ビルド中にさらに編集があればキャンセルして作り直します。自動生成を止めるには `serve --no-auto-preview`。`GET /preview/timeline.mp4` はRange対応・`ETag` はproject_hashで、ブラウザは再生成後も再生位置を保ったまま新しい版に差し替えます。Webの履歴表示はHEAD・pending・コミット・タグに追従し、ノードのクリックと `[` / `]` で移動できます。
+
+トランジション、テキスト合成、ループ、サムネイル・波形は今後の実装です。音量正規化もM3予定で、現在は警告を出して素材の音量を保持します。
 
 ## クイックスタート（想定される利用イメージ）
 

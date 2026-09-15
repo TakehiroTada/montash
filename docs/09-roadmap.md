@@ -9,7 +9,9 @@
 - レンダーは単一映像トラックのカット結合、画像、ギャップ、音声ミックス、`youtube-1080p` / `web-preview` に対応。30 / 29.97 / 59.94fpsの厳密フレーム数・カット位置テストを常設。
 - この時点のコマンド引数は `montash schema` が正。04章の将来仕様のうち、`clip add --loop`、`--on-overlap push/overwrite`、`project set fps/resolution`、部分レンダー、`render --last`、テキスト・演出・音量正規化は未実装。
 - W-16の履歴連携を実装: WebでHEAD・pending・コミット・タグ・分岐を表示し、CLI操作と同期。Playwrightでキャンバスクリック、`[` / `]`、コミット・タグ通知、監視なしの再取得を検証。
-- 次の実装対象: M2 の `clip move/trim/split/delete` と `preview build/status` をプレイヤーへ接続し、W-04 を通す。Web Assets閲覧、コンパイル版の自己spawn／資産配信も未検証。
+- M2のプレビュー経路を追加: `preview build/status`（映像セグメントキャッシュ + 音声1パス + mux、`--from/--to`・`--audio-only`・`--height`・`--force`）、`serve` のデバウンス自動生成とキャンセル、`GET /preview/timeline.mp4`（Range・`ETag`=project_hash）と `/preview/timeline.json`、`/api/status` の `preview`。W-04 で CLI・HTTP・（chromium があれば）実ブラウザ再生を検証。
+- 次の実装対象: M2のWeb Assets閲覧の充実、コンパイル版の自己spawn／資産配信の検証。M3の演出・音声処理へ進む。
+- CIは費用抑制のため一時的にUbuntuのみ。以下の複数OS要件は再開後の目標。
 
 ## 1. マイルストーン
 
