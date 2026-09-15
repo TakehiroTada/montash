@@ -430,6 +430,59 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 
 ---
 
+## W-18. クリップに効果を掛ける
+
+- **目的**: 既に並べたクリップに、ぼかし・色補正・LUT などの効果を掛け、プレビューで確かめながらパラメータを詰める。
+- **起点**: 「顔が映ってるところをぼかして」「全体をもう少し明るく、彩度も上げて」「このクリップだけフィルム風の色にして」
+- **事前条件**: クリップが 1 本以上ある（W-03 済み）。`montash doctor` が必要な ffmpeg フィルタを満たしている。
+- **手順**:
+
+| # | 誰 | 何をする | コマンド／操作 |
+|---|----|----------|----------------|
+| 1 | AI | 使える効果と、その引数を調べる | `montash effect presets --json`（`schema` にも載る） |
+| 2 | AI | 効果を掛ける。引数は効果ごとの定義から決まる | `montash effect add c1 blur --sigma 12` |
+| 3 | AI | 実際に流れる ffmpeg のフィルタを見せて確認する | `montash effect add c1 blur --sigma 12 --dry-run` |
+| 4 | 人 | プレビューで見て「もう少し弱く」と伝える | Web でプレビュー確認 |
+| 5 | AI | パラメータだけ調整する（掛け直さない） | `montash effect set c1 blur --sigma 6` |
+| 6 | AI | 掛かっている効果と順序を確認する | `montash effect list c1 --json` |
+| 7 | AI | 効果の適用順を入れ替える／外す | `montash effect set c1 blur --index 0` / `montash effect remove c1 blur` |
+| 8 | AI | 良ければ作業単位としてコミットする | `montash commit -m "c1 の顔まわりをぼかし、彩度を少し上げた"` |
+
+- **完了条件**: `effect list` に効果が順序どおり並び、`render --dry-run` のフィルタグラフに反映され、プレビューで見た目が変わる。op として履歴に残る。
+- **失敗と対処**:
+  - 効果名が登録されていない → `E_PLUGIN_MISSING`。`hint` に「導入済みの効果一覧」と、プラグインを入れる案内を出す。**AI は自分でプラグインを導入しない**（人間に依頼する。10 章）。
+  - 引数が範囲外 → `E_USAGE`（`sigma must be <= 64` のように、どの引数がどう外れたかを出す）。
+  - 必要な ffmpeg フィルタが無いビルド → `montash doctor` で不足として報告される。
+  - キーフレームを求められた → `E_NOT_IMPLEMENTED`（F-FX-8、M6 以降）。
+- **派生コマンド**: `effect add|set|remove|list|presets`, `render --dry-run`, `doctor`
+
+---
+
+## W-19. プラグインを導入して使う
+
+- **目的**: 本体に無い効果や入出力を、プラグインとして入れて使う。プラグインが無い環境でプロジェクトを開いたときの挙動も確かめる。
+- **起点**: 「グロー効果を使いたい」「このプロジェクト、同僚の環境でも開ける？」
+- **事前条件**: なし（プラグインの入手は人間が行う）。
+- **手順**:
+
+| # | 誰 | 何をする | コマンド／操作 |
+|---|----|----------|----------------|
+| 1 | 人 | プラグインを入手し、導入する（**AI は導入しない**。任意コードを実行するため） | `montash plugin install ./montash-glow` |
+| 2 | AI | 何が入ったか、何を要求しているかを確認する | `montash plugin list --json` / `montash doctor` |
+| 3 | AI | 追加された効果を、組み込みと同じように使う | `montash effect add c1 glow --radius 8` |
+| 4 | AI | プロジェクトが依存するプラグインを記録する | 自動（`project.plugins.requires[]` に記録される） |
+| 5 | 人 | プラグインの無い環境でプロジェクトを開く | `montash timeline show`（**開ける**。未知の効果は保持される） |
+| 6 | AI | その環境でレンダーを試み、何が足りないかを報告する | `montash render` → `E_PLUGIN_MISSING`、`montash plugin doctor` で不足一覧 |
+
+- **完了条件**: プラグイン有りの環境で効果が掛かり、無い環境でも `project.json` が開けて保存でき、レンダー時にだけ明確に失敗する。
+- **失敗と対処**:
+  - `apiVersion` が合わない → `E_PLUGIN_INCOMPATIBLE`。受理できるバージョン範囲を `hint` に出す。
+  - プラグインが解析や外部プロセスを要求する → マニフェストの `capabilities` を導入時に人間へ提示し、同意なしには入れない。
+  - 同名の効果が衝突 → 後勝ち（`source` で出自が分かる）。`plugin list` で警告する。
+- **派生コマンド**: `plugin list|install|remove|doctor`, `effect add`, `doctor`, `render`
+
+---
+
 ## 手順から導出されたコマンド一覧（04 章の目次）
 
 | グループ | コマンド | 由来手順 |
@@ -448,4 +501,6 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 | プレビュー | `serve`, `preview build|status` | W-02, W-04 |
 | 出力 | `render`, `render verify|presets|batch` | W-09, W-11, W-12 |
 | 履歴 | `status`, `log`, `show`, `diff`, `blame`, `commit`, `-m`, `checkout`, `undo`, `redo`, `revert`, `reset`, `tag`, `history prune|verify|export|import` | W-10, W-11, W-15, W-16 |
+| エフェクト | `effect add|set|remove|list|presets` | W-18 |
+| プラグイン | `plugin list|install|remove|doctor` | W-19 |
 | AI 支援 | `batch`, `explain` | 全般（10 章） |
