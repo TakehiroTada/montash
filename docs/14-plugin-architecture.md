@@ -91,6 +91,7 @@ export default {
 | `host.effects.define(spec)` | エフェクトを登録（`source: "plugin"`） |
 | `host.generators.define(spec)` | ジェネレータを登録 |
 | `host.transitions.define(spec)` | トランジションを登録 |
+| `host.commands.define(spec)` | **CLI コマンドを登録**（AviUtl2 の「汎用プラグイン（.aux2）」に相当）。解決された絶対パスを返す |
 | `host.importers.define(spec)` | 取り込み形式を登録（AviUtl2 の `.aui2` 相当）※ 配線は後続 |
 | `host.exporters.define(name, preset)` | 出力プリセットを登録（`.auo2` 相当）※ 配線は後続 |
 | `host.requireFeatures(requires)` | 追加の ffmpeg 機能要求 |
@@ -99,6 +100,68 @@ export default {
 | `host.log(message)` | `--verbose` のときだけ出る診断ログ |
 
 **project.json を触る API は無い。**
+
+### 3.3a `host.commands.define(spec)` — 汎用プラグイン
+
+効果でもジェネレータでもない「道具そのもの」を足す口。登録された spec は組み込みとまったく同じ
+`CommandSpec` として `getCommands()` に合成されるので、**yargs への登録・`montash schema`・`montash help`
+の 3 者すべてに同じように載る**（docs/13 D-18 / P0-6 の仕組みにそのまま乗る）。
+
+```js
+host.commands.define({
+  path: "render",                      // ← 名前空間からの相対パス
+  summary: "render with the glow preset",
+  mutates: true,                       // 状態を変えるなら宣言する
+  positionals: [{ name: "clip", describe: "clip id", required: true }],
+  options: { radius: { type: "number", describe: "blur radius", default: 8 } },
+  run(ctx, args) {
+    ctx.project.meta.tags.push(`glow:${args.clip}`);   // 渡された作業コピーを書き換えるだけ
+    return { result: { ok: true }, summary: `glow ${args.clip}` };
+  },
+});
+```
+
+**名前空間は強制**する。プラグイン ID の末尾セグメントがそのプラグインのコマンド名前空間になり、
+`path` は**そこからの相対パス**として解決される（`com.example.glow` + `"render"` → `montash glow render`）。
+理由は 3 つ:
+
+1. **組み込みの乗っ取りが原理的に起きない。** 「上書きを検出して弾く」だけだと、組み込みが 1 つ増えた日に
+   既存のプラグインが突然壊れる。名前空間を切っておけば、組み込みの側が後から増えても衝突しない。
+2. **利用者が出自を読める。** `montash glow render` を見れば glow プラグインの機能だと分かる。
+   `plugin list` の `registered.commands` から逆も引ける。
+3. **書く側の手間が増えない。** 相対パスなので、プラグイン作者は名前空間を書かなくてよい。
+
+**組み込みコマンドの上書きは必ず禁止**する。次のいずれも `E_PLUGIN_COMMAND_CONFLICT` で**登録の時点で**
+弾き（`getCommands()` まで持ち越さない）、`detail` に「どのプラグインが」「どのパスを」「今は誰のものか」を出す。
+そのプラグインは読み込み失敗として警告になり、**他のプラグインと組み込みには影響しない**（§5 と同じ方針）。
+
+| 状況 | 例 |
+|------|-----|
+| 名前空間が組み込みの第 1 セグメントと同じ | `com.example.clip` が `clip ...` を名乗る |
+| 組み込みと同じ完全パス | 上の結果としての `clip add` |
+| 既に別のプラグインが取ったパス | 探索順で**先に読まれた方が勝つ**（同じ `id` の解決と同じ規則） |
+
+末尾セグメントがコマンド名として使えない（数字始まりなど）場合と、`path` の形が不正な場合は
+`E_PLUGIN_INVALID`。
+
+**状態変更は必ず `runMutation()` 経由**（§2 の原則 4）。`mutates: true` のコマンドは、ホストが
+load → 作業コピーを渡す → 検証 → 保存（tmp→rename）→ op 記録 までを行い、プラグインは
+**渡された作業コピーを書き換えて `summary` を返すだけ**。`--dry-run` も `-m` も組み込みと同じに効く。
+そのために、ハンドラに渡す文脈（`PluginCommandContext`）は `CommandContext` そのものではなく、次だけに絞ってある:
+
+| メンバ | 中身 |
+|--------|------|
+| `ctx.project` | `mutates: true` なら作業コピー。読み取り系では**凍結した複製**（書き換えても保存されない） |
+| `ctx.fps` / `ctx.cwd` | フレーム換算と、利用者が渡した相対パスの解決に要る値 |
+| `ctx.globals` | `json` / `quiet` / `verbose` / `dryRun` / `timeFormat` のみ |
+| `ctx.log(msg)` | `--verbose` のときだけ出る診断ログ |
+
+**プロジェクトディレクトリも保存関数も渡さない。** サンドボックスではない（§8）が、`project.json` へ至る
+最短経路を API に置かないことで、「うっかり直接書く」実装が生まれないようにしている。`mutates: true` と
+`noProject` は併用できず、`summary` を返さない `mutates` コマンドは `E_PLUGIN_INVALID`（op に残せないため）。
+
+**Web からの実行は許可リスト経由のみ。** サーバは `serve --allow/--deny` とマニフェストの `webAllow`
+が許したコマンドしか実行しない（P3-3）。プラグインがコマンドを足しただけでは Web からは呼べない。
 
 ## 4. 能力（capabilities）の 3 段階
 

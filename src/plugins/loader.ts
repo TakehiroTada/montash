@@ -14,10 +14,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { MontashError } from "../cli/errors.ts";
+import { builtinCommandPaths, registerCommand } from "../registry/commands.ts";
 import { registerEffect } from "../registry/effects.ts";
 import { registerGenerator } from "../registry/generators.ts";
 import { registerRequirements } from "../registry/requirements.ts";
 import { registerTransition } from "../registry/transitions.ts";
+import { assertPathAvailable, resolveCommandPath, toCommandSpec } from "./command-host.ts";
 import { assertCompatible, parseManifest } from "./manifest.ts";
 import {
   type LoadedPlugin,
@@ -113,6 +115,7 @@ function createHost(
   manifest: PluginManifest,
   onLog: (message: string) => void,
   registered: LoadedPlugin["registered"],
+  builtinPaths: ReadonlySet<string>,
 ): PluginHost {
   const declared = new Set<PluginCapability>(manifest.capabilities ?? []);
   const capabilities = {
@@ -152,6 +155,22 @@ function createHost(
       define(spec) {
         registerTransition(spec, "plugin");
         registered.transitions.push(spec.name);
+      },
+    },
+    commands: {
+      // プラグインのコマンドは必ずプラグイン名前空間の下に入り、組み込みは決して上書きしない
+      // （docs/14 §3.3）。登録の時点で弾くので、どのプラグインがどのパスを取ろうとしたか分かる。
+      define(spec) {
+        const path = resolveCommandPath(manifest, spec.path);
+        assertPathAvailable(manifest, path, builtinPaths);
+        const log = (message: string) => onLog(`[${manifest.id}] ${message}`);
+        registerCommand(toCommandSpec(manifest, spec, path, log), {
+          source: "plugin",
+          plugin: manifest.id,
+          ...(spec.requires ? { requires: spec.requires } : {}),
+        });
+        registered.commands.push(path);
+        return path;
       },
     },
     requireFeatures(requires) {
@@ -194,8 +213,8 @@ export async function loadPlugin(dir: string, manifest: PluginManifest, opts: Lo
     });
   }
 
-  const registered: LoadedPlugin["registered"] = { effects: [], generators: [], transitions: [] };
-  const host = createHost(manifest, log, registered);
+  const registered: LoadedPlugin["registered"] = { effects: [], generators: [], transitions: [], commands: [] };
+  const host = createHost(manifest, log, registered, await builtinCommandPaths());
   try {
     await plugin.register(host);
   } catch (e) {
@@ -207,7 +226,7 @@ export async function loadPlugin(dir: string, manifest: PluginManifest, opts: Lo
   }
 
   if (manifest.requires) registerRequirements(`plugin:${manifest.id}`, manifest.requires);
-  log(`loaded ${manifest.id} (${registered.effects.length} effect(s))`);
+  log(`loaded ${manifest.id} (${registered.effects.length} effect(s), ${registered.commands.length} command(s))`);
   return { manifest, dir, entry, registered };
 }
 

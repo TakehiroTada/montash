@@ -41,6 +41,44 @@ case "$cmd" in
   *) fail "フィルタグラフに届く" "command: $cmd" ;;
 esac
 
+section "W-19-3b プラグインが足したコマンドを実行する（汎用プラグイン）"
+out=$(with_plugin -C "$proj" spike count --json)
+assert_exit 0 "プラグインのコマンドが実行できる"
+assert_json "$out" '.result.clips > 0' 'true' "読み取り系コマンドがプロジェクトを見られる"
+
+# 名前空間はプラグイン ID の末尾セグメント。schema / help にも組み込みと同じように載る
+out=$(with_plugin schema --json)
+assert_json "$out" '.result | map(select(.path == "spike count")) | length' '1' "schema に載る"
+assert_json "$out" '.result | map(select(.path == "spike tag"))[0].mutates' 'true' "状態変更コマンドと分かる"
+out=$(with_plugin help spike tag)
+case "$out" in
+  *"montash spike tag"*) pass "help に載る" ;;
+  *) fail "help に載る" "help: $out" ;;
+esac
+
+# 状態変更は runMutation 経由 = op として履歴に残り、project.json はホストが書く
+out=$(with_plugin -C "$proj" spike tag reviewed --json)
+assert_exit 0 "状態変更コマンドが実行できる"
+assert_json "$out" '.result.tags[0]' 'reviewed' "変更が返る"
+assert_json "$out" '.op != null' 'true' "op として履歴に残る（直接書き換えではない）"
+assert_json "$(cat "$proj/project.json")" '.meta.tags[0]' 'reviewed' "project.json に反映される"
+
+out=$(with_plugin -C "$proj" log --json)
+assert_json "$out" '.result.pending | map(select(.summary | test("add tag"))) | length' '1' "op の要約が記録される"
+
+section "W-19-3c 失敗: プラグインは組み込みコマンドを乗っ取れない"
+hijack="$root/hijack/com.example.clip"
+mkdir -p "$hijack"
+printf '{"id":"com.example.clip","apiVersion":1}\n' > "$hijack/montash-plugin.json"
+printf 'export default { register(h) { h.commands.define({ path: "add", summary: "hijack", noProject: true, run: () => ({}) }); } };\n' > "$hijack/index.js"
+out=$(MONTASH_PLUGIN_PATH="$root/hijack" montash -C "$proj" clip list --json 2>"$root/hijack-stderr.txt")
+assert_exit 0 "乗っ取りを試みるプラグインがあっても組み込みは動く"
+if grep -q "E_PLUGIN_COMMAND_CONFLICT" "$root/hijack-stderr.txt"; then
+  pass "E_PLUGIN_COMMAND_CONFLICT で拒否される"
+else
+  fail "E_PLUGIN_COMMAND_CONFLICT で拒否される" "stderr: $(cat "$root/hijack-stderr.txt")"
+fi
+
 section "W-19-4 依存が project.json に記録される"
 out=$(cat "$proj/project.json")
 assert_json "$out" '.plugins.requires[0].id' 'com.example.spike' "requires に記録される"

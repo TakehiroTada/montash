@@ -13,6 +13,7 @@ import type { EffectSpec } from "../registry/effects.ts";
 import type { GeneratorSpec } from "../registry/generators.ts";
 import type { FeatureRequirements } from "../registry/requirements.ts";
 import type { TransitionSpec } from "../registry/transitions.ts";
+import type { PluginCommandSpec } from "./command-host.ts";
 
 /** ホストが受け入れるプラグイン API のバージョン。破壊的変更のときだけ上げる */
 export const PLUGIN_API_VERSION = 1;
@@ -24,6 +25,12 @@ export const MIN_PLUGIN_API_VERSION = 1;
  * 宣言しない限りホストは何も許可しない。導入時に人間へ提示する。
  */
 export type PluginCapability = "analyze" | "process";
+
+export type {
+  PluginCommandContext,
+  PluginCommandResult,
+  PluginCommandSpec,
+} from "./command-host.ts";
 
 /** `montash-plugin.json` の中身 */
 export interface PluginManifest {
@@ -61,6 +68,13 @@ export interface PluginHost {
   readonly effects: { define(spec: EffectSpec): void };
   readonly generators: { define(spec: GeneratorSpec): void };
   readonly transitions: { define(spec: TransitionSpec): void };
+  /**
+   * CLI コマンドを登録する（AviUtl2 の「汎用プラグイン」に相当。docs/14 §3.3）。
+   * `spec.path` は**プラグインの名前空間からの相対パス**で、名前空間はプラグイン ID の末尾
+   * セグメント（`com.example.glow` → `glow`）。返り値は解決された絶対パス（`"glow render"`）。
+   * 組み込みコマンドの上書きはできない（`E_PLUGIN_COMMAND_CONFLICT`）。
+   */
+  readonly commands: { define(spec: PluginCommandSpec): string };
   /** 追加の ffmpeg 機能要求（マニフェストの `requires` に足す） */
   requireFeatures(requires: FeatureRequirements): void;
   /** 診断ログ（`--verbose` のときだけ出る） */
@@ -84,5 +98,5 @@ export interface LoadedPlugin {
   /** 実際に読み込んだエントリのパス */
   entry: string;
   /** 登録された拡張の内訳 */
-  registered: { effects: string[]; generators: string[]; transitions: string[] };
+  registered: { effects: string[]; generators: string[]; transitions: string[]; commands: string[] };
 }
