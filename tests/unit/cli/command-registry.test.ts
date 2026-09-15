@@ -23,7 +23,7 @@ import {
 } from "../../../src/registry/requirements.ts";
 
 /** 組み込みコマンド数。外から見た挙動を変えないための固定値（docs/04） */
-const BUILTIN_COMMAND_COUNT = 88;
+const BUILTIN_COMMAND_COUNT = 93;
 
 const globals = (over: Partial<GlobalOptions> = {}): GlobalOptions => ({
   json: false,
@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe("getCommands()", () => {
-  test("登録が空なら組み込み配列と同一（コマンド数 88 が変わらない）", async () => {
+  test("登録が空なら組み込み配列と同一（コマンド数が変わらない）", async () => {
     const specs = await getCommands();
     expect(specs).toHaveLength(BUILTIN_COMMAND_COUNT);
     expect(builtinCommands).toHaveLength(BUILTIN_COMMAND_COUNT);
@@ -112,7 +112,7 @@ describe("追加した spec が schema / help に現れる", () => {
     expect(detailText).toContain("montash plugin-demo run — test-only command registered at runtime");
   });
 
-  test("登録が空なら schema の件数は従来どおり 88", async () => {
+  test("登録が空なら schema の件数は組み込みと同じ", async () => {
     const all = await schema.handler(ctx(), { format: "json" });
     expect(all.result as unknown[]).toHaveLength(BUILTIN_COMMAND_COUNT);
   });

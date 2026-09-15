@@ -139,6 +139,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_NOTHING_TO_UNDO` / `E_NOTHING_TO_REDO` | 履歴端 | — |
 | `E_NOTHING_TO_COMMIT` | pending op 無し | `--allow-empty` |
 | `E_PLUGIN_MISSING` | クリップが未知の種別を持ち、供給するプラグインが無い。**読み込み・保存は通り、レンダー時のみ**（docs/05 §6.1a） | 該当プラグインの導入、または `clip delete` |
+| `E_EFFECT_NOT_FOUND` | そのクリップに指定の効果が掛かっていない | 掛かっている効果の一覧 |
 | `E_SCHEMA_TOO_OLD` | `project.json` の `schema_version` が古い。v1.0 前なので移行は提供しない | `montash init` で作り直す |
 | `E_HISTORY_REF_NOT_FOUND` | op/commit/tag が無い | 類似 ID 候補 |
 | `E_TAG_EXISTS` / `E_TAG_NOT_FOUND` | タグ名 | — |
@@ -517,6 +518,37 @@ montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) -
 プリセット（`title-center`, `lower-third`, `caption-bottom`, `corner-tag`）はサイズ・位置・背景・フェードの組。ユーザー定義は `project.json` の `text_presets` に追加。
 
 ---
+
+## エフェクト（W-18）
+
+クリップに掛ける効果。効果の種類と引数は**エフェクトレジストリ**が持ち、CLI のオプションはその定義から導出される（docs/07 §3a、docs/14）。組み込みもプラグインも同じ扱いで、`effect presets` の `source` で出自が分かる。
+
+### `montash effect presets [--target video|audio] [--json]` — W-18
+
+登録済みの効果を、引数の型・既定値・範囲つきで一覧する。`--json` は AI 向け（`schema` にも同じ情報が載る）。
+
+### `montash effect add <clip> <effect> [効果ごとの引数...] [--index N]` — W-18
+
+```
+montash effect add c1 color --saturation 1.2 --brightness 0.05
+montash effect add c1 color --gamma 1.1 --index 0     # 先頭に差し込む
+```
+
+- 引数は効果ごとに違う。**受け取れる引数は `effect presets` が返すものだけ**で、その効果が持たない引数は無視される。
+- 値の型・範囲・`choices` は追加時に検査する（レンダーまで持ち越さない）。範囲外は `E_USAGE`。
+- `--index` 省略時は末尾に追加。効果は**配列順に適用**される。
+- 登録されていない効果は `E_PLUGIN_MISSING`（終了コード 1）。`hint` に導入済みの効果一覧を出す。
+  - **注意**: その効果固有の引数を一緒に渡すと、引数の解析が先に走って `E_USAGE`（`Unknown argument`）になる。まず `effect presets` で確認すること。
+
+### `montash effect set <clip> <effect|index> [引数...] [--index N]` — W-18
+
+指定した引数だけを更新する（指定しなかった値は残る）。`--index` で適用順を変えられる。効果は名前でも、`effect list` の index でも指定できる。
+
+### `montash effect remove <clip> <effect|index>` — W-18
+
+### `montash effect list <clip> [--json]` — W-18
+
+掛かっている効果を**適用順**に返す。プラグインが無くて解釈できない効果には `missing: true` が付く（その状態でもプロジェクトは開ける。F-EXT-4）。
 
 ## 10. オーバーレイ
 
