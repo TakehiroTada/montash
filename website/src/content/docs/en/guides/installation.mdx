@@ -1,0 +1,133 @@
+---
+title: Installation
+description: Get Bun and ffmpeg in place, then confirm with montash doctor
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+montash has exactly two runtime dependencies: **Bun** and **ffmpeg / ffprobe**.
+
+## Requirements
+
+| Item | Requirement | Notes |
+|------|-------------|-------|
+| OS | **bash** on WSL2 (Ubuntu 22.04+), Ubuntu 22.04+, or macOS 12+ | Native Windows (PowerShell / cmd) is out of scope |
+| [Bun](https://bun.sh) | **1.2 or newer** | Runtime and package manager |
+| ffmpeg / ffprobe | **4.4 or newer** (**6.0+ recommended**) | Checked by feature, not by version number |
+| A CJK font | Noto Sans CJK or similar | Without one, Japanese titles render as tofu (□□□) |
+
+### Features ffmpeg must have
+
+montash inspects your ffmpeg build for the features it needs rather than trusting the version number.
+
+- **Required**: encoders `libx264` and `aac`; filters `xfade`, `concat`, `overlay`, `fps`, `trim`, `loudnorm`, `sidechaincompress`
+- **Recommended**: filters `subtitles` (**libass**) and `drawtext` (libfreetype)
+
+:::caution[What happens without libass]
+Title rendering falls back to `drawtext`, with reduced capability (weaker outlines, line spacing and placement).
+When libass is missing, `montash doctor` switches the project's `settings.text_engine` to `drawtext`.
+**An ffmpeg build that includes libass is strongly recommended.**
+:::
+
+## Use the setup script
+
+`scripts/install-deps.sh` ships with the repository, detects what is missing and installs it.
+It runs on the bash 3.2 that macOS ships, and leaves anything already installed alone (it is idempotent).
+
+```bash
+bash scripts/install-deps.sh --check          # check only, install nothing
+bash scripts/install-deps.sh --with-fonts     # check, confirm, then install
+bash scripts/install-deps.sh --yes            # install without prompting
+bash scripts/install-deps.sh --dry-run        # just print the commands it would run
+```
+
+<Tabs>
+<TabItem label="macOS">
+
+It uses Homebrew, but will not install Homebrew for you — set that up first.
+
+```bash
+bash scripts/install-deps.sh --with-fonts
+```
+
+- ffmpeg is installed with **`brew install ffmpeg-full`**, because Homebrew's plain `ffmpeg` formula has neither libass nor libfreetype.
+- `ffmpeg-full` is keg-only and stays off your `PATH`, so the script symlinks it into `~/.local/share/montash/ffmpeg/bin`. montash looks there first.
+- The CJK font comes from `brew install --cask font-noto-sans-cjk-jp`.
+- **`--static` is not supported on macOS** — it is a Linux / WSL option.
+
+</TabItem>
+<TabItem label="Linux / WSL">
+
+Distribution ffmpeg packages are often too old or missing features, so a **static build is preferred**.
+
+```bash
+bash scripts/install-deps.sh --with-fonts --static
+```
+
+- A static build (bundling libx264, libx265, libass and libfreetype) is unpacked into `~/.local/share/montash/ffmpeg` and linked into `~/.local/bin`. **No sudo required.**
+- Even without `--static`, the script picks the static route when the ffmpeg it finds is outdated, feature-limited, or lacks libass. On rolling distributions (Arch, openSUSE, Alpine) it uses the distribution package instead.
+- The CJK font package is chosen per package manager: `fonts-noto-cjk` on apt, `google-noto-sans-cjk-jp-fonts` on dnf, and so on.
+- On WSL it also installs `wslu` (for `wslview`, which opens your browser) and `fontconfig` (for `fc-list`) when missing.
+
+:::tip[Where to keep projects on WSL]
+Projects under `/mnt/c/...` are slow to read and write, and file watching falls back to polling.
+Work on the ext4 side, under `~/`.
+:::
+
+</TabItem>
+</Tabs>
+
+On every platform Bun is installed with the official installer (`curl -fsSL https://bun.sh/install | bash`),
+and anything older than 1.2.0 is upgraded with `bun upgrade`.
+
+## Get montash
+
+<Steps>
+
+1. Clone the repository
+
+   ```bash
+   git clone https://github.com/TakehiroTada/montash.git
+   cd montash
+   bun install
+   ```
+
+2. Check that it runs
+
+   ```bash
+   bun run doctor
+   ```
+
+   To build a single binary, `bun run compile` produces `dist/montash`.
+   The rest of these docs write `montash`; if you are running from the repository, read that as `bun run dev`
+   (for example `bun run dev -C ./my-edit timeline show`).
+
+</Steps>
+
+## Confirm with `montash doctor`
+
+```bash
+montash doctor
+```
+
+`doctor` inspects ffmpeg, Bun and the platform, and prints what is missing together with a `hint` for fixing it.
+Add `--fix-hints` to merge in the result of `scripts/install-deps.sh --check --json`.
+
+```bash
+montash doctor --json          # when an AI is reading the output
+montash doctor --fix-hints
+```
+
+Once this passes, move on to the [quick start](/en/guides/quickstart/).
+
+## Pointing at a specific ffmpeg
+
+To use a particular build, set it per command or through the environment.
+
+```bash
+montash render -o out/final.mp4 --ffmpeg-path /opt/ffmpeg/bin/ffmpeg
+export MONTASH_FFMPEG=/opt/ffmpeg/bin/ffmpeg
+export MONTASH_FFPROBE=/opt/ffmpeg/bin/ffprobe
+```

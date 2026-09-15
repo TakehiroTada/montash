@@ -1,0 +1,126 @@
+---
+title: 書き出し
+description: render のプリセットと検証、進捗出力
+sidebar:
+  order: 9
+---
+
+タイムラインを MP4 にエンコードします。ここで初めて実際のピクセルが生まれます。
+
+## 書き出す
+
+```bash
+montash validate
+montash render --preset youtube-1080p -o out/final.mp4
+```
+
+```
+render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
+rendered /tmp/my-edit/out/final.mp4 (270 frames; verified)
+```
+
+:::tip[書き出す前に validate]
+`montash validate` は `project.json` の不変条件（参照・範囲・重なり・のりしろ・ギャップ）を検査します。
+エラーがある状態で render しても、途中で失敗するか、意図と違うものが出てきます。
+:::
+
+`-o` / `--output` は必須です。パスは**コマンドを実行したディレクトリからの相対**になります。
+プロジェクトディレクトリの中で実行するか、絶対パスを渡してください。
+
+## プリセット
+
+```bash
+montash render presets
+```
+
+現在実装されているプリセットは 2 つです。
+
+| プリセット | 解像度 | CRF | 速度 | 音声 | 用途 |
+|-----------|-------|-----|------|------|------|
+| `youtube-1080p`（既定） | 1920x1080 | 18 | `slow` | AAC 192k | 配信用の本番書き出し |
+| `web-preview` | 1280x720 | 28 | `veryfast` | AAC 96k | 確認用の速い書き出し |
+
+どちらも H.264（libx264）+ AAC の MP4 です。
+
+```bash
+montash render --preset web-preview -o out/check.mp4       # まず速い方で確認する
+montash render --preset youtube-1080p -o out/final.mp4     # 本番
+```
+
+## プリセットを上書きする
+
+```bash
+montash render -o out/final.mp4 \
+  --preset youtube-1080p \
+  --resolution 1920x1080 \
+  --crf 20 \
+  --preset-speed medium \
+  --threads 8
+```
+
+| オプション | 内容 |
+|-----------|------|
+| `--resolution` | 出力解像度を `WxH` で上書きする |
+| `--crf` | H.264 の品質（0〜51、小さいほど高品質・大きいファイル） |
+| `--preset-speed` | x264 のエンコード速度（`ultrafast` 〜 `veryslow`） |
+| `--threads` | エンコーダのスレッド数 |
+| `--overwrite` | 検証に成功した場合のみ既存ファイルを置き換える |
+
+`--overwrite` を付けないと、出力先にファイルがあるとエラーになります（`E_OUTPUT_EXISTS`）。
+上書きしていいと決めたときだけ付けてください。
+
+## 検証
+
+書き出しの最後に、出力ファイルが意図通りかが自動で検証されます。
+出力末尾の `verified` がそれです。単体でも実行できます。
+
+```bash
+montash render verify out/final.mp4
+```
+
+```
+verified 270 frames with audio: /tmp/my-edit/out/final.mp4
+```
+
+フレーム数・FPS・音声長・ストリーム構成を確認します。
+「エラーは出なかったが 1 フレーム足りない」を検出するための仕組みです。
+
+## 進捗の出力
+
+長い書き出しの進捗は `--progress` で形式を選べます。
+
+| 値 | 内容 |
+|----|------|
+| `text`（既定） | `render 41.5%` のような人間向けの表示 |
+| `jsonl` | 1 行 1 JSON。**AI や別プログラムから読む場合はこれ** |
+| `none` | 進捗を出さない |
+
+```bash
+montash render -o out/final.mp4 --progress jsonl
+```
+
+## ラウドネス正規化
+
+`montash audio normalize` を設定してあると、render のときに 2 パスの `loudnorm` が適用されます。
+タイムライン全体を一度測ってから線形補正をかけるので、書き出しに時間がかかります。
+
+プレビュー（`montash preview build`）には適用されません。詳しくは [音声](/ja/guides/audio/) を参照してください。
+
+## まだ使えないもの
+
+以下は仕様上は設計されていますが、**現時点では実装されていません**。
+
+| 機能 | 内容 |
+|------|------|
+| `montash render batch` | 複数プリセットを一括で書き出す |
+| `--reframe center\|left\|right\|<x>%` | 縦動画などへのクロップ位置指定 |
+| 縦動画プリセット（`instagram-reel` など） | 9:16 のプリセット |
+| 静止画 / GIF / 音声のみの書き出し | `render still` / `render gif` / `render audio` |
+| ハードウェアエンコード（`--hwaccel`）、2 パス（`--two-pass`） | |
+
+複数の解像度が必要な場合は、いまは `--resolution` を変えて `montash render` を複数回実行してください。
+
+## 次に読むもの
+
+- [AI から使う](/ja/guides/ai-usage/)
+- [CLI リファレンス](/ja/reference/cli/)

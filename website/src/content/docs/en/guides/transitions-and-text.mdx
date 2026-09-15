@@ -1,0 +1,206 @@
+---
+title: Transitions and titles
+description: Transitions at cuts, text clips (titles) and subtitle files
+sidebar:
+  order: 5
+---
+
+## Transitions
+
+A transition puts ffmpeg's `xfade` filter between two adjacent clips.
+
+```bash
+montash transition add --between c1 c3 --type fade --duration 0.5
+montash transition add --track V1 --all-cuts --type fade --duration 0.5
+montash transition add --track V1 --at-cut 00:00:05.000 --type wipeleft --duration f:12
+montash transition list
+```
+
+```
+t1  c1 -> c3  fade  f:15  handle
+```
+
+`--all-cuts` puts the same transition at **every cut** on the track —
+"cross-fade all the joins" is a single command.
+
+`--type` takes an xfade transition name straight from ffmpeg (`fade`, `dissolve`, `wipeleft`, `circleopen`, …).
+`ffmpeg -h filter=xfade` lists what your build supports.
+
+### Handles, and the two modes
+
+A transition needs a stretch where the two shots overlap. That material comes from **handles**.
+
+| `--mode` | Meaning |
+|----------|---------|
+| `handle` (default) | Overlap using source footage that exists beyond the clip's edges. **The timeline length does not change.** |
+| `overlap` | Actually overlap the clips. **The timeline gets shorter.** |
+
+Without enough handle you get `E_INSUFFICIENT_HANDLE`.
+
+```
+error [E_INSUFFICIENT_HANDLE]: transition "t1" needs 8 frame(s) after "c1" and 7 before "c3"
+  but only 180 / 0 are available
+  hint: Use duration_f <= 1, or --mode overlap.
+```
+
+A clip added with `clip add --in 0` starts at the very first frame of its source, so there is nothing before it to overlap.
+If you plan to add a transition, leave a little room (`--in 1`), or use `--mode overlap`.
+
+### What happens to the audio
+
+`--audio` decides how the linked audio is handled.
+
+| Value | Meaning |
+|-------|---------|
+| `crossfade` (default) | Cross-fade the audio too |
+| `cut` | Leave the audio as a hard cut |
+
+### Changing and removing
+
+```bash
+montash transition set t1 --type dissolve --duration 1.0
+montash transition remove t1
+```
+
+Removing an `overlap` transition restores the original spacing.
+
+## Fading in and out
+
+Fade the head and tail of a track or a clip from black (or white).
+
+```bash
+montash fade --track V1 --in 1.0 --out 2.0 --with-audio
+montash fade --clip c3 --in 0.5 --color white
+```
+
+```
+V1  in f:30  out f:30
+A1  in f:30  out f:30
+```
+
+`--with-audio` applies the same fade to the linked audio.
+
+## Titles (text clips)
+
+A title is a clip on a **text track** (`T1`, `T2`, …) with an ID like `x1`, `x2`.
+If there is no text track yet, `T1` is created for you.
+
+```bash
+montash text add --text "Summer Trip 2026" --at 0 --duration 3 --preset title-center
+montash text add --text "Arriving in Fukuoka" --at 12 --duration 3 --preset lower-third --size 48
+montash text list
+```
+
+```
+x1  T1  f:0..f:90  Summer Trip 2026
+  (created text track T1)
+```
+
+Write line breaks as `\n`. Longer bodies can come from a file.
+
+```bash
+montash text add --text-file ./credits.txt --at 40 --duration 8
+```
+
+### Style presets
+
+```bash
+montash text presets
+```
+
+```
+caption-bottom  builtin  size=40  position=bottom-center  bg=#00000080
+corner-tag      builtin  size=32  position=top-right      bg=#00000080
+lower-third     builtin  size=48  position=5%,85%         bg=#00000099
+title-center    builtin  size=96  position=center         bg=none
+```
+
+The easiest approach is to pick a preset for the overall look and override individual details.
+
+```bash
+montash text add --text "Chapter 2" \
+  --at 30 --duration 4 \
+  --preset title-center \
+  --font "Noto Sans CJK JP" --size 80 --color "#FFFFFF" \
+  --bg "#00000099" --bg-padding 24 \
+  --outline "3,#000000" --shadow "2,2,#00000080" \
+  --fade-in 0.3 --fade-out 0.3
+```
+
+The main options:
+
+| Option | What it does |
+|--------|--------------|
+| `--position` | A preset (`center`, `bottom-center`, `top-right`, …), `"x,y"` or `"x%,y%"` |
+| `--align` | Line alignment (`left` / `center` / `right`) |
+| `--wrap` / `--no-wrap` | Automatic line wrapping |
+| `--bold` / `--italic` | Bold and italic |
+| `--line-spacing` | Extra line spacing in px |
+| `--markup` | `plain` (escapes `{ } \`) or `ass` (passes ASS override tags through) |
+
+### Reusable text assets
+
+If the same wording appears repeatedly, register it as a text asset. The body is read at render time,
+so editing the asset updates every title that uses it.
+
+```bash
+montash assets new-text company_name --text "Sample Inc."
+montash text add --asset company_name --at 5 --duration 3 --preset corner-tag
+montash assets set-text company_name --text "Sample Corporation"   # updates every use
+```
+
+### Changing and removing
+
+```bash
+montash text set x1 --text "Summer Trip 2027" --size 72
+montash text remove x1
+```
+
+## Subtitles
+
+Import an SRT / VTT / ASS file and attach it to the timeline. Unlike titles, **the file's own content is used as-is**.
+
+```bash
+montash import ./subs/en.srt
+montash subtitle add --asset en --mode burn --font "Noto Sans CJK JP" --size 40 --margin-bottom 60
+montash subtitle list
+```
+
+| `--mode` | Meaning |
+|----------|---------|
+| `burn` (default) | **Burned into the picture.** Always visible in any player, and cannot be turned off |
+| `soft` | **Muxed as a selectable track.** The viewer can switch it on and off |
+
+```bash
+montash subtitle add --asset ja --mode soft --lang ja
+montash subtitle add --asset en --mode soft --lang en
+```
+
+If the timing is off, `--offset` shifts every cue.
+
+```bash
+montash subtitle set s1 --offset +0.5
+```
+
+:::caution[libass is needed]
+The quality of `burn` mode depends on ffmpeg's `subtitles` filter (libass).
+Builds without libass fall back to `drawtext`, with reduced capability.
+Check with `montash doctor`.
+:::
+
+## Overlays
+
+Put an image or video on a video track above the main one — a logo, a picture-in-picture.
+
+```bash
+montash track add --kind video --above V1
+montash overlay add --asset logo --track V2 --at 0 --duration timeline \
+  --position top-right --margin 40 --scale 0.12 --opacity 0.8
+montash overlay set c8 --position bottom-right --fade-in 0.5
+montash overlay list
+```
+
+## Next
+
+- [Audio](/en/guides/audio/) — music, ducking and loudness
+- [Rendering](/en/guides/rendering/)

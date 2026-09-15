@@ -3,6 +3,10 @@ node_modules/
 dist/
 web/dist/
 *.bun-build
+# docs site (website/ は Astro + Starlight。ルート CI には含めない)
+website/node_modules/
+website/dist/
+website/.astro/
 # runtime artifacts of montash projects (仕様 05 章)
 .montash/
 out/

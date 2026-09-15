@@ -1,0 +1,214 @@
+---
+title: AI から使う
+description: montash を AI のオペレーターとして動かすためのガイド
+sidebar:
+  order: 10
+---
+
+montash の主たる操作者は AI（LLM）です。このページは、AI に montash を操作させるときの
+組み込み方と、AI 側に持たせるべき方針をまとめます。
+
+## 基本ループ
+
+AI が 1 つの指示を処理する流れは、おおむねこうなります。
+
+```
+1. 人間の指示を受ける
+2. 状態を確認する        montash status --json / montash timeline show --json
+3. 曖昧さを解決する      「2 番目」→ クリップ ID、「最後の 10 秒」→ 秒数
+4. 必要なら --dry-run で確認する
+5. 実行する              --json --yes を付けて
+6. 結果を読む            ok / warnings / error.hint / op
+7. 失敗したら hint に従って直して再実行する（最大 2 回）
+8. 作業単位が終わったらコミットする   montash commit -m "<範囲> <何をしたか>"
+9. 人間に報告する        何をしたか、コミット ID、尺、確認してほしい時刻
+```
+
+## ツール定義を取り出す
+
+`montash schema` は、コマンド定義を LLM のツール定義としてそのまま出力できます。
+コマンドを 1 つずつ手で書く必要はありません。
+
+```bash
+montash schema --format anthropic-tools > tools.json
+montash schema --format openai-tools > tools.json
+montash schema "clip trim" --format anthropic-tools    # 1 コマンドだけ
+montash schema --json                                  # 生の定義
+```
+
+```json
+[
+  {
+    "name": "montash_clip_trim",
+    "description": "trim a clip's source in/out points, optionally rippling the rest of the timeline\n--in +0.5 cuts half a second off the head, --out -1 a second off the tail. ...",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "clip ID" },
+        "in": { "type": "string", "description": "source in point (absolute or ±relative) (time: seconds, HH:MM:SS.mmm, or f:<frames>)" },
+        "ripple": { "type": "string", "description": "ripple following elements: --ripple (all tracks), --ripple=all, --ripple=track" }
+      }
+    }
+  }
+]
+```
+
+コマンドが増減してもこの出力が追従するので、ツール定義を再生成するだけで済みます。
+
+## `--json` 出力を読む
+
+`--json` を付けると、すべてのコマンドが同じ形の JSON を返します。
+
+**成功したとき**
+
+```json
+{
+  "ok": true,
+  "command": "clip split",
+  "result": {
+    "kept":    { "id": "c1", "start_f": 0,  "end_f": 90 },
+    "created": { "id": "c6", "start_f": 90, "end_f": 150 },
+    "linked":  { "kept": "c2", "created": "c7" }
+  },
+  "changes": [ ... ]
+}
+```
+
+**失敗したとき**
+
+```json
+{
+  "ok": false,
+  "command": "clip trim",
+  "error": {
+    "code": "E_CLIP_NOT_FOUND",
+    "message": "clip \"c99\" not found",
+    "hint": "Run `montash clip list --json` to see the current clip IDs.",
+    "detail": { "clip": "c99", "known_clips": ["c1", "c6", "c3", "c2", "c7", "c4", "c5", "x1"] }
+  }
+}
+```
+
+:::tip[hint と detail で自己修正する]
+`error.hint` は「次に何をすればいいか」を書いてあります。`error.detail` にはそのために必要な値が入っています。
+上の例なら、`known_clips` から正しい ID を選んで再実行すればよい、と読めます。
+**同じエラーで 2 回失敗したら手を止めて人間に説明する**のが安全です。
+:::
+
+環境変数 `MONTASH_JSON=1` でも `--json` と同じ効果になります。
+
+## 主なエラーと対処
+
+| `error.code` | AI の行動 |
+|--------------|-----------|
+| `W_SNAPPED` | 採用されたフレーム値を控え、以降は `f:<frame>` を使う。人間への報告は秒で |
+| `E_RANGE_OUT_OF_ASSET` | `detail.asset_duration_f` に合わせて `f:` で再実行する |
+| `E_SPLIT_AT_EDGE` | 分割位置がクリップの端。trim か delete の意図か確認する |
+| `E_CLIP_OVERLAP` | 「挿入」なら `--on-overlap push`、「置き換え」なら `overwrite`。不明なら確認する |
+| `E_INSUFFICIENT_HANDLE` | `detail.max_duration` で再実行するか、`--mode overlap` を提案する |
+| `E_FONT_NOT_FOUND` | `hint` の候補フォントで再実行し、「○○フォントを使いました」と報告する |
+| `E_OUTPUT_EXISTS` | 別名で保存するか上書きするかを確認する |
+| `E_FFMPEG_FAILED` | `detail.stderr_tail` を読む。`validate --deep` を実行する。解決できなければ stderr を人間に見せる |
+| `E_ASSET_MISSING` | `assets relink --search <推定ディレクトリ>` を提案する |
+| `E_NOTHING_TO_UNDO` | 「これ以上戻せない」と報告する |
+| `W_DETACHED_HEAD` | 過去の状態にいる。「ここから分岐するか、tip に戻るか」を人間に確認する |
+| `E_NOTHING_TO_COMMIT` | 「記録すべき変更はありません」と報告する |
+
+## 自然言語からコマンドへ
+
+| 人間の言い方 | コマンド |
+|-------------|---------|
+| 「A の 2 秒から 10 秒を使って」 | `clip add --asset A --in 2 --out 10 --at end` |
+| 「A の最後 5 秒」 | `clip add --asset A --in=-5 --at end` |
+| 「A の頭 3 秒を切って」 | `clip trim <id> --in +3 --ripple` |
+| 「A の尻を 3 秒切って」 | `clip trim <id> --out=-3 --ripple` |
+| 「A を 0.5 秒後ろに」 | `clip move <id> --by +0.5` |
+| 「A と B を入れ替えて」 | `clip move <B> --before <A> --ripple` |
+| 「12 秒で切って後ろを消して」 | `clip split <id> --at 12 --json` → `result.created.id` → `clip delete <その ID> --ripple` |
+| 「12 秒で切って前を消して」 | `clip split <id> --at 12` → `clip delete <元の ID> --ripple` |
+| 「繋ぎ目を全部クロスフェードに」 | `transition add --track V1 --all-cuts --type fade --duration 0.5` |
+| 「最初はフェードイン、最後はフェードアウト」 | `fade --track V1 --in 1 --out 1 --with-audio` |
+| 「タイトルを入れて」 | `text add --text "..." --at 0 --duration 3 --preset title-center` |
+| 「BGM を敷いて、声のところは下げて」 | `track add --kind audio --name A2` → `clip add --asset bgm --track A2 --audio-only ...` → `audio duck --target A2 --sidechain A1` |
+| 「音量を YouTube 向けに」 | `audio normalize --loudness=-14 --true-peak=-1` |
+| 「YouTube 用に書き出して」 | `render --preset youtube-1080p -o out/<name>.mp4 --progress jsonl` |
+| 「さっきのやめて」 | `undo` |
+| 「テロップ入れる前に戻して」 | `log --grep テロップ --json` → `checkout <k_xxxx>~1` |
+| 「このバージョンも残して」 | `tag <name>` |
+| 「この素材どこで使ってる？」 | `assets show <id> --json`（`usage` を見る） |
+
+### 曖昧さの既定の解釈
+
+- 「N 番目」= 指定がなければ `V1` の時間順 N 番目。上位トラックにも候補があれば確認する
+- 「切る」= リップルあり（全トラックで後続を詰める）。「空けて」「ずらして」と言われたときだけリップルなし
+- 長さの既定値: トランジション 0.5 秒、フェード 1 秒、テキスト 3 秒
+- 出力先未指定 = `out/<プロジェクト名>.mp4`。既存なら `_v2` を付けて**上書きしない**
+
+## 時間の扱い
+
+- 内部はすべて整数フレーム。秒で指定すると最寄りフレームに丸められ、`W_SNAPPED` が返る
+- **一度 CLI から返った値は `f:<n>` で再利用する**（再度の丸めを防ぐ）
+- 人間への報告は秒またはタイムコードで行う
+- 29.97fps では「1 秒 = 30 フレーム = 1.001 秒」。「30 秒ちょうど」のような指示は `f:` に変換して確認する
+- 負の値は `--in=-10` のように `=` で渡す
+
+## コミットメッセージの書き方
+
+コミットメッセージは、**人間があとから「どこを直したか」を時間で探せる**ように書きます。
+
+```
+<開始>〜<終了> <何をしたか>
+```
+
+```bash
+montash commit -m "00:12.0〜00:15.0 の言い間違いをカット" \
+  --body "指示: 「12秒あたりの噛んだところ消して」"
+```
+
+- 先頭は必ず影響した時間範囲（`MM:SS.s〜MM:SS.s`）。無いと `W_COMMIT_MESSAGE_STYLE` が警告される
+- 本文（`--body`）には**人間の指示をそのまま引用する**。あとで「なぜそうしたか」が分かる
+- **作業単位ごとにコミットする**。人間の 1 指示が完了した時点、または人間が「OK」と言った時点
+- 試行錯誤の途中ではコミットしない（op は自動で残るので、失うものはない）
+- 1 セッションの終わりに未コミットを残さない
+
+## 必ず守ること
+
+1. **元素材を書き換える操作は存在しない**。そのことを人間にも保証する
+2. `render` の前に必ず `validate --json`。error があれば render しない
+3. `--overwrite` は人間が明示的に「上書きしていい」と言ったときだけ
+4. 破壊的に見える操作（`assets remove --force`、`track remove --force`、`init --force`）は実行前に一言確認する
+5. 数値は秒またはタイムコードで明示する。「少し」は 0.5 秒として提案し、確認を取る
+6. 結果報告には**クリップ ID と時刻**を含める（人間がブラウザで確認できるように）
+7. 同じエラーで 2 回失敗したら手を止めて状況を説明する
+8. **状態を変える前に `status` を確認する**。`detached` なら「過去の状態を表示中です。ここから続けますか、最新に戻しますか」と確認する。黙って tip に戻さない
+9. ブラウザ（`actor: web`）で行われた操作は `log --ops` で把握し、人間が Web で取り込んだ素材やラベルを前提に会話する
+
+## 状態確認によく使うコマンド
+
+| 目的 | コマンド |
+|------|---------|
+| 履歴位置・未コミット・Web 操作の有無 | `montash status --json` / `montash log --ops --limit 10 --json` |
+| 全体の把握 | `montash project show --json` / `montash timeline show --json` |
+| クリップ ID の特定 | `montash clip list --json` |
+| ある時刻に何があるか | `montash timeline show --from 11.5 --to 13 --json` |
+| 素材の尺 | `montash assets show <id> --json` |
+| 実行前チェック | `montash validate --json` |
+| 何が変わるか | `<command> --dry-run --json` |
+
+## 報告のしかた
+
+```
+実行内容
+- c2（clip_b）の頭を 0.5 秒トリム（リップル）→ タイムライン尺 44.5s → 44.0s
+- c3 を c2 の前に移動
+- コミット k_0008「00:12.0〜 c2 の頭を 0.5s 詰め、c3 を c2 の前へ」として記録
+
+確認してほしい箇所
+- 12.0s 付近（c3 → c2 の繋ぎ）
+- ブラウザ（http://localhost:7788）は自動更新済み
+```
+
+## 次に読むもの
+
+- [CLI リファレンス](/ja/reference/cli/) — 全コマンドと引数
+- [プロジェクトファイル](/ja/reference/project-file/) — `project.json` の形

@@ -1,0 +1,195 @@
+---
+title: クイックスタート
+description: 素材の取り込みから MP4 書き出しまでを 10 分で通す
+sidebar:
+  order: 3
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+素材 2 本と BGM から、トランジション・タイトル・BGM 付きの 1 本を書き出すまでを通します。
+ここに載っているコマンドはすべて実際に動かして確認したものです。
+
+:::note[前提]
+[インストール](/ja/guides/installation/) を済ませ、`montash doctor` が通っている状態から始めます。
+リポジトリから直接動かしている場合は `montash` を `bun run dev` に読み替えてください。
+:::
+
+<Steps>
+
+1. ### プロジェクトを作る
+
+   fps と解像度はここで決まり、以降すべての時間はこの fps 基準の整数フレームで保存されます。
+
+   ```bash
+   montash init ./my-edit --fps 30 --resolution 1280x720
+   cd my-edit
+   ```
+
+   ```
+   op o_0001
+   initialized project "my-edit" in /tmp/qs/my-edit
+     fps         30 (30/1; 1 frame = 0.033333 s)
+     resolution  1280x720
+     audio       48000 Hz, 2 ch
+     tracks      V1, A1
+   ```
+
+   映像トラック `V1` と音声トラック `A1` が最初から用意されます。
+   よく使う設定は `--template` でも指定できます（`youtube-1080p`、`reel-1080x1920-30`、`broadcast-2997` など）。
+
+2. ### 素材を取り込む
+
+   `--proxy` を付けると、ブラウザでのプレビュー用に軽い H.264/AAC のコピーも同時に作られます。
+   **元のファイルは一切書き換わりません。**
+
+   ```bash
+   montash import ../raw/clip_a.mp4 ../raw/clip_b.mp4 ../raw/bgm.m4a --proxy
+   montash assets list
+   ```
+
+   ```
+   clip_a  video  360 frames  proxy:ready  clips:0  /tmp/qs/raw/clip_a.mp4
+   clip_b  video  300 frames  proxy:ready  clips:0  /tmp/qs/raw/clip_b.mp4
+   bgm  audio  900 frames  proxy:ready  clips:0  /tmp/qs/raw/bgm.m4a
+   ```
+
+   素材 ID はファイル名から作られます（`clip_a.mp4` → `clip_a`）。以降はこの ID で指定します。
+
+3. ### タイムラインに並べる
+
+   「素材のどこからどれだけを、タイムラインのどこに置くか」を指定します。
+   映像と音声はリンクされた 2 つのクリップとして置かれます。
+
+   ```bash
+   montash clip add --asset clip_a --in 1 --duration 5 --at 0
+   montash clip add --asset clip_b --in 1 --duration 4 --after c1
+   montash timeline show
+   ```
+
+   ```
+   00:00:09.000  (270 frames)
+   V1 |c1[0..150] | c3[150..270]|
+   A1 |c2[0..150] | c4[150..270]|
+   ```
+
+   `c1` が映像、`c2` がそれにリンクした音声です。`--after c1` は「c1 の直後に置く」という意味で、
+   位置を自分で計算する必要はありません。
+
+   :::tip[のりしろを残す]
+   `--in 1` として素材の先頭 1 秒を残してあるのは、あとでトランジションを入れるための**のりしろ**です。
+   `--in 0` で切り詰めるとクリップの前に使える映像が無く、`E_INSUFFICIENT_HANDLE` になります。
+   :::
+
+4. ### ここまでをコミットする
+
+   区切りのいいところで、これまでの操作に意味を付けます。
+   メッセージは「影響する時間範囲 + 何をしたか」で書くのが推奨です。
+
+   ```bash
+   montash commit -m "00:00.0〜00:09.0 2 本の素材を繋いだ"
+   ```
+
+   ```
+   [k_0001] 00:00.0〜00:09.0 2 本の素材を繋いだ
+     4 ops (o_0001..o_0004), author ai
+   ```
+
+5. ### 繋ぎ目とタイトルを入れる
+
+   ```bash
+   montash transition add --track V1 --all-cuts --type fade --duration 0.5
+   montash text add --text "夏の旅 2026" --at 0 --duration 3 --preset title-center
+   montash fade --track V1 --in 1 --out 1 --with-audio
+   ```
+
+   ```
+   t1  c1 -> c3  fade  f:15  handle
+   x1  T1  f:0..f:90  夏の旅 2026
+     (created text track T1)
+   V1  in f:30  out f:30
+   A1  in f:30  out f:30
+   ```
+
+   `--all-cuts` はトラック上のすべてのカット点にトランジションを入れます。
+   テキストトラック `T1` は必要になった時点で自動的に作られます。
+
+6. ### BGM を敷く
+
+   ```bash
+   montash track add --kind audio --name A2
+   montash clip add --asset bgm --track A2 --at 0 --duration 8 --audio-only
+   montash audio gain --clip c5 --db=-12
+   montash audio fade --clip c5 --out 2.0
+   montash audio duck --target A2 --sidechain A1
+   montash audio normalize --loudness=-14 --true-peak=-1
+   montash audio show
+   ```
+
+   ```
+   master 0dB   normalize I -14 TP -1 LRA 11
+   A1  gain 0dB  fade 30/30f
+       c2  f:0..f:150  0dB  fade 0/0f
+       c4  f:150..f:270  0dB  fade 0/0f
+   A2  gain 0dB  fade 0/0f
+       c5  f:0..f:240  -12dB  fade 0/60f
+   duck d1  A2 <- A1  -30dB / 8:1
+   ```
+
+   `audio duck` は「A1（声）が鳴っている間だけ A2（BGM）を下げる」設定です。
+   負の数は `--db=-12` のように `=` で渡してください（`--db -12` だとオプション名と解釈されます）。
+
+7. ### ブラウザで確認する
+
+   ```bash
+   montash preview build
+   montash serve --open
+   ```
+
+   `http://127.0.0.1:7788` でプレビューが開きます。再生・シーク・タイムライン・履歴・素材管理ができます。
+   詳しくは [プレビューとブラウザ画面](/ja/guides/preview-and-web/) を参照してください。
+
+8. ### 検査して書き出す
+
+   書き出す前に `validate` で `project.json` の不変条件（参照・範囲・重なり・のりしろ・ギャップ）を確認します。
+
+   ```bash
+   montash validate
+   montash render --preset youtube-1080p -o out/final.mp4
+   ```
+
+   ```
+   render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
+   rendered /tmp/qs/my-edit/out/final.mp4 (270 frames; verified)
+   ```
+
+   `verified` は、書き出した MP4 のフレーム数が意図した 270 フレームと一致したことを意味します。
+   あとから単体で確かめることもできます。
+
+   ```bash
+   montash render verify out/final.mp4
+   ```
+
+9. ### 最後にコミットする
+
+   ```bash
+   montash commit -m "00:00.0〜00:09.0 トランジション・テロップ・BGM を追加"
+   montash log --graph
+   ```
+
+   ```
+   ● k_0002  2026-09-15 05:30  ai      00:00.0〜00:09.0 トランジション・テロップ・BGM を追加
+   │ ○ o_0013  2026-09-15 05:30  ai      normalize to -14 LUFS
+   │ ○ o_0012  2026-09-15 05:30  ai      add ducking d1 (A2 <- A1)
+   │ ○ o_0011  2026-09-15 05:30  ai      set audio fade on c5
+   ...
+   ● k_0001  2026-09-15 05:30  ai      00:00.0〜00:09.0 2 本の素材を繋いだ
+   ```
+
+</Steps>
+
+## 次に読むもの
+
+- [カット編集](/ja/guides/editing/) — トリム・分割・並べ替えとリップルの意味
+- [履歴](/ja/guides/history/) — `checkout` / `undo` / `tag` で任意の時点に戻る
+- [AI から使う](/ja/guides/ai-usage/) — この一連の流れを AI に任せる

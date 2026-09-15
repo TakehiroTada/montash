@@ -1,0 +1,195 @@
+---
+title: Quick start
+description: From importing footage to an exported MP4 in ten minutes
+sidebar:
+  order: 3
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+This walks two clips and a music track all the way to a finished video with a transition, a title and background music.
+Every command below was actually run and verified.
+
+:::note[Before you start]
+Finish [Installation](/en/guides/installation/) and make sure `montash doctor` passes.
+If you are running from the repository, read `montash` as `bun run dev`.
+:::
+
+<Steps>
+
+1. ### Create a project
+
+   The frame rate and resolution are fixed here; from now on every time value is stored as an integer frame count at this rate.
+
+   ```bash
+   montash init ./my-edit --fps 30 --resolution 1280x720
+   cd my-edit
+   ```
+
+   ```
+   op o_0001
+   initialized project "my-edit" in /tmp/qs/my-edit
+     fps         30 (30/1; 1 frame = 0.033333 s)
+     resolution  1280x720
+     audio       48000 Hz, 2 ch
+     tracks      V1, A1
+   ```
+
+   A video track `V1` and an audio track `A1` are created for you.
+   Common setups are also available through `--template` (`youtube-1080p`, `reel-1080x1920-30`, `broadcast-2997`, and so on).
+
+2. ### Import your footage
+
+   `--proxy` also builds a light H.264/AAC copy for browser preview.
+   **Your original files are never modified.**
+
+   ```bash
+   montash import ../raw/clip_a.mp4 ../raw/clip_b.mp4 ../raw/bgm.m4a --proxy
+   montash assets list
+   ```
+
+   ```
+   clip_a  video  360 frames  proxy:ready  clips:0  /tmp/qs/raw/clip_a.mp4
+   clip_b  video  300 frames  proxy:ready  clips:0  /tmp/qs/raw/clip_b.mp4
+   bgm  audio  900 frames  proxy:ready  clips:0  /tmp/qs/raw/bgm.m4a
+   ```
+
+   Asset IDs come from the filename (`clip_a.mp4` becomes `clip_a`). You refer to assets by that ID from here on.
+
+3. ### Lay clips on the timeline
+
+   You say which part of which asset goes where.
+   Video and audio are placed as two linked clips.
+
+   ```bash
+   montash clip add --asset clip_a --in 1 --duration 5 --at 0
+   montash clip add --asset clip_b --in 1 --duration 4 --after c1
+   montash timeline show
+   ```
+
+   ```
+   00:00:09.000  (270 frames)
+   V1 |c1[0..150] | c3[150..270]|
+   A1 |c2[0..150] | c4[150..270]|
+   ```
+
+   `c1` is the video and `c2` its linked audio. `--after c1` means "put it straight after c1",
+   so you never have to work the position out yourself.
+
+   :::tip[Leave handles]
+   `--in 1` keeps the first second of each source as a **handle** for a later transition.
+   With `--in 0` there is no footage before the clip to overlap, and you get `E_INSUFFICIENT_HANDLE`.
+   :::
+
+4. ### Commit what you have
+
+   At a natural stopping point, give the operations so far a meaning.
+   The recommended style is "affected time range + what you did".
+
+   ```bash
+   montash commit -m "00:00.0-00:09.0 joined the two source clips"
+   ```
+
+   ```
+   [k_0001] 00:00.0-00:09.0 joined the two source clips
+     4 ops (o_0001..o_0004), author ai
+   ```
+
+5. ### Add a transition and a title
+
+   ```bash
+   montash transition add --track V1 --all-cuts --type fade --duration 0.5
+   montash text add --text "Summer Trip 2026" --at 0 --duration 3 --preset title-center
+   montash fade --track V1 --in 1 --out 1 --with-audio
+   ```
+
+   ```
+   t1  c1 -> c3  fade  f:15  handle
+   x1  T1  f:0..f:90  Summer Trip 2026
+     (created text track T1)
+   V1  in f:30  out f:30
+   A1  in f:30  out f:30
+   ```
+
+   `--all-cuts` puts a transition at every cut on the track.
+   The text track `T1` is created automatically the first time it is needed.
+
+6. ### Lay down background music
+
+   ```bash
+   montash track add --kind audio --name A2
+   montash clip add --asset bgm --track A2 --at 0 --duration 8 --audio-only
+   montash audio gain --clip c5 --db=-12
+   montash audio fade --clip c5 --out 2.0
+   montash audio duck --target A2 --sidechain A1
+   montash audio normalize --loudness=-14 --true-peak=-1
+   montash audio show
+   ```
+
+   ```
+   master 0dB   normalize I -14 TP -1 LRA 11
+   A1  gain 0dB  fade 30/30f
+       c2  f:0..f:150  0dB  fade 0/0f
+       c4  f:150..f:270  0dB  fade 0/0f
+   A2  gain 0dB  fade 0/0f
+       c5  f:0..f:240  -12dB  fade 0/60f
+   duck d1  A2 <- A1  -30dB / 8:1
+   ```
+
+   `audio duck` lowers A2 (the music) only while A1 (the voice) is playing.
+   Pass negative numbers with `=`, as in `--db=-12` — `--db -12` is read as an option name.
+
+7. ### Review it in the browser
+
+   ```bash
+   montash preview build
+   montash serve --open
+   ```
+
+   The preview opens at `http://127.0.0.1:7788`, with playback, scrubbing, the timeline, history and asset management.
+   See [Preview and the browser](/en/guides/preview-and-web/) for the details.
+
+8. ### Validate, then export
+
+   Before exporting, `validate` checks the invariants of `project.json` — references, ranges, overlaps, handles and gaps.
+
+   ```bash
+   montash validate
+   montash render --preset youtube-1080p -o out/final.mp4
+   ```
+
+   ```
+   render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
+   rendered /tmp/qs/my-edit/out/final.mp4 (270 frames; verified)
+   ```
+
+   `verified` means the exported MP4 contains exactly the 270 frames it was supposed to.
+   You can check an existing file at any time:
+
+   ```bash
+   montash render verify out/final.mp4
+   ```
+
+9. ### Commit the finished pass
+
+   ```bash
+   montash commit -m "00:00.0-00:09.0 added transition, title and music"
+   montash log --graph
+   ```
+
+   ```
+   ● k_0002  2026-09-15 05:30  ai      00:00.0-00:09.0 added transition, title and music
+   │ ○ o_0013  2026-09-15 05:30  ai      normalize to -14 LUFS
+   │ ○ o_0012  2026-09-15 05:30  ai      add ducking d1 (A2 <- A1)
+   │ ○ o_0011  2026-09-15 05:30  ai      set audio fade on c5
+   ...
+   ● k_0001  2026-09-15 05:30  ai      00:00.0-00:09.0 joined the two source clips
+   ```
+
+</Steps>
+
+## Next
+
+- [Cutting](/en/guides/editing/) — trimming, splitting, reordering and what ripple means
+- [History](/en/guides/history/) — `checkout` / `undo` / `tag` to move to any point
+- [Driving montash from an AI](/en/guides/ai-usage/) — hand this whole flow to an AI

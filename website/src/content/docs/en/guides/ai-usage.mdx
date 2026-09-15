@@ -1,0 +1,214 @@
+---
+title: Driving montash from an AI
+description: How to wire montash up as a tool an AI operates
+sidebar:
+  order: 10
+---
+
+montash is designed to be operated mainly by an AI (an LLM). This page covers how to wire it up
+and what policies the AI side should carry.
+
+## The basic loop
+
+Handling one instruction usually looks like this.
+
+```
+1. Take the instruction
+2. Check the state       montash status --json / montash timeline show --json
+3. Resolve ambiguity     "the second one" → a clip ID; "the last ten seconds" → seconds
+4. Optionally confirm with --dry-run
+5. Run it                with --json --yes
+6. Read the result       ok / warnings / error.hint / op
+7. On failure, follow the hint and retry (at most twice)
+8. Commit when a unit of work is done   montash commit -m "<range> <what you did>"
+9. Report back           what you did, the commit ID, the duration, where to look
+```
+
+## Getting tool definitions
+
+`montash schema` emits the command definitions as LLM tool definitions directly.
+There is no need to hand-write a tool per command.
+
+```bash
+montash schema --format anthropic-tools > tools.json
+montash schema --format openai-tools > tools.json
+montash schema "clip trim" --format anthropic-tools    # just one command
+montash schema --json                                  # the raw definitions
+```
+
+```json
+[
+  {
+    "name": "montash_clip_trim",
+    "description": "trim a clip's source in/out points, optionally rippling the rest of the timeline\n--in +0.5 cuts half a second off the head, --out -1 a second off the tail. ...",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "clip ID" },
+        "in": { "type": "string", "description": "source in point (absolute or ±relative) (time: seconds, HH:MM:SS.mmm, or f:<frames>)" },
+        "ripple": { "type": "string", "description": "ripple following elements: --ripple (all tracks), --ripple=all, --ripple=track" }
+      }
+    }
+  }
+]
+```
+
+The output tracks the CLI, so when commands change you only regenerate the tool definitions.
+
+## Reading `--json` output
+
+With `--json`, every command returns JSON of the same shape.
+
+**On success**
+
+```json
+{
+  "ok": true,
+  "command": "clip split",
+  "result": {
+    "kept":    { "id": "c1", "start_f": 0,  "end_f": 90 },
+    "created": { "id": "c6", "start_f": 90, "end_f": 150 },
+    "linked":  { "kept": "c2", "created": "c7" }
+  },
+  "changes": [ ... ]
+}
+```
+
+**On failure**
+
+```json
+{
+  "ok": false,
+  "command": "clip trim",
+  "error": {
+    "code": "E_CLIP_NOT_FOUND",
+    "message": "clip \"c99\" not found",
+    "hint": "Run `montash clip list --json` to see the current clip IDs.",
+    "detail": { "clip": "c99", "known_clips": ["c1", "c6", "c3", "c2", "c7", "c4", "c5", "x1"] }
+  }
+}
+```
+
+:::tip[Self-correct from hint and detail]
+`error.hint` says what to do next; `error.detail` carries the values you need to do it.
+In the example above, pick the right ID out of `known_clips` and retry.
+**If the same error happens twice, stop and explain the situation to the human.**
+:::
+
+Setting `MONTASH_JSON=1` has the same effect as `--json`.
+
+## Common errors and what to do
+
+| `error.code` | What the AI should do |
+|--------------|-----------------------|
+| `W_SNAPPED` | Note the frame that was used and pass `f:<frame>` from then on. Report to the human in seconds |
+| `E_RANGE_OUT_OF_ASSET` | Retry with `f:` values that fit `detail.asset_duration_f` |
+| `E_SPLIT_AT_EDGE` | The split is at a clip edge. Ask whether a trim or a delete was meant |
+| `E_CLIP_OVERLAP` | Use `--on-overlap push` to insert, `overwrite` to replace. If unclear, ask |
+| `E_INSUFFICIENT_HANDLE` | Retry with `detail.max_duration`, or offer `--mode overlap` |
+| `E_FONT_NOT_FOUND` | Retry with a font from the `hint` and say which font was used |
+| `E_OUTPUT_EXISTS` | Ask whether to save under a new name or overwrite |
+| `E_FFMPEG_FAILED` | Read `detail.stderr_tail`; run `validate --deep`; if still stuck, show the stderr to the human |
+| `E_ASSET_MISSING` | Offer `assets relink --search <likely directory>` |
+| `E_NOTHING_TO_UNDO` | Report that there is nothing further to undo |
+| `W_DETACHED_HEAD` | You are at a past state. Ask whether to branch from here or return to the tip |
+| `E_NOTHING_TO_COMMIT` | Report that there is nothing to record |
+
+## From natural language to commands
+
+| What the human says | Command |
+|---------------------|---------|
+| "Use 2 to 10 seconds of A" | `clip add --asset A --in 2 --out 10 --at end` |
+| "The last five seconds of A" | `clip add --asset A --in=-5 --at end` |
+| "Cut three seconds off the front of A" | `clip trim <id> --in +3 --ripple` |
+| "Cut three seconds off the end of A" | `clip trim <id> --out=-3 --ripple` |
+| "Move A half a second later" | `clip move <id> --by +0.5` |
+| "Swap A and B" | `clip move <B> --before <A> --ripple` |
+| "Cut at 12s and drop what follows" | `clip split <id> --at 12 --json` → `result.created.id` → `clip delete <that id> --ripple` |
+| "Cut at 12s and drop what precedes" | `clip split <id> --at 12` → `clip delete <original id> --ripple` |
+| "Cross-fade all the joins" | `transition add --track V1 --all-cuts --type fade --duration 0.5` |
+| "Fade in at the start, out at the end" | `fade --track V1 --in 1 --out 1 --with-audio` |
+| "Add a title" | `text add --text "..." --at 0 --duration 3 --preset title-center` |
+| "Add music, duck it under the voice" | `track add --kind audio --name A2` → `clip add --asset bgm --track A2 --audio-only ...` → `audio duck --target A2 --sidechain A1` |
+| "Set the level for YouTube" | `audio normalize --loudness=-14 --true-peak=-1` |
+| "Export it for YouTube" | `render --preset youtube-1080p -o out/<name>.mp4 --progress jsonl` |
+| "Undo that" | `undo` |
+| "Go back to before the titles" | `log --grep title --json` → `checkout <k_xxxx>~1` |
+| "Keep this version too" | `tag <name>` |
+| "Where is this clip used?" | `assets show <id> --json` (look at `usage`) |
+
+### Default readings of ambiguous requests
+
+- "the Nth one" means the Nth in time on `V1` unless stated otherwise; if there are candidates on upper tracks, ask
+- "cut it" means with ripple (everything after moves up, on every track); only "leave a gap" or "shift it" means no ripple
+- Default lengths: transitions 0.5s, fades 1s, text 3s
+- No output path given means `out/<project name>.mp4`; if that exists, append `_v2` rather than **overwriting**
+
+## Handling time
+
+- Everything is integer frames internally. Seconds snap to the nearest frame and return `W_SNAPPED`
+- **Reuse values the CLI returned as `f:<n>`** so they are never rounded twice
+- Report to humans in seconds or timecode
+- At 29.97fps, "one second" is 30 frames, which is 1.001 seconds. Convert requests like "exactly 30 seconds" to `f:` and confirm
+- Pass negative values with `=`, as in `--in=-10`
+
+## Writing commit messages
+
+Commit messages exist so a human can later find **which commit fixed which part**, by time.
+
+```
+<start>-<end> <what you did>
+```
+
+```bash
+montash commit -m "00:12.0-00:15.0 cut the stumble" \
+  --body "Asked for: 'drop the bit around 12 seconds where I fluffed it'"
+```
+
+- Always start with the affected range (`MM:SS.s-MM:SS.s`); otherwise you get `W_COMMIT_MESSAGE_STYLE`
+- Put **the human's own words** in the body (`--body`), so the reason survives
+- **Commit per unit of work** — when one instruction is complete, or when the human says it is fine
+- Do not commit mid-experiment; ops are recorded anyway, so nothing is lost
+- Do not leave uncommitted ops at the end of a session
+
+## Rules to follow
+
+1. **No command modifies source media.** Say so to the human when it matters
+2. Always `validate --json` before `render`. Do not render if there are errors
+3. Use `--overwrite` only when the human has explicitly said overwriting is fine
+4. Confirm anything that looks destructive (`assets remove --force`, `track remove --force`, `init --force`) before running it
+5. State numbers in seconds or timecode. Read "a bit" as 0.5s, propose it, and confirm
+6. Include **clip IDs and times** in your report, so the human can find them in the browser
+7. If the same error happens twice, stop and explain
+8. **Check `status` before changing state.** If `detached`, ask whether to continue from here or return to the tip. Never silently jump back to the tip
+9. Read browser actions (`actor: web`) from `log --ops`, and talk about the assets and labels the human added there
+
+## Useful commands for checking state
+
+| Goal | Command |
+|------|---------|
+| Position in history, uncommitted work, browser actions | `montash status --json` / `montash log --ops --limit 10 --json` |
+| The whole picture | `montash project show --json` / `montash timeline show --json` |
+| Finding a clip ID | `montash clip list --json` |
+| What is at a given time | `montash timeline show --from 11.5 --to 13 --json` |
+| An asset's duration | `montash assets show <id> --json` |
+| Pre-flight check | `montash validate --json` |
+| What would change | `<command> --dry-run --json` |
+
+## How to report back
+
+```
+What I did
+- Trimmed 0.5s off the head of c2 (clip_b) with ripple; timeline 44.5s → 44.0s
+- Moved c3 in front of c2
+- Recorded as commit k_0008 "00:12.0- trimmed 0.5s off c2 and moved c3 ahead of it"
+
+Worth checking
+- Around 12.0s (the c3 → c2 join)
+- The browser (http://localhost:7788) has already refreshed
+```
+
+## Next
+
+- [CLI reference](/en/reference/cli/) — every command and flag
+- [The project file](/en/reference/project-file/) — the shape of `project.json`

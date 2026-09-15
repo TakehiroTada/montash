@@ -1,0 +1,134 @@
+---
+title: Preview and the browser
+description: montash preview build, montash serve, and what the browser view can do
+sidebar:
+  order: 7
+---
+
+You edit in the CLI, but you **review in the browser**.
+`montash serve` starts a local web app with playback, scrubbing, a timeline, the history and asset management.
+
+## Building the preview
+
+This assembles the MP4 the browser plays.
+
+```bash
+montash preview build
+montash preview status
+```
+
+```
+preview: ready  built_at=2026-09-15T05:30:28.791Z
+```
+
+Video is split at frame boundaries and cached per segment; audio is rendered in a single pass.
+After the first build, only the parts you changed are rebuilt.
+
+```bash
+montash preview build --from 10 --to 20      # rebuild just this range
+montash preview build --force                # rebuild everything, even when current
+montash preview build --audio-only           # rebuild only the audio
+montash preview build --height 540           # choose the output height
+```
+
+:::note[Preview is not the export]
+The preview is proxy quality and loudness normalization is not applied (`W_NORMALIZE_DEFERRED`).
+Judge final picture and level from `montash render`.
+:::
+
+## Starting the server
+
+```bash
+montash serve --open
+```
+
+It binds `http://127.0.0.1:7788` by default, and `--open` launches your browser.
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| `--port` | `7788` | TCP port (`0` picks a free one) |
+| `--host` | `127.0.0.1` | Bind address. **Anything other than loopback forces `--read-only`** |
+| `--open` | `false` | Open the URL in your default browser |
+| `--read-only` | `false` | Disable writes (`POST /api/cli`); viewing only |
+| `--watch` | `true` | Watch `project.json` and the history (`--no-watch` to disable) |
+| `--auto-preview` | `true` | Rebuild the preview automatically on change (`--no-auto-preview` to disable) |
+| `--dev` | `false` | Serve the frontend with HMR (for frontend development) |
+
+With `--watch` on, the browser updates itself every time you — or an AI — edit from the CLI.
+**Keeping the browser open while editing in the CLI** is the intended way to work.
+
+## The layout
+
+| Area | What it shows |
+|------|---------------|
+| **Header** | Project name, resolution, fps, timeline duration, clip count, HEAD state (current op, its commit, number of uncommitted ops), WebSocket status, preview state (`ready` / `building 45%` / `stale`) |
+| **Preview pane** | Plays the composited proxy-quality video |
+| **Transport / scrub bar** | Shows the current position both as `HH:MM:SS.mmm` and as `f:<frame>` |
+| **Timeline view** | `T*` (text) at the top, then `V*` (video, in reverse array order), then `A*` (audio). Draws clip IDs, labels, waveforms, transitions and gaps |
+| **Right pane** | **Inspector** (details of the selected element plus the matching CLI command), **Assets** (list, search, import, labels, relink, rebuild proxies), **History** (commits and ops) |
+| **History timeline** | Always present along the bottom; click an entry to `checkout` that point |
+| **Log pane** | Commands that ran, and ffmpeg output |
+
+### Keyboard
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / pause |
+| `←` / `→` | One frame |
+| `Shift` + `←` / `→` | One second |
+| `J` / `K` / `L` | Reverse / stop / play |
+| `Home` / `End` | Start / end |
+| `I` / `O` | Mark a loop range (display only) |
+| `[` / `]` | Undo / redo |
+
+:::tip[Telling an AI where you mean]
+The scrub bar also shows the position as `f:<frame>`.
+When you tell an AI "cut it here", handing over that `f:` value is the most precise way to say it.
+:::
+
+## What the browser can and cannot do
+
+The browser is **for reviewing and managing assets**. Timeline editing belongs to the CLI.
+
+**It can**
+
+- Play and scrub the preview
+- Visualize tracks, clips, transitions, titles and gaps
+- Show the history timeline and `checkout` any point by clicking it
+- List, search, preview, import (drag and drop), delete, label and relink assets, and rebuild proxies
+- Create text assets
+- Show and copy the CLI command that matches the selected element
+
+**It cannot (use the CLI)**
+
+- Drag or trim clips, or any other timeline edit
+- Write `project.json` directly
+- **Create commits**
+- Start a render (it only shows progress)
+- Edit the asset files themselves
+
+## Browser actions are recorded too
+
+Every action in the browser runs the matching `montash` command as a child process.
+
+1. The browser sends `POST /api/cli { "args": [...] }`
+2. The server checks it against an **allowlist** (403 `E_WEB_COMMAND_NOT_ALLOWED` otherwise), forces `--json --yes`, sets `MONTASH_ACTOR=web`, and spawns `montash`
+3. The history records it as an op with `actor: web`
+
+So anything done in the browser can be reversed with `montash undo` / `montash checkout`,
+and an AI can see what the human did there via `montash log --ops`.
+
+The default allowlist covers history movement (`checkout`, `undo`, `redo`, `tag`), asset management (`import`, `assets *`, `proxy build`) and helpers (`preview build`, `validate`).
+Timeline editing (`clip *`, `text *`, `render *`, `commit`, …) is not allowed by default.
+
+Destructive flags (`--force`, `--overwrite`, …) return 409 `E_CONFIRM_REQUIRED` unless explicitly confirmed.
+
+:::caution[Do not expose it]
+By default it binds `127.0.0.1` only.
+`--host 0.0.0.0` forces `--read-only`, but serving this to anything beyond your own machine is not an intended use.
+:::
+
+## Next
+
+- [History](/en/guides/history/) — what the History pane is actually showing
+- [Rendering](/en/guides/rendering/)

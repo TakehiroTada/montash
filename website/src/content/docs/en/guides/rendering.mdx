@@ -1,0 +1,126 @@
+---
+title: Rendering
+description: Render presets, verification and progress output
+sidebar:
+  order: 9
+---
+
+This encodes the timeline to an MP4. Actual pixels are produced here, and nowhere else.
+
+## Exporting
+
+```bash
+montash validate
+montash render --preset youtube-1080p -o out/final.mp4
+```
+
+```
+render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
+rendered /tmp/my-edit/out/final.mp4 (270 frames; verified)
+```
+
+:::tip[Validate before you render]
+`montash validate` checks the invariants of `project.json` — references, ranges, overlaps, handles and gaps.
+Rendering with errors outstanding either fails partway or produces something you did not intend.
+:::
+
+`-o` / `--output` is required. The path is **relative to the directory you ran the command in**,
+so run it inside the project directory or pass an absolute path.
+
+## Presets
+
+```bash
+montash render presets
+```
+
+Two presets are implemented today.
+
+| Preset | Resolution | CRF | Speed | Audio | For |
+|--------|-----------|-----|-------|-------|-----|
+| `youtube-1080p` (default) | 1920x1080 | 18 | `slow` | AAC 192k | The real export |
+| `web-preview` | 1280x720 | 28 | `veryfast` | AAC 96k | A fast export for checking |
+
+Both are H.264 (libx264) plus AAC in an MP4.
+
+```bash
+montash render --preset web-preview -o out/check.mp4       # check it quickly first
+montash render --preset youtube-1080p -o out/final.mp4     # the real one
+```
+
+## Overriding a preset
+
+```bash
+montash render -o out/final.mp4 \
+  --preset youtube-1080p \
+  --resolution 1920x1080 \
+  --crf 20 \
+  --preset-speed medium \
+  --threads 8
+```
+
+| Option | What it does |
+|--------|--------------|
+| `--resolution` | Override the output size as `WxH` |
+| `--crf` | H.264 quality (0–51; lower is better and bigger) |
+| `--preset-speed` | x264 encoding speed (`ultrafast` … `veryslow`) |
+| `--threads` | Encoder threads |
+| `--overwrite` | Replace an existing file, but only after verification succeeds |
+
+Without `--overwrite`, an existing output file is an error (`E_OUTPUT_EXISTS`).
+Add it only when you have decided the file may be replaced.
+
+## Verification
+
+Every render finishes by verifying the output — that is the `verified` in the output above.
+You can also run it on its own.
+
+```bash
+montash render verify out/final.mp4
+```
+
+```
+verified 270 frames with audio: /tmp/my-edit/out/final.mp4
+```
+
+It checks frame count, FPS, audio duration and stream configuration —
+so that "no error, but one frame short" gets caught rather than shipped.
+
+## Progress output
+
+`--progress` chooses the format for long renders.
+
+| Value | What you get |
+|-------|--------------|
+| `text` (default) | Human-readable lines like `render 41.5%` |
+| `jsonl` | One JSON object per line. **Use this when an AI or another program is reading it** |
+| `none` | No progress at all |
+
+```bash
+montash render -o out/final.mp4 --progress jsonl
+```
+
+## Loudness normalization
+
+If `montash audio normalize` is configured, a two-pass `loudnorm` is applied during the render.
+The whole timeline is measured first and then corrected linearly, which makes the render slower.
+
+It is not applied to the preview built by `montash preview build`. See [Audio](/en/guides/audio/).
+
+## Not available yet
+
+The following are designed but **not implemented yet**.
+
+| Feature | What it will do |
+|---------|-----------------|
+| `montash render batch` | Export several presets in one go |
+| `--reframe center\|left\|right\|<x>%` | Choose the crop anchor, e.g. for vertical video |
+| Vertical presets (`instagram-reel`, …) | 9:16 presets |
+| Still / GIF / audio-only export | `render still` / `render gif` / `render audio` |
+| Hardware encoding (`--hwaccel`), two-pass (`--two-pass`) | |
+
+If you need several resolutions today, run `montash render` more than once with different `--resolution` values.
+
+## Next
+
+- [Driving montash from an AI](/en/guides/ai-usage/)
+- [CLI reference](/en/reference/cli/)

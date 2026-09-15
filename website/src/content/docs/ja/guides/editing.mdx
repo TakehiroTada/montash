@@ -1,0 +1,199 @@
+---
+title: カット編集
+description: クリップの追加・トリム・分割・移動・削除と、リップルの考え方
+sidebar:
+  order: 4
+---
+
+montash の編集は「タイムライン上のクリップをどう並べるか」に尽きます。
+このページではその基本操作と、montash でいちばん重要な概念である**リップル**を説明します。
+
+## トラックとクリップ
+
+- **トラック** は重なりの単位です。映像 `V1`, `V2`...、音声 `A1`, `A2`...、テキスト `T1`... の 3 種類があります。
+  映像トラックは番号が大きいほど上に重なります。
+- **クリップ** はトラック上に置かれた「素材の一部」です。`c1`, `c2`... の ID が付きます。
+  どの素材の何フレーム目から何フレーム目までを、タイムラインの何フレーム目に置くか、という情報を持ちます。
+
+```bash
+montash track add --kind audio --name A2       # 音声トラックを足す
+montash track add --kind video --above V1      # V1 の上に映像トラックを足す
+montash track list
+montash track mute A2                          # ミュート（音声は無音、映像は非表示）
+montash track lock V1                          # 編集とリップルの対象外にする
+```
+
+```
+V1  video  3 clip(s)
+A1  audio  3 clip(s)
+A2  audio  1 clip(s)
+T1  text  1 clip(s)
+```
+
+## クリップを置く
+
+`clip add` は「素材のどこから（`--in`）どれだけ（`--duration` または `--out`）を、タイムラインのどこに（`--at` / `--after` / `--before`）」で指定します。
+
+```bash
+montash clip add --asset clip_a --in 1 --duration 5 --at 0
+montash clip add --asset clip_b --in 1 --duration 4 --after c1
+montash clip add --asset clip_a --in=-5 --at end       # 素材の最後 5 秒
+```
+
+映像に音声がある素材を置くと、**リンクした 2 つのクリップ**（映像と音声）が同時に作られます。
+以降どちらを動かしても相方が付いてきます。片方だけを編集したいときは `--unlink` を付けます。
+
+映像だけ・音声だけを置きたいときは `--video-only` / `--audio-only` を使います。
+
+## 時間の書き方
+
+時間を取る引数（上の表で `time` 型のもの）は 3 通りで書けます。
+
+| 書き方 | 例 | 意味 |
+|--------|----|------|
+| 秒 | `1.5` | 1.5 秒。最寄りのフレームにスナップされる |
+| タイムコード | `00:00:12.500` | 12.5 秒 |
+| フレーム | `f:45` | 45 フレーム目。**丸めが起きない** |
+| 相対 | `+0.5` / `-1` | 現在値からの増減 |
+
+:::tip[CLI が返したフレーム数はそのまま使う]
+秒で指定すると最寄りフレームに丸められ、`W_SNAPPED` が返ります。
+一度 CLI から返ってきた値は `f:<n>` の形で再利用すると、再度の丸めが起きません。
+29.97fps では「1 秒 = 30 フレーム = 1.001 秒」なので、この差が効いてきます。
+:::
+
+負の値は `--in=-5` のように `=` で渡してください。`--in -5` はオプション名と解釈されます。
+
+## リップルとは
+
+**リップル（ripple）** は「後ろにあるものを一緒に動かす」ことです。
+
+3 秒のクリップを 2 秒に詰めたとき、
+
+- **リップルしない**（既定）: そのクリップだけが短くなり、**1 秒の隙間が空く**。タイムライン全体の尺は変わらない。
+- **リップルする**（`--ripple`）: 後続のクリップが 1 秒手前に詰められ、**隙間は空かない**。タイムライン全体が 1 秒短くなる。
+
+人が「ここ切って」と言うとき、普通は後者を意味します。
+
+```bash
+montash clip trim c3 --in +0.5 --ripple     # 頭を 0.5 秒詰めて、後続も詰める
+montash clip delete c5 --ripple             # 削除して穴を埋める
+```
+
+`--ripple` には範囲を指定できます。
+
+| 書き方 | 対象 |
+|--------|------|
+| `--ripple` / `--ripple=all` | **すべてのトラック**の後続要素（BGM・テロップも一緒に動く） |
+| `--ripple=track` | そのトラックの後続要素だけ |
+
+「この映像だけ詰めて、BGM はそのまま」と言われたときだけ `--ripple=track` を使います。
+
+リップルせずに詰めると隙間が残り、`W_GAP_CREATED` が警告されます。
+隙間は `timeline gaps` で確認できます。
+
+```bash
+montash timeline gaps
+```
+
+## トリムする
+
+`clip trim` は**素材側の in / out 点**を動かします（タイムライン上の長さが変わります）。
+
+```bash
+montash clip trim c2 --in +0.5 --ripple     # 頭を 0.5 秒切る
+montash clip trim c2 --out -1 --ripple      # 尻を 1 秒切る
+montash clip trim c2 --in f:30 --out f:180  # 絶対値で指定する
+```
+
+```
+c3  f:150..f:255  (-15f)
+```
+
+## 分割する
+
+`clip split` はタイムライン上の位置でクリップを 2 つに割ります。
+**前半が元の ID を保持し、後半に新しい ID が振られます。**
+
+```bash
+montash clip split c1 --at 3 --json
+```
+
+```json
+{
+  "ok": true,
+  "result": {
+    "kept":    { "id": "c1", "start_f": 0,  "end_f": 90,  "in_f": 30,  "out_f": 120 },
+    "created": { "id": "c6", "start_f": 90, "end_f": 150, "in_f": 120, "out_f": 180 },
+    "linked":  { "kept": "c2", "created": "c7" }
+  }
+}
+```
+
+「12 秒のところで切って、後ろを消す」は split したあと `created.id` を削除します。
+
+```bash
+montash clip split c1 --at 12 --json     # created.id を読む（例: c6）
+montash clip delete c6 --ripple
+```
+
+## 移動・並べ替える
+
+```bash
+montash clip move c2 --by +f:15                # 15 フレーム後ろへ
+montash clip move c2 --to 00:00:05.000         # 絶対位置へ
+montash clip move c3 --before c2 --ripple      # c3 を c2 の前に持ってくる（＝並べ替え）
+montash clip move c2 --track V2                # 別トラックへ
+```
+
+**並べ替えは `--before` / `--after` + `--ripple`** で行います。
+移動先が埋まっているときの挙動は `--on-overlap` で選べます。
+
+| 値 | 意味 |
+|----|------|
+| `error`（既定） | 重なるならエラーにする |
+| `overwrite` | 既存のクリップを上書きする |
+| `push` | 既存のクリップを押しのける（挿入） |
+
+## 削除する
+
+```bash
+montash clip delete c5 --ripple          # 削除して詰める
+montash clip delete c5 c6 c7             # まとめて削除（穴は残る）
+```
+
+## クリップの性質を変える
+
+```bash
+montash clip set c1 --label "オープニング"
+montash clip set c1 --speed 2.0          # 倍速
+montash clip set c1 --volume 0.5
+montash clip set c1 --opacity 0.8
+```
+
+## 確認する
+
+```bash
+montash clip list                        # クリップをトラック順・時間順に
+montash timeline show                    # 全体像
+montash timeline show --from 11.5 --to 13   # 特定の時間帯に何があるか
+montash timeline show --ascii            # コンパクトな図
+montash validate                         # 不変条件の検査
+```
+
+```
+00:00:08.500  (255 frames)
+V1 |c1[0..90] | c6[90..150] | c3[150..255]|
+A1 |c2[0..90] | c7[90..150] | c4[150..255]|
+A2 |c5[0..240]|
+T1 |x1[0..90]|
+```
+
+:::tip[実行前に確かめる]
+どのコマンドにも `--dry-run` を付けられます。書き込まずに「何が変わるか」だけを表示します。
+:::
+
+## 次に読むもの
+
+- [トランジションとテロップ](/ja/guides/transitions-and-text/)
+- [履歴](/ja/guides/history/) — 間違えたら `montash undo`

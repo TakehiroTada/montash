@@ -48,6 +48,8 @@
 | C-5 | 中 | 仕様と実装の乖離: `montash schema` ↔ 04 章の CI 差分チェックが M5 予定 | M1 で `defineCommand` → 04 章の表を生成する簡易スクリプトを先に作る | open |
 | C-6 | 中 | AI に渡すコンテキスト量: 仕様全体は大きすぎる | AI 運用は **10 章 + `montash schema` 出力** だけで完結する設計を維持。10 章を独立して読める状態に保つ | open |
 | C-7 | 低 | `scripts/spikes/` の再実行を忘れる | Bun 更新 PR で `bun run all` を CI に含める | open |
+| C-8 | 中 | **LICENSE ファイルが無い**: `package.json` は `"license": "MIT"` と宣言しているが、リポジトリ直下に LICENSE ファイルが存在しない。OSS として配布・引用するときの根拠が不足し、利用者向けドキュメントサイト（`website/`）のライセンスページも「MIT を予定」としか書けない | 著作権者名と年を確定して `LICENSE`（MIT）を追加し、`website/src/content/docs/{ja,en}/license.md` を実ファイルの内容に合わせて更新する | open |
+| C-9 | 低 | **ドキュメントサイトの CI・公開先が未定**: `website/`（Astro + Starlight）は Node 前提のツールチェーンのため、`node` を潰して実行する既存 CI ジョブには含めていない。公開先（GitHub Pages 等）も未定で `astro.config.mjs` の `site` / `base` が未設定 | 公開先を決めてから、`website/` 専用の CI ジョブ（`bun install && bun run build`）を別ワークフローとして追加するか判断する | open |
 
 ## D. 実装の不具合・改善（実機確認で判明）
 
@@ -75,3 +77,4 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 - 2026-09-15: D-1 / D-2 を修正（done）。クリップ区間の算出を `GET /api/project` の `computed` に一本化し、Web の派生値（純関数）を `web/src/lib/timeline.ts` へ切り出した。テキスト・字幕は区間の矩形＋本文先頭 20 文字で描画、既定スケールは尺 + 1 秒。
 - 2026-09-15: D-5 を解消。クリップ生成・配置・リンク音声・重なり検査を `core/clip-create.ts` に括り出し、`clip add` / `overlay add` を載せ替えた。`--on-overlap` の `push` / `overwrite` は `clip add` では依然未実装（docs/09 の通り M1 の範囲外）。`overwrite` の実体である `carveRange()` は `core/clip-editing.ts` へ移したので、実装時はそのまま使える。
 - 2026-09-15: D-4 を解消し D-3 を docs に明記（PR #28）。あわせて `montash schema` の出力と docs/04 を突き合わせ、未実装コマンド・未実装オプション・docs 未記載の実装を docs/04 §1.9 に一覧化。docs/09 のロードマップと docs/12 の ADR 検証欄を実測値で更新。突き合わせで見つかった 4 件を D-9〜D-12 として追加。
+- 2026-09-15: 利用者向けドキュメントサイト（`website/`、Astro + Starlight、日英 i18n）を追加。付随して C-8（LICENSE ファイル欠落）と C-9（サイトの CI・公開先が未定）を起票。
