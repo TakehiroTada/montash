@@ -167,6 +167,7 @@ export const proxyStatus = defineCommand({
   path: "proxy status",
   summary: "report ready, missing or stale proxies, thumbnails and waveforms",
   workflows: ["W-02"],
+  examples: [{ cmd: "montash proxy status --json", note: "which assets still need `proxy build`" }],
   async handler(ctx) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);

@@ -369,6 +369,7 @@ export const subtitleRemove = defineCommand({
   workflows: ["W-14"],
   mutates: true,
   positionals: [{ name: "id", describe: "subtitle clip ID", required: true }],
+  examples: [{ cmd: "montash subtitle remove s1" }],
   handler(ctx, args: Args) {
     const id = String(args.id);
     return runMutation(ctx, ({ project, fps }) => {
@@ -389,6 +390,7 @@ export const subtitleList = defineCommand({
   summary: "list subtitle clips",
   workflows: ["W-14"],
   options: { track: { type: "string", describe: "limit to one text track" } },
+  examples: [{ cmd: "montash subtitle list --track T1" }],
   async handler(ctx, args: Args) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);

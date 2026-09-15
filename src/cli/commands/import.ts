@@ -40,6 +40,13 @@ export const importAssets = defineCommand({
     proxy: { type: "boolean", describe: "build video/audio proxies", default: false },
     strict: { type: "boolean", describe: "abort without importing if any input fails", default: false },
   },
+  examples: [
+    {
+      cmd: "montash import ./raw/clip_a.mp4 ./raw/clip_b.mp4 --proxy",
+      note: "import two files and build preview proxies",
+    },
+    { cmd: "montash import ./raw/bgm.mp3 --id bgm", note: "give the asset a stable ID instead of a generated one" },
+  ],
   async handler(ctx, args) {
     const bins = locateBinaries({ ...ctx.globals, env: ctx.env });
     const failed: Array<{ path: string; error: ReturnType<MontashError["toJSON"]> }> = [];

@@ -44,6 +44,11 @@ export const assetsList = defineCommand({
     missing: { type: "boolean", describe: "only missing source files" },
     search: { type: "string", describe: "search ID, label and path" },
   },
+  examples: [
+    { cmd: "montash assets list --type video" },
+    { cmd: "montash assets list --unused", note: "assets no clip refers to" },
+    { cmd: "montash assets list --missing --json", note: "files that moved or were deleted; fix with `assets relink`" },
+  ],
   async handler(ctx, args) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);
@@ -75,6 +80,7 @@ export const assetsShow = defineCommand({
   workflows: ["W-02"],
   positionals: [{ name: "id", describe: "asset ID", required: true }],
   options: { probe: { type: "boolean", describe: "include raw ffprobe JSON" } },
+  examples: [{ cmd: "montash assets show clip_a --probe", note: "include the raw ffprobe result" }],
   async handler(ctx, args) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);

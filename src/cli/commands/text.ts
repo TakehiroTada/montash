@@ -562,6 +562,7 @@ export const textRemove = defineCommand({
   workflows: ["W-06"],
   mutates: true,
   positionals: [{ name: "id", describe: "text clip ID", required: true }],
+  examples: [{ cmd: "montash text remove x1" }],
   async handler(ctx, args: Args) {
     const id = String(args.id);
     return runMutation(ctx, ({ project, fps }) => {
@@ -586,6 +587,7 @@ export const textList = defineCommand({
   summary: "list text clips in timeline order",
   workflows: ["W-06"],
   options: { track: { type: "string", describe: "limit to one text track" } },
+  examples: [{ cmd: "montash text list --track T1" }],
   async handler(ctx, args: Args) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);
@@ -617,6 +619,7 @@ export const textPresets = defineCommand({
   path: "text presets",
   summary: "list the built-in and project text style presets",
   workflows: ["W-06"],
+  examples: [{ cmd: "montash text presets", note: "preset names for `text add --preset`" }],
   async handler(ctx) {
     const project = await loadProject(ctx.requireProjectDir());
     const presets = resolveTextPresets(project);

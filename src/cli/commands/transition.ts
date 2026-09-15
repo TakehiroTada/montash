@@ -342,6 +342,7 @@ export const transitionRemove = defineCommand({
   workflows: ["W-05"],
   mutates: true,
   positionals: [{ name: "id", describe: "transition ID", required: true }],
+  examples: [{ cmd: "montash transition remove t2", note: "the two clips keep their trimmed length" }],
   async handler(ctx, args) {
     return runMutation(ctx, ({ project }) => {
       const tr = requireTransition(project, String(args.id));
@@ -364,6 +365,7 @@ export const transitionList = defineCommand({
   summary: "list the transitions on the timeline",
   workflows: ["W-05"],
   options: { track: { type: "string", describe: "only this track" } },
+  examples: [{ cmd: "montash transition list --track V1" }],
   async handler(ctx, args) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);

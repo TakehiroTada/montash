@@ -67,7 +67,7 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 | D-8 | 中 | **History ストリップのノードを誤クリックしやすい**。ブラウザを開いたまま放置していた間に意図しない `checkout` が走り、タイムラインが init 直後（空）に戻っていた（2026-09-15 に 2 回発生）。履歴は失われないので実害は小さいが、気づかないまま「編集が消えた」と見える | 誤操作を減らす（クリック判定をノード本体に限定する、detached 時の警告帯をより目立たせる、`checkout tip` への導線を常設する）。あわせて detached のまま `preview build` すると `E_EMPTY_TIMELINE` になる点も案内する | open |
 | D-9 | 中 | **`clip add` に `--ripple` が無い**。docs/04 §6 は「`--on-overlap push` は §6a の規則で全トラック。`--ripple=track` を併用すると当該トラックのみ」と書くが、実装の `clip add` は `--ripple` を受け付けず、押し出しは常に全トラック（`clip move|trim|delete|set` には `--ripple` がある） | `clip add` にも `--ripple[=all\|track]` を足して `--on-overlap push` の範囲を選べるようにする（D-5 のクリップ生成の共通化と一緒にやるのが自然） | open |
 | D-10 | 低 | **Web の履歴 API が docs/06 §3.2 より狭い**。`GET /api/history/:id`・`/api/history/diff`・`/api/blame/:elementId`・`/api/cli-examples`・`/api/fonts` が未実装（`GET /api/history` のみ）。許可リストには `revert` / `reset --hard` が入っているが CLI 側が未実装 | M4（W-11）で CLI の `show`/`diff`/`blame`/`revert` を仕上げるのに合わせて API も足す。docs/06 には未実装の印を付けた | open |
-| D-11 | 低 | **`montash help <command>` が未実装**。docs/04 §2 に項目があるが登録コマンドに無く、yargs の `--help` と `schema` しかない | 仕様から落とす（`schema` で足りる）か、`schema` の人間向けラッパとして実装する | open（要判断） |
+| D-11 | 低 | **`montash help <command>` が未実装**。docs/04 §2 に項目があるが登録コマンドに無く、yargs の `--help` と `schema` しかない | 仕様から落とす（`schema` で足りる）か、`schema` の人間向けラッパとして実装する | **done**（`schema` の人間向けラッパとして実装。mutates / workflow / 時間表記を出し、`--json` は schema と同一） |
 | D-12 | 低 | **`render --preset` の選択肢が 2 つだけ**。docs/04 §14 は 10 プリセット（`youtube-4k` / `instagram-reel` / `twitter` / `prores-422` / `archive-h265` / `audio-only-mp3` / `gif` / `thumbnail`）を挙げるが、実装は `youtube-1080p` / `web-preview` のみ | M4（W-12）で残りを追加。docs/04 §1.9 に現状を明記済み | **done**（PR #24 でプリセット 10 種に拡張。`--preset` は choices 制約を外し `render presets` で一覧） |
 ## 決定ログ
 
@@ -78,4 +78,5 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 - 2026-09-15: D-5 を解消。クリップ生成・配置・リンク音声・重なり検査を `core/clip-create.ts` に括り出し、`clip add` / `overlay add` を載せ替えた。`--on-overlap` の `push` / `overwrite` は `clip add` では依然未実装（docs/09 の通り M1 の範囲外）。`overwrite` の実体である `carveRange()` は `core/clip-editing.ts` へ移したので、実装時はそのまま使える。
 - 2026-09-15: D-4 を解消し D-3 を docs に明記（PR #28）。あわせて `montash schema` の出力と docs/04 を突き合わせ、未実装コマンド・未実装オプション・docs 未記載の実装を docs/04 §1.9 に一覧化。docs/09 のロードマップと docs/12 の ADR 検証欄を実測値で更新。突き合わせで見つかった 4 件を D-9〜D-12 として追加。
 - 2026-09-15: 利用者向けドキュメントサイト（`website/`、Astro + Starlight、日英 i18n）を追加。付随して C-8（LICENSE ファイル欠落）と C-9（サイトの CI・公開先が未定）を起票。
+- 2026-09-15: D-11 を決定し実装。`montash help` は `schema` の人間向けラッパとして持つ（定義は `defineCommand` が単一の真実の源のまま）。あわせて全 88 コマンドに `examples` を用意した。
 - 2026-09-15: D-6 を決定。GitHub Actions は費用を抑えるため**自動実行しない**（`ci.yml` は残し `workflow_dispatch` のみ）。検証はローカルで `bun run verify`（check + 手順の E2E）。あわせて MIT の `LICENSE` と `THIRD-PARTY-NOTICES.md` を追加（C-8 解消）。ffmpeg は同梱せず外部プロセスで呼ぶが、install-deps が入れるビルドは GPL 構成要素を含む旨を明記。

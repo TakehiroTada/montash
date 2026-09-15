@@ -25,6 +25,7 @@ export const previewStatus = defineCommand({
   path: "preview status",
   summary: "show timeline preview freshness and active build progress",
   workflows: ["W-04"],
+  examples: [{ cmd: "montash preview status --json", note: "whether the preview is up to date with project.json" }],
   async handler(ctx) {
     const dir = ctx.requireProjectDir();
     const status = await readPreviewStatus(await loadProject(dir), dir);

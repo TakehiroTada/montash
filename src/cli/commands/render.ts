@@ -471,6 +471,9 @@ export const renderVerify = defineCommand({
   summary: "verify frame count, FPS, audio duration and stream configuration",
   workflows: ["W-09"],
   positionals: [{ name: "path", describe: "rendered MP4", required: true }],
+  examples: [
+    { cmd: "montash render verify ./out/my-vlog.mp4", note: "compare the file against the timeline frame count" },
+  ],
   async handler(ctx, args) {
     const project = await loadProject(ctx.requireProjectDir());
     const result = await verifyRender(

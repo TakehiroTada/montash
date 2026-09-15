@@ -376,6 +376,7 @@ export const overlayRemove = defineCommand({
   workflows: ["W-08"],
   mutates: true,
   positionals: [{ name: "id", describe: "overlay clip ID", required: true }],
+  examples: [{ cmd: "montash overlay remove c3", note: "the clip goes back to filling the frame" }],
   async handler(ctx, args) {
     return runMutation(ctx, ({ project }) => {
       const { clip, track } = requireOverlay(project, String(args.id));
@@ -398,6 +399,7 @@ export const overlayList = defineCommand({
   summary: "list overlays (video clips that carry a transform)",
   workflows: ["W-08"],
   options: { track: { type: "string", describe: "only this track" } },
+  examples: [{ cmd: "montash overlay list --track V2" }],
   async handler(ctx, args) {
     const project = await loadProject(ctx.requireProjectDir());
     const tracks = args.track ? [requireTrack(project, String(args.track))] : project.tracks;
