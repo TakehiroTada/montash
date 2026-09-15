@@ -1,0 +1,57 @@
+---
+title: montash
+description: AI が CLI だけで動画編集を完結させるための動画編集ソフト
+template: splash
+hero:
+  tagline: 話しかけるだけで動画が編集できる。操作するのは AI、動かすのは CLI。
+  actions:
+    - text: クイックスタート
+      link: /ja/guides/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/TakehiroTada/montash
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+**montash** = **montage**（素材を繋いで意味を作る、編集の本質）+ **sh**（シェル）。
+
+人間は「12 秒あたりの噛んだところ消して」と言うだけ。AI がそれを `montash` コマンドに翻訳し、実行し、結果を報告します。
+編集状態は 1 つの JSON ファイルに宣言的に保たれ、元の素材は一切書き換わりません。
+
+<CardGrid stagger>
+	<Card title="CLI だけで完結する" icon="laptop">
+		取り込みからカット、テロップ、BGM、書き出しまで、すべてが `montash <サブコマンド>` です。
+		出力は人間向けと機械向け（`--json`）の両方を持ち、AI がそのまま読んで次の手を決められます。
+	</Card>
+	<Card title="フレーム精度" icon="setting">
+		時間はプロジェクトの fps を基準にした**整数フレーム**で保持します。
+		29.97fps は `30000/1001` の有理数として扱うので、何度編集してもカット位置が 1 フレームもずれません。
+	</Card>
+	<Card title="git のような履歴" icon="code-branch">
+		すべての操作が op として自動で残り、`commit` で意味を付けられます。
+		`checkout` で任意の時点へ即座に戻れるので、「テロップを入れる前に戻して」が一瞬で終わります。
+	</Card>
+	<Card title="ブラウザで確認" icon="window">
+		`montash serve` でローカル Web アプリが立ち上がり、再生・シーク・タイムライン・履歴・素材管理ができます。
+		Web からの操作も `montash` コマンドの発行として実行され、履歴に残ります。
+	</Card>
+</CardGrid>
+
+## 全体像
+
+```
+人間 ──(自然言語)──▶ AI ──(montash コマンド)──▶ project.json ──(montash render)──▶ ffmpeg ──▶ 成果物.mp4
+                                                   │
+                                                   └──(montash serve)──▶ Web プレビュー（ブラウザで確認）
+```
+
+## まず読むもの
+
+- [montash とは](/ja/guides/introduction/) — 何のためのソフトで、どういう考え方で作られているか
+- [インストール](/ja/guides/installation/) — Bun と ffmpeg を用意する
+- [クイックスタート](/ja/guides/quickstart/) — 素材の取り込みから MP4 書き出しまで
+- [AI から使う](/ja/guides/ai-usage/) — AI のオペレーターとして montash を動かす

@@ -1,0 +1,139 @@
+---
+title: Audio
+description: Laying down music, levels and fades, ducking, and loudness normalization
+sidebar:
+  order: 6
+---
+
+## Laying down music
+
+Music normally goes on a dedicated audio track.
+
+```bash
+montash track add --kind audio --name A2
+montash clip add --asset bgm --track A2 --at 0 --duration 8 --audio-only
+```
+
+`--audio-only` places only the audio clip.
+
+## Levels
+
+Gain is set in **dB**, at three levels: the clip, the track, or the master bus.
+
+```bash
+montash audio gain --clip c5 --db=-12       # this clip only, 12 dB down
+montash audio gain --track A2 --db=-6       # the whole track
+montash audio gain --master --db=-3         # the master bus
+```
+
+:::caution[Pass negative numbers with `=`]
+Write `--db=-12`. `--db -12` is read as an option named `-12`.
+The same applies to `--in`, `--out`, `--loudness` and friends.
+:::
+
+## Fades
+
+```bash
+montash audio fade --clip c5 --out 2.0                 # two-second fade out
+montash audio fade --clip c5 --in 1.0 --curve qsin     # choose the curve
+```
+
+Curves are `tri` (linear, the default), `exp`, `log`, `qsin`, `hsin` and `esin`.
+
+A fade across a whole track is `montash fade --track A1`, not this command.
+
+```bash
+montash fade --track A1 --in 1.0 --out 2.0
+```
+
+## Ducking
+
+Ducking lowers the music while someone is speaking, using ffmpeg's `sidechaincompress`.
+
+```bash
+montash audio duck --target A2 --sidechain A1
+montash audio duck --target A2 --sidechain A1 --threshold=-30dB --ratio 8 --release 0.5
+montash audio duck --target A2 --off       # stop ducking
+```
+
+- `--target` is the track that **gets lowered** (the music)
+- `--sidechain` is the track that **triggers it** (the voice)
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| `--threshold` | `-30dB` | Level above which ducking kicks in |
+| `--ratio` | `8` | Compression ratio |
+| `--attack` | `20ms` | Time to start ducking |
+| `--release` | `500ms` | Time to come back up |
+| `--makeup` | `0` | Makeup gain in dB |
+
+:::note[ffmpeg builds without sidechaincompress]
+Add `--simple` to fall back to a `silencedetect` + volume automation approach.
+:::
+
+## Loudness normalization
+
+Bring the whole programme to a target level for a delivery platform.
+The setting is stored in `project.json` and **applied at render time as a two-pass `loudnorm`**.
+
+```bash
+montash audio normalize --loudness=-14 --true-peak=-1
+montash audio normalize --off
+```
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| `--loudness` | `-14` | Integrated loudness in LUFS; −14 is the usual YouTube target |
+| `--true-peak` | `-1` | True peak in dBTP |
+| `--lra` | `11` | Loudness range in LU |
+
+:::note[Not applied to the preview]
+Normalization is a two-pass render-time process, so the preview built by `montash preview build` keeps the source levels.
+You are told this with a `W_NORMALIZE_DEFERRED` warning.
+:::
+
+## Measuring
+
+You can measure real levels before exporting. One audio-only ffmpeg pass returns
+integrated loudness (ebur128), peaks (volumedetect) and silences (silencedetect).
+
+```bash
+montash audio analyze A1                 # measure a track
+montash audio analyze c5 --json          # measure a clip
+montash audio analyze --asset bgm        # measure an asset file itself
+montash audio analyze A1 --noise-db=-40 --min-silence 0.3
+```
+
+## Sub-frame sync correction
+
+When picture and sound are a few milliseconds apart, shift the audio by whole samples.
+
+```bash
+montash audio offset --clip c2 --by s:-960      # in samples (20 ms earlier at 48 kHz)
+montash audio offset --clip c2 --by=-0.02       # in seconds
+montash audio offset --clip c2 --by +f:1        # in frames
+montash audio offset --clip c2 --set s:480      # set an absolute offset in samples
+```
+
+This is for adjustments too fine to make in whole frames.
+
+## Listing the settings
+
+```bash
+montash audio show
+```
+
+```
+master 0dB   normalize I -14 TP -1 LRA 11
+A1  gain 0dB  fade 30/30f
+    c2  f:0..f:150  0dB  fade 0/0f
+    c4  f:150..f:270  0dB  fade 0/0f
+A2  gain 0dB  fade 0/0f
+    c5  f:0..f:240  -12dB  fade 0/60f
+duck d1  A2 <- A1  -30dB / 8:1
+```
+
+## Next
+
+- [Preview and the browser](/en/guides/preview-and-web/) — actually listen to it
+- [Rendering](/en/guides/rendering/)

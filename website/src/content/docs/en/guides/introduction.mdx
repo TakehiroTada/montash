@@ -1,0 +1,86 @@
+---
+title: What montash is
+description: A CLI-only video editor designed to be operated by an AI
+sidebar:
+  order: 1
+---
+
+**montash** is a video editor built so that an AI (an LLM), acting on a human's prompt, can **complete a video edit using nothing but CLI commands**.
+The name joins **montage** (assembling shots to create meaning — the essence of editing) with **sh** (the shell).
+
+## Who it is for
+
+montash is aimed at people who:
+
+- **Want an AI to do the editing.** You say "trim the first three seconds" or "cross-fade every cut", and the AI runs `montash` and reports back.
+- **Want the edit to be reproducible.** Every operation is a command, so the log doubles as a procedure you can replay on other footage or explain afterwards.
+- **Want to stay in the terminal.** Assembling video over SSH or inside CI, where no GUI is available.
+
+It is not for people who want to nudge clips around a timeline with a mouse.
+The browser view montash ships is **for reviewing**; editing is the CLI's job.
+
+## Design principles
+
+### 1. CLI first
+
+Every edit is a `montash <subcommand>`. There are no GUI editing controls.
+Because the command is the only entry point, the same thing happens whether a human, an AI, or the web view triggers it.
+
+Output is both human-readable and machine-readable. Add `--json` for a structured result;
+on failure you get an `error.code` and an `error.hint`, so an AI can read the hint and correct itself.
+
+```bash
+montash clip trim c2 --in +0.5 --ripple --json
+```
+
+### 2. Non-destructive
+
+**No command modifies your source media.** Imported files are only ever read.
+
+The edit lives declaratively in one JSON file, `project.json`.
+It records which part of which asset sits where on the timeline — no pixels are copied.
+Actual pixels are only produced when you export with `montash render`.
+
+### 3. Time is integer frames
+
+You pick a frame rate when you create the project, and from then on every time value is stored as an **integer frame count** at that rate.
+
+29.97fps is kept as the rational `{ "num": 30000, "den": 1001 }`, so rounding error never accumulates
+and cut points never creep. Values you give in seconds snap to the nearest frame, and that snap is reported back as `W_SNAPPED`.
+
+See [the project file](/en/reference/project-file/) for details.
+
+### 4. Delegate to ffmpeg
+
+Decoding, encoding and filtering are all done by ffmpeg / ffprobe.
+What montash does is decide which ffmpeg command to build, and then verify the result.
+
+After a render, montash checks frame count, FPS, audio duration and stream configuration
+so that "it exported, but it is one frame short" is caught rather than shipped.
+
+### 5. Git-like history
+
+Every state-changing command is automatically recorded as an **op**.
+At a natural stopping point, `montash commit -m "..."` gives a run of ops a human-readable meaning.
+
+```bash
+montash status                       # where you are and what is uncommitted
+montash log --ops                    # commits and the operations inside them
+montash checkout before-bgm          # jump back to a tagged point
+montash undo                         # undo the last operation
+montash revert k_0006                # undo just that one commit, as a new op
+montash blame c3                     # who last changed this clip, and when
+```
+
+`checkout` and `undo` never delete history. Branches stay in the DAG and are reachable with `montash log --all`.
+
+### 6. Web actions are CLI invocations too
+
+Actions taken in the browser view started by `montash serve` — moving through history, importing assets, labelling —
+all run the corresponding `montash` command as a child process, without exception.
+They are recorded with `actor: web`, so an AI can see what the human did in the browser via `montash log --ops`.
+
+## Next
+
+- [Installation](/en/guides/installation/) — getting Bun and ffmpeg in place
+- [Quick start](/en/guides/quickstart/) — export your first video in ten minutes

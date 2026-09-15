@@ -1,0 +1,206 @@
+---
+title: トランジションとテロップ
+description: 繋ぎ目のトランジション、テロップ（テキストクリップ）、字幕ファイルの扱い
+sidebar:
+  order: 5
+---
+
+## トランジション
+
+隣り合う 2 つのクリップの繋ぎ目に、ffmpeg の `xfade` フィルタによるトランジションを入れます。
+
+```bash
+montash transition add --between c1 c3 --type fade --duration 0.5
+montash transition add --track V1 --all-cuts --type fade --duration 0.5
+montash transition add --track V1 --at-cut 00:00:05.000 --type wipeleft --duration f:12
+montash transition list
+```
+
+```
+t1  c1 -> c3  fade  f:15  handle
+```
+
+`--all-cuts` は、そのトラック上の**すべてのカット点**に同じトランジションを入れます。
+「繋ぎ目を全部クロスフェードに」という指示はこれ一発です。
+
+`--type` には ffmpeg の xfade トランジション名をそのまま渡します（`fade`、`dissolve`、`wipeleft`、`circleopen` など）。
+利用できる名前は `ffmpeg -h filter=xfade` で確認できます。
+
+### のりしろ（handle）と 2 つのモード
+
+トランジションは 2 つの映像が重なる区間を必要とします。その材料になるのが**のりしろ**です。
+
+| `--mode` | 意味 |
+|----------|------|
+| `handle`（既定） | クリップの外側に残っている素材（のりしろ）を使って重ねる。**タイムラインの尺は変わらない** |
+| `overlap` | クリップ同士を実際に重ねる。**タイムラインが短くなる** |
+
+のりしろが足りないと `E_INSUFFICIENT_HANDLE` になります。
+
+```
+error [E_INSUFFICIENT_HANDLE]: transition "t1" needs 8 frame(s) after "c1" and 7 before "c3"
+  but only 180 / 0 are available
+  hint: Use duration_f <= 1, or --mode overlap.
+```
+
+`clip add --in 0` のように素材の先頭ぴったりから使うと、そのクリップの前にのりしろがありません。
+トランジションを予定しているなら `--in 1` のように少し余裕を持たせておくか、`--mode overlap` を使ってください。
+
+### 音声の扱い
+
+リンクした音声をどうするかは `--audio` で選びます。
+
+| 値 | 意味 |
+|----|------|
+| `crossfade`（既定） | 音声もクロスフェードする |
+| `cut` | 音声はカットのまま |
+
+### 変更・削除
+
+```bash
+montash transition set t1 --type dissolve --duration 1.0
+montash transition remove t1
+```
+
+`overlap` モードのトランジションを削除すると、重ねる前の間隔に戻ります。
+
+## フェードイン・フェードアウト
+
+トラックやクリップの頭と尻を、黒（または白）からフェードさせます。
+
+```bash
+montash fade --track V1 --in 1.0 --out 2.0 --with-audio
+montash fade --clip c3 --in 0.5 --color white
+```
+
+```
+V1  in f:30  out f:30
+A1  in f:30  out f:30
+```
+
+`--with-audio` を付けると、リンクした音声にも同じフェードがかかります。
+
+## テロップ（テキストクリップ）
+
+テロップは**テキストトラック**（`T1`, `T2`...）の上のクリップです。`x1`, `x2`... の ID が付きます。
+テキストトラックが無ければ `T1` が自動で作られます。
+
+```bash
+montash text add --text "夏の旅 2026" --at 0 --duration 3 --preset title-center
+montash text add --text "福岡到着" --at 12 --duration 3 --preset lower-third --size 48
+montash text list
+```
+
+```
+x1  T1  f:0..f:90  夏の旅 2026
+  (created text track T1)
+```
+
+改行は `\n` で書きます。長い本文はファイルから読めます。
+
+```bash
+montash text add --text-file ./credits.txt --at 40 --duration 8
+```
+
+### スタイルプリセット
+
+```bash
+montash text presets
+```
+
+```
+caption-bottom  builtin  size=40  position=bottom-center  bg=#00000080
+corner-tag      builtin  size=32  position=top-right      bg=#00000080
+lower-third     builtin  size=48  position=5%,85%         bg=#00000099
+title-center    builtin  size=96  position=center         bg=none
+```
+
+プリセットで大枠を決め、個別のオプションで上書きするのが簡単です。
+
+```bash
+montash text add --text "第 2 章" \
+  --at 30 --duration 4 \
+  --preset title-center \
+  --font "Noto Sans CJK JP" --size 80 --color "#FFFFFF" \
+  --bg "#00000099" --bg-padding 24 \
+  --outline "3,#000000" --shadow "2,2,#00000080" \
+  --fade-in 0.3 --fade-out 0.3
+```
+
+主なオプション:
+
+| オプション | 内容 |
+|-----------|------|
+| `--position` | `center` / `bottom-center` / `top-right` などのプリセット、`"x,y"`、`"x%,y%"` |
+| `--align` | 行揃え（`left` / `center` / `right`） |
+| `--wrap` / `--no-wrap` | 自動折り返し |
+| `--bold` / `--italic` | 太字・斜体 |
+| `--line-spacing` | 行間（px） |
+| `--markup` | `plain`（`{ } \` をエスケープ）または `ass`（ASS のオーバーライドタグをそのまま通す） |
+
+### 再利用できるテキスト素材
+
+同じ文言を何度も使うなら、テキスト素材として登録できます。本文は書き出し時に読まれるので、
+素材側を書き換えればすべてのテロップに反映されます。
+
+```bash
+montash assets new-text company_name --text "株式会社サンプル"
+montash text add --asset company_name --at 5 --duration 3 --preset corner-tag
+montash assets set-text company_name --text "サンプル株式会社"   # 全箇所に反映される
+```
+
+### 変更・削除
+
+```bash
+montash text set x1 --text "夏の旅 2027" --size 72
+montash text remove x1
+```
+
+## 字幕
+
+SRT / VTT / ASS ファイルを取り込んでタイムラインに付けます。テロップと違い、**ファイルの内容がそのまま使われます**。
+
+```bash
+montash import ./subs/ja.srt
+montash subtitle add --asset ja --mode burn --font "Noto Sans CJK JP" --size 40 --margin-bottom 60
+montash subtitle list
+```
+
+| `--mode` | 意味 |
+|----------|------|
+| `burn`（既定） | 映像に**焼き込む**。どのプレイヤーでも必ず表示されるが、消せない |
+| `soft` | 選択可能な字幕トラックとして**多重化する**。プレイヤー側で切り替えられる |
+
+```bash
+montash subtitle add --asset ja --mode soft --lang ja
+montash subtitle add --asset en --mode soft --lang en
+```
+
+タイミングがずれているときは `--offset` で全体をずらせます。
+
+```bash
+montash subtitle set s1 --offset +0.5
+```
+
+:::caution[libass が必要]
+`burn` モードの品質は ffmpeg の `subtitles` フィルタ（libass）に依存します。
+libass が無いビルドでは `drawtext` にフォールバックし、表現が制限されます。
+`montash doctor` で確認してください。
+:::
+
+## オーバーレイ
+
+画像や映像を上位の映像トラックに重ねます（ロゴ、ワイプなど）。
+
+```bash
+montash track add --kind video --above V1
+montash overlay add --asset logo --track V2 --at 0 --duration timeline \
+  --position top-right --margin 40 --scale 0.12 --opacity 0.8
+montash overlay set c8 --position bottom-right --fade-in 0.5
+montash overlay list
+```
+
+## 次に読むもの
+
+- [音声](/ja/guides/audio/) — BGM・ダッキング・ラウドネス
+- [書き出し](/ja/guides/rendering/)

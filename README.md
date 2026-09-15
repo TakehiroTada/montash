@@ -23,6 +23,31 @@ AI（LLM）が人間のプロンプト指示を受けて **CLI コマンドだ�
 | 6 | **Web の操作も CLI の発行** | Web UI からの操作（履歴の移動、素材管理）は例外なく対応する `montash` コマンドを発行して実行し、履歴に `actor: web` で記録される。タイムライン編集（ドラッグ等）は Web に持たず CLI で行う |
 | 7 | **履歴は git のように** | すべての操作を op として自動記録し、AI が `montash commit -m "00:12〜00:15 をカット"` と意味付けする。任意時点へ `checkout` で即時に戻る／進む |
 
+## ドキュメント
+
+利用者向けのドキュメントサイトを `website/` に置いています（Astro + Starlight、日本語・英語）。
+
+```bash
+cd website
+bun install
+bun run dev        # http://localhost:4321
+```
+
+| コマンド | 内容 |
+|---------|------|
+| `bun run dev` | 開発サーバ |
+| `bun run build` | `astro check` のあと `dist/` に静的サイトを生成 |
+| `bun run preview` | 生成したサイトをローカルで配信 |
+| `bun run gen:cli` | CLI リファレンスを `montash schema --json` から再生成 |
+
+CLI リファレンス（`website/src/content/docs/{ja,en}/reference/cli.md`）は `montash schema --json` の出力から
+自動生成しています。**コマンドを追加・変更したら `cd website && bun run gen:cli` を実行し、差分をコミットしてください。**
+
+構成と i18n（新しい言語の足し方）は [website/README.md](website/README.md) を参照。
+なお `website/` は Astro（Node 前提）のツールチェーンを使うため、**ルートの CI には含めていません**。
+
+下記の `docs/` は**開発者向けの内部仕様書**で、`website/` とは別物です。
+
 ## ドキュメント構成（作業手順開発の流れ順）
 
 作業手順開発では「**人間が実際に行う作業手順**」を最初に固定し、その手順の各ステップを満たす最小の機能を逆算して仕様化します。ドキュメントもその順序で並べています。

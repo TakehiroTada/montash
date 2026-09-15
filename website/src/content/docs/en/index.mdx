@@ -1,0 +1,57 @@
+---
+title: montash
+description: A CLI video editor built to be operated by AI
+template: splash
+hero:
+  tagline: Edit video by talking. The AI operates it; the CLI does the work.
+  actions:
+    - text: Quick start
+      link: /en/guides/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/TakehiroTada/montash
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+**montash** = **montage** (joining shots to make meaning — the essence of editing) + **sh** (the shell).
+
+You say "cut the part around 12 seconds where I stumbled". The AI translates that into `montash` commands, runs them, and reports back.
+The edit lives declaratively in a single JSON file, and your source media is never modified.
+
+<CardGrid stagger>
+	<Card title="Everything happens in the CLI" icon="laptop">
+		Importing, cutting, titles, music and export are all `montash <subcommand>`.
+		Every command prints both a human-readable result and machine-readable JSON (`--json`), so an AI can read it and decide what to do next.
+	</Card>
+	<Card title="Frame accurate" icon="setting">
+		Time is stored as **integer frames** on the project's frame rate.
+		29.97fps is kept as the rational `30000/1001`, so cut points never drift by a frame no matter how often you re-edit.
+	</Card>
+	<Card title="Git-like history" icon="code-branch">
+		Every operation is recorded automatically as an op, and `commit` gives a group of ops a meaning.
+		`checkout` jumps back to any point instantly, so "put it back to before the titles" takes a second.
+	</Card>
+	<Card title="Review in the browser" icon="window">
+		`montash serve` starts a local web app with playback, scrubbing, a timeline, the history and asset management.
+		Actions taken in the browser also run as `montash` commands and are recorded in the history.
+	</Card>
+</CardGrid>
+
+## The shape of it
+
+```
+human ──(natural language)──▶ AI ──(montash commands)──▶ project.json ──(montash render)──▶ ffmpeg ──▶ output.mp4
+                                                            │
+                                                            └──(montash serve)──▶ web preview (check it in a browser)
+```
+
+## Start here
+
+- [What montash is](/en/guides/introduction/) — what it is for and how it is designed
+- [Installation](/en/guides/installation/) — getting Bun and ffmpeg in place
+- [Quick start](/en/guides/quickstart/) — from importing footage to an MP4
+- [Driving montash from an AI](/en/guides/ai-usage/) — operating montash as an AI

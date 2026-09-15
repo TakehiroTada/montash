@@ -1,0 +1,139 @@
+---
+title: 音声
+description: BGM を敷く、音量とフェード、ダッキング、ラウドネス正規化
+sidebar:
+  order: 6
+---
+
+## BGM を敷く
+
+BGM は専用の音声トラックに置くのが基本です。
+
+```bash
+montash track add --kind audio --name A2
+montash clip add --asset bgm --track A2 --at 0 --duration 8 --audio-only
+```
+
+`--audio-only` は「音声クリップだけを置く」という指定です。
+
+## 音量
+
+音量は **dB** で、クリップ・トラック・マスターの 3 段階で設定できます。
+
+```bash
+montash audio gain --clip c5 --db=-12       # このクリップだけ 12 dB 下げる
+montash audio gain --track A2 --db=-6       # トラック全体
+montash audio gain --master --db=-3         # マスターバス
+```
+
+:::caution[負の数は `=` で渡す]
+`--db=-12` と書いてください。`--db -12` は「`-12` というオプション名」と解釈されます。
+`--in`、`--out`、`--loudness` などでも同じです。
+:::
+
+## フェード
+
+```bash
+montash audio fade --clip c5 --out 2.0                 # 尻を 2 秒かけて下げる
+montash audio fade --clip c5 --in 1.0 --curve qsin     # カーブを指定する
+```
+
+カーブは `tri`（既定の直線）、`exp`、`log`、`qsin`、`hsin`、`esin` から選べます。
+
+トラック全体のフェードはこちらではなく `montash fade --track A1` です。
+
+```bash
+montash fade --track A1 --in 1.0 --out 2.0
+```
+
+## ダッキング
+
+「声が出ている間だけ BGM を下げる」処理です。ffmpeg の `sidechaincompress` を使います。
+
+```bash
+montash audio duck --target A2 --sidechain A1
+montash audio duck --target A2 --sidechain A1 --threshold=-30dB --ratio 8 --release 0.5
+montash audio duck --target A2 --off       # やめる
+```
+
+- `--target` が**下げられる側**（BGM）
+- `--sidechain` が**きっかけになる側**（声）
+
+| オプション | 既定値 | 内容 |
+|-----------|-------|------|
+| `--threshold` | `-30dB` | この音量を超えるとダッキングが始まる |
+| `--ratio` | `8` | 圧縮比 |
+| `--attack` | `20ms` | 下がり始めるまでの時間 |
+| `--release` | `500ms` | 元に戻るまでの時間 |
+| `--makeup` | `0` | メイクアップゲイン（dB） |
+
+:::note[sidechaincompress が無い ffmpeg の場合]
+`--simple` を付けると、`silencedetect` + 音量オートメーションによる代替方式に切り替わります。
+:::
+
+## ラウドネス正規化
+
+配信プラットフォーム向けに、全体の音量を基準値に揃えます。
+設定は `project.json` に保存され、**書き出し時に 2 パスの `loudnorm` として適用されます**。
+
+```bash
+montash audio normalize --loudness=-14 --true-peak=-1
+montash audio normalize --off
+```
+
+| オプション | 既定値 | 内容 |
+|-----------|-------|------|
+| `--loudness` | `-14` | 統合ラウドネス（LUFS）。YouTube なら −14 が目安 |
+| `--true-peak` | `-1` | トゥルーピーク（dBTP） |
+| `--lra` | `11` | ラウドネスレンジ（LU） |
+
+:::note[プレビューには反映されない]
+正規化はレンダー時の 2 パス処理なので、`montash preview build` のプレビューは素材のままの音量です。
+`W_NORMALIZE_DEFERRED` という警告でそのことが知らされます。
+:::
+
+## 測定する
+
+書き出す前に、実際の音量を測っておけます。1 回の音声のみの ffmpeg パスで
+統合ラウドネス（ebur128）・ピーク（volumedetect）・無音区間（silencedetect）を返します。
+
+```bash
+montash audio analyze A1                 # トラックを測る
+montash audio analyze c5 --json          # クリップを測る
+montash audio analyze --asset bgm        # 素材ファイルそのものを測る
+montash audio analyze A1 --noise-db=-40 --min-silence 0.3
+```
+
+## サブフレームの同期補正
+
+映像と音声が数ミリ秒ずれている素材は、サンプル単位でずらせます。
+
+```bash
+montash audio offset --clip c2 --by s:-960      # サンプル指定（48kHz なら 20ms 早める）
+montash audio offset --clip c2 --by=-0.02       # 秒指定
+montash audio offset --clip c2 --by +f:1        # フレーム指定
+montash audio offset --clip c2 --set s:480      # 絶対値（サンプル）で設定
+```
+
+フレーム単位で動かすと粗すぎる、という場合のための調整です。
+
+## 設定を一覧する
+
+```bash
+montash audio show
+```
+
+```
+master 0dB   normalize I -14 TP -1 LRA 11
+A1  gain 0dB  fade 30/30f
+    c2  f:0..f:150  0dB  fade 0/0f
+    c4  f:150..f:270  0dB  fade 0/0f
+A2  gain 0dB  fade 0/0f
+    c5  f:0..f:240  -12dB  fade 0/60f
+duck d1  A2 <- A1  -30dB / 8:1
+```
+
+## 次に読むもの
+
+- [プレビューとブラウザ画面](/ja/guides/preview-and-web/) — 実際に聴いて確かめる
+- [書き出し](/ja/guides/rendering/)

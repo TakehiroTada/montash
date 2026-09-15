@@ -1,0 +1,133 @@
+---
+title: インストール
+description: Bun と ffmpeg を用意し、montash doctor で動作を確認する
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+montash の実行時依存は **Bun** と **ffmpeg / ffprobe** の 2 つだけです。
+
+## 必要なもの
+
+| もの | 条件 | 備考 |
+|------|------|------|
+| OS | WSL2（Ubuntu 22.04+）／ Ubuntu 22.04+ ／ macOS 12+ の **bash** | Windows ネイティブ（PowerShell / cmd）はスコープ外 |
+| [Bun](https://bun.sh) | **1.2 以上** | ランタイム兼パッケージマネージャ |
+| ffmpeg / ffprobe | **4.4 以上**（**6.0 以上を推奨**） | バージョンではなく「必要な機能があるか」で判定します |
+| 日本語フォント | Noto Sans CJK など | 無いとテロップが豆腐（□□□）になります |
+
+### ffmpeg に必要な機能
+
+montash はバージョン番号ではなく、ffmpeg のビルドに必要な機能が入っているかを見ます。
+
+- **必須**: エンコーダ `libx264` / `aac`、フィルタ `xfade` / `concat` / `overlay` / `fps` / `trim` / `loudnorm` / `sidechaincompress`
+- **推奨**: フィルタ `subtitles`（**libass**）、`drawtext`（libfreetype）
+
+:::caution[libass が無いとどうなるか]
+テロップの描画が `drawtext` にフォールバックし、機能が制限されます（縁取り・行間・配置の表現力が落ちます）。
+`montash doctor` は libass が見つからないとき、プロジェクトの `settings.text_engine` を `drawtext` に切り替えます。
+**libass 入りの ffmpeg を用意することを強く推奨します。**
+:::
+
+## セットアップ用スクリプトを使う
+
+リポジトリに同梱の `scripts/install-deps.sh` が、足りないものを検出して入れてくれます。
+macOS の bash 3.2 でも動き、既に入っているものには触りません（冪等）。
+
+```bash
+bash scripts/install-deps.sh --check          # 確認だけ（何もインストールしない）
+bash scripts/install-deps.sh --with-fonts     # 不足分を確認し、確認プロンプトの後に導入
+bash scripts/install-deps.sh --yes            # プロンプトなしで導入
+bash scripts/install-deps.sh --dry-run        # 実行予定のコマンドを表示するだけ
+```
+
+<Tabs>
+<TabItem label="macOS">
+
+Homebrew を使います（Homebrew 自体は自動導入しません。無ければ先に入れてください）。
+
+```bash
+bash scripts/install-deps.sh --with-fonts
+```
+
+- ffmpeg は **`brew install ffmpeg-full`** を優先します。Homebrew の素の `ffmpeg` formula には libass / libfreetype が含まれないためです。
+- `ffmpeg-full` は keg-only で `PATH` に入らないので、スクリプトが `~/.local/share/montash/ffmpeg/bin` にシンボリックリンクを作ります。montash はこの場所を優先して探します。
+- 日本語フォントは `brew install --cask font-noto-sans-cjk-jp`。
+- **`--static` は macOS では使えません**（Linux / WSL 専用のオプションです）。
+
+</TabItem>
+<TabItem label="Linux / WSL">
+
+ディストリの ffmpeg は古い／機能が足りないことが多いため、**static ビルドを優先**します。
+
+```bash
+bash scripts/install-deps.sh --with-fonts --static
+```
+
+- static ビルド（libx264 / libx265 / libass / libfreetype 同梱）を `~/.local/share/montash/ffmpeg` に展開し、`~/.local/bin` にリンクします。**sudo は不要です。**
+- `--static` を付けなくても、現状の ffmpeg が古い／機能不足／libass 無しと判定されれば自動的に static ルートを選びます。Arch・openSUSE・Alpine のようにローリング更新のディストリではディストリパッケージを使います。
+- 日本語フォントは apt なら `fonts-noto-cjk`、dnf なら `google-noto-sans-cjk-jp-fonts` など、パッケージマネージャに応じて選ばれます。
+- WSL では `wslu`（`wslview` でブラウザを開く）と `fontconfig`（`fc-list`）も不足していれば入れます。
+
+:::tip[WSL の置き場所]
+プロジェクトを `/mnt/c/...` 配下に置くと I/O が遅く、ファイル監視がポーリングにフォールバックします。
+ext4 側（`~/` 以下）で作業してください。
+:::
+
+</TabItem>
+</Tabs>
+
+Bun はどのプラットフォームでも公式インストーラ（`curl -fsSL https://bun.sh/install | bash`）で導入され、
+1.2.0 未満なら `bun upgrade` が走ります。
+
+## montash を用意する
+
+<Steps>
+
+1. リポジトリを取得する
+
+   ```bash
+   git clone https://github.com/TakehiroTada/montash.git
+   cd montash
+   bun install
+   ```
+
+2. 動作を確認する
+
+   ```bash
+   bun run doctor
+   ```
+
+   単一バイナリを作る場合は `bun run compile` で `dist/montash` が生成されます。
+   以降このドキュメントでは `montash` と書きますが、リポジトリから直接動かす場合は `bun run dev` に読み替えてください
+   （例: `bun run dev -C ./my-edit timeline show`）。
+
+</Steps>
+
+## `montash doctor` で確認する
+
+```bash
+montash doctor
+```
+
+`doctor` は ffmpeg / Bun / プラットフォームを点検し、足りない機能とその直し方（`hint`）を表示します。
+`--fix-hints` を付けると `scripts/install-deps.sh --check --json` の結果も統合されます。
+
+```bash
+montash doctor --json          # AI に読ませる場合
+montash doctor --fix-hints
+```
+
+ここが通れば [クイックスタート](/ja/guides/quickstart/) に進めます。
+
+## ffmpeg の場所を指定する
+
+複数の ffmpeg を使い分けたい場合は、コマンドごとまたは環境変数で指定できます。
+
+```bash
+montash render -o out/final.mp4 --ffmpeg-path /opt/ffmpeg/bin/ffmpeg
+export MONTASH_FFMPEG=/opt/ffmpeg/bin/ffmpeg
+export MONTASH_FFPROBE=/opt/ffmpeg/bin/ffprobe
+```

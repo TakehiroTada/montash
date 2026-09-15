@@ -1,0 +1,349 @@
+---
+title: History
+description: ops, commits and tags — and getting back to any point with checkout, undo, revert and reset
+sidebar:
+  order: 8
+---
+
+montash records every state-changing command automatically.
+If you know git, most of this will feel familiar.
+
+## Three units
+
+| Unit | ID | What it is |
+|------|-----|-----------|
+| **op** | `o_0001` | One state-changing command. **Recorded automatically** |
+| **commit** | `k_0001` | A run of consecutive ops given a human-readable message |
+| **tag** | any name | A name on an op or a commit, so you can come back to it |
+
+Commit IDs use `k_` (for kommit) rather than `c_` so they never collide with clip IDs like `c1`, `c2`.
+
+## How it maps to git
+
+| montash | git |
+|---------|-----|
+| op | One change in the working tree (recorded automatically) |
+| pending ops | Uncommitted changes |
+| commit | commit |
+| HEAD | HEAD |
+| tip | Branch tip |
+| tag | tag |
+| object | blob |
+| `log` / `show` / `diff` | `log` / `show` / `diff` |
+| `checkout` | `checkout` |
+| `undo` / `redo` | Step `checkout HEAD~1` back and forward (no git equivalent) |
+| `revert` | `revert` |
+| `reset --hard` | `reset --hard` |
+| `blame` | `blame` |
+| `history verify` | `fsck` |
+| `history prune` | `gc --prune` |
+| `history export` / `import` | `bundle create` / `bundle unbundle` |
+
+The big difference is that **ops are recorded for you**. There is no `git add` step.
+Anything you try is already recorded, so when you want it back, you just `undo`.
+
+## Where am I
+
+```bash
+montash status
+```
+
+```
+HEAD: o_0013  (tip)
+  2026-09-15 05:30  ai  normalize to -14 LUFS
+On commit k_0002  "00:00.0-00:09.0 added transition, title and music"
+Nothing to commit (no pending ops)
+```
+
+Uncommitted ops are listed too.
+
+```
+Pending ops (2), commit with `montash commit -m <msg>`:
+  o_0014  2026-09-15 05:32  ai      split c1 at f:90 (created c6)
+  o_0015  2026-09-15 05:32  ai      trim c3 to f:150..f:255
+```
+
+## Reading the history
+
+```bash
+montash log                      # commits, newest first
+montash log --ops                # expand the ops inside each commit
+montash log --graph              # ASCII graph (● commit, ○ op)
+montash log --all                # include branches
+montash log --grep title         # search the messages
+montash log --limit 5
+```
+
+```
+● k_0002  2026-09-15 05:30  ai      00:00.0-00:09.0 added transition, title and music
+│ ○ o_0013  2026-09-15 05:30  ai      normalize to -14 LUFS
+│ ○ o_0012  2026-09-15 05:30  ai      add ducking d1 (A2 <- A1)
+...
+● k_0001  2026-09-15 05:30  ai      00:00.0-00:09.0 joined the two source clips
+```
+
+You can also look at one entry in detail, or diff two points.
+
+```bash
+montash show HEAD                # the op at HEAD
+montash show k_0002 --patch      # including the full JSON Patch
+montash diff                     # last commit → HEAD (i.e. what is uncommitted)
+montash diff k_0001 k_0002
+montash diff HEAD~3
+```
+
+```
+op o_0016  (pending)
+Actor:   ai
+Date:    2026-09-15T05:32:12.797Z
+Parent:  o_0015
+Command: clip set c1 --label Opening
+
+    set label on c1
+
+1 change: + /tracks/0/clips/0/label = "Opening"
+```
+
+## Committing
+
+When a piece of work is finished, give the pending ops a meaning.
+
+```bash
+montash commit -m "00:12.0-00:15.0 cut the stumble" \
+  --body "Asked for: 'drop the bit around 12 seconds where I fluffed it'"
+```
+
+```
+[k_0002] 00:00.0-00:09.0 added transition, title and music
+  9 ops (o_0005..o_0013), author ai
+```
+
+:::tip[How to write the message]
+**Start with the time range you affected** (`MM:SS.s-MM:SS.s`).
+Otherwise you get a `W_COMMIT_MESSAGE_STYLE` warning.
+The point is that you can later find "the commit that fixed that bit" by time.
+:::
+
+There are options for committing part of the work, or drafting a message.
+
+```bash
+montash commit --last 2 -m "00:00.0-00:03.0 added the title"
+montash commit --ops o_0040..o_0042 -m "..."
+montash commit --auto-message --json        # mechanical draft from the op summaries
+montash commit -m "..." --tag rough-cut     # commit and tag in one go
+```
+
+Every command accepts `-m`, so you can make one operation into one commit.
+
+```bash
+montash clip delete c5 --ripple -m "00:12.0-00:15.0 cut the stumble"
+```
+
+## Going back and forward
+
+```bash
+montash undo                     # undo the last op
+montash undo 3                   # go back three
+montash redo                     # go forward one
+montash redo 2
+```
+
+`undo` is the same as `checkout HEAD~1`. **Nothing is deleted.**
+
+To reach any point, use `checkout`.
+
+```bash
+montash checkout k_0006~1        # the state just before commit k_0006
+montash checkout rough-cut       # a tagged point
+montash checkout o_0042          # a specific op
+montash checkout tip             # back to the newest state of this branch
+```
+
+`<ref>~n` means "n steps earlier": `HEAD~3`, `k_0007~1`, and so on.
+
+:::note[checkout does not create an op]
+`checkout` / `undo` / `redo` do not create new state, so they leave no op.
+The movement is recorded in `.montash/history/moves.jsonl` instead.
+:::
+
+## Being detached
+
+When HEAD is somewhere that is not the tip, montash says so.
+
+```
+warning [W_DETACHED_HEAD]: HEAD is at o_0015, which is not the tip of its branch (o_0016)
+  hint: New ops will start a new branch from here; the existing ops stay in `montash log --all`.
+        Use `montash checkout tip` to return to the tip.
+```
+
+Editing from here **starts a new branch**.
+The original run of ops is not lost — it stays visible in `montash log --all`. To go back, `montash checkout tip`.
+
+## Tagging
+
+Name a point you expect to want back.
+
+```bash
+montash tag rough-cut                       # tag the current HEAD
+montash tag before-bgm k_0006               # tag a specific commit
+montash tag list
+montash tag delete rough-cut                # remove the name, keep the history
+montash checkout rough-cut                  # come back
+```
+
+```
+name       target  op      at                message
+---------  ------  ------  ----------------  -------
+rough-cut  o_0016  o_0016  2026-09-15 05:36
+```
+
+## Checking integrity
+
+```bash
+montash history verify
+```
+
+```
+history verify — OK (16 ops, 2 commits, 1 tags, 2 moves)
+```
+
+This verifies object hashes, the continuity of the op DAG, commits, tags and the move log.
+
+## Undoing one change (`revert`)
+
+Where `checkout` moves you back to a point, `revert` adds a new op that **undoes just one commit (or op)**.
+Like git's `revert`, **history is never rewritten**, and the edits made after it stay where they are.
+
+```bash
+montash revert k_0002 -m "00:00.0-00:05.0 undo the label"
+montash revert HEAD
+```
+
+```
+revert k_0002: 00:00.0-00:05.0 label on c1
+  2 changes: ~ /updated_at: ...; - /tracks/0/clips/0/label (was "Opening")
+op o_0006 → commit k_0003
+```
+
+This is what you want when the ask is not "put it back to before the titles" but "**drop the title I just
+added** and keep the colour tweak that came after it". The undo is itself an op, so you can `revert` a `revert`.
+
+## Who changed it, and when (`blame`)
+
+For an element — a clip, a title, a transition, an asset — this reports the **op, commit and actor that
+last changed it**.
+
+```bash
+montash blame c3
+montash blame x1 --json
+montash blame c3 --all        # search every branch, not only the HEAD line
+```
+
+```
+c1 last changed by o_0005  2026-09-15 05:58  ai
+  set label on c1
+  command: montash clip set c1 --label Opening
+  commit k_0002  00:00.0-00:05.0 label on c1
+  1 change: + /tracks/0/clips/0/label = "Opening"
+```
+
+Use it to chase down "when did this clip get shorter?". With `--json` you get `result.op`, `result.commit`
+and `result.changes` (JSON Patch) directly.
+
+## Moving HEAD back (`reset --hard`)
+
+`reset` moves HEAD to a ref and **drops the ops after it from the default `log` view**.
+
+```bash
+montash reset --hard k_0001 --yes
+```
+
+```
+reset --hard k_0001: HEAD is now at o_0004
+  2026-09-15 05:58  ai  add c3 (b60) on V1 at f:150
+  pending ops: 0  (on commit k_0001)
+  dropped from the default log: 2 ops (o_0005, o_0006)
+  they are kept on disk — see `montash log --all`
+```
+
+:::caution[`--hard` is required]
+Without it you get `E_USAGE` (`montash reset requires --hard`), because this rewrites `project.json`
+and you should have to say so. Add `--yes` to skip the confirmation.
+:::
+
+Unlike git, **the dropped ops stay on disk**. They remain visible in `montash log --all` and you can
+`montash checkout <id>` back to them. Only `history prune` actually removes anything.
+
+| What you want | What to use |
+|---------------|-------------|
+| To *look at* an earlier state | `checkout` / `undo` |
+| To undo **one** edit while keeping the history | `revert` |
+| To drop everything after a point | `reset --hard` |
+| To really delete it from disk | `history prune` |
+
+## Tidying up and moving the history
+
+### `history prune`
+
+Deletes old uncommitted ops and objects that nothing references. **Check with `--dry-run` first.**
+
+```bash
+montash history prune --dry-run
+montash history prune --keep-commits 20 --keep-days 7
+```
+
+```
+history prune (dry run): would delete 0 op(s), 0 object(s), 0 move(s)
+  ops: (none)
+  kept: 6 ops, 3 commits, 7 objects
+```
+
+| Option | Default | What it keeps |
+|--------|---------|---------------|
+| `--keep-commits` | 100 | Every op from the last n commits onwards |
+| `--keep-days` | 30 | Ops newer than n days |
+
+Committed ops are never removed.
+
+### `history export` / `history import`
+
+Write the history — ops, commits, moves, tags and objects — out as a single JSONL file, and read it back.
+Use it to hand over an audit trail, or to restore from a backup.
+
+```bash
+montash history export -o history.jsonl
+montash history export -o -            # to stdout
+montash history import history.jsonl
+```
+
+```
+exported 19 record(s) to /tmp/my-edit/history.jsonl (6 ops, 3 commits, 7 objects)
+```
+
+```
+imported 6 op(s), 3 commit(s), 7 object(s) from history.jsonl
+what     added  total
+-------  -----  -----
+ops      6      6
+commits  3      3
+tags     0      0
+```
+
+:::note[Import needs an empty history]
+Importing into a history that already contains the same op or commit IDs fails with
+`E_HISTORY_IMPORT_CONFLICT`. `history import` is for **restoring**, not for merging two histories.
+:::
+
+## Not available yet
+
+| Feature | What it will do |
+|---------|-----------------|
+| `montash snapshot save\|restore\|list\|delete` | Compatibility aliases for `tag` / `checkout` |
+| `montash log --since` | Filter by date |
+| `montash commit --amend` / `--body-file` / `--from-worktree` | Redo a commit, and read the message from a file |
+| Some of the web history API | `GET /api/history/:id`, `/api/history/diff`, `/api/blame` (the CLI side is implemented) |
+
+## Next
+
+- [Rendering](/en/guides/rendering/)
+- [Driving montash from an AI](/en/guides/ai-usage/) — including how to write commit messages

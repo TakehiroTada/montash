@@ -1,0 +1,203 @@
+---
+title: Cutting
+description: Adding, trimming, splitting, moving and deleting clips — and what ripple means
+sidebar:
+  order: 4
+---
+
+Editing in montash comes down to how clips are arranged on the timeline.
+This page covers the basic operations and **ripple**, the single most important idea in montash.
+
+## Tracks and clips
+
+- A **track** is a layer. There are three kinds: video (`V1`, `V2`, …), audio (`A1`, `A2`, …) and text (`T1`, …).
+  Higher-numbered video tracks composite on top.
+- A **clip** is a piece of an asset placed on a track, identified as `c1`, `c2`, …
+  It records which frames of which asset go at which frame of the timeline.
+
+```bash
+montash track add --kind audio --name A2       # add an audio track
+montash track add --kind video --above V1      # add a video track above V1
+montash track list
+montash track mute A2                          # mute (audio silent, video hidden)
+montash track lock V1                          # exclude from edits and ripples
+```
+
+```
+V1  video  3 clip(s)
+A1  audio  3 clip(s)
+A2  audio  1 clip(s)
+T1  text  1 clip(s)
+```
+
+## Placing a clip
+
+`clip add` takes where in the source to start (`--in`), how much to use (`--duration` or `--out`),
+and where on the timeline it goes (`--at` / `--after` / `--before`).
+
+```bash
+montash clip add --asset clip_a --in 1 --duration 5 --at 0
+montash clip add --asset clip_b --in 1 --duration 4 --after c1
+montash clip add --asset clip_a --in=-5 --at end       # the last five seconds of the asset
+```
+
+Placing footage that has sound creates **two linked clips**, video and audio.
+Moving either one moves the other; add `--unlink` to edit just one of them.
+
+Use `--video-only` / `--audio-only` to place only one side.
+
+## Writing times
+
+Arguments that take a time (the `time` type in the reference) accept three notations.
+
+| Form | Example | Meaning |
+|------|---------|---------|
+| Seconds | `1.5` | 1.5 seconds, snapped to the nearest frame |
+| Timecode | `00:00:12.500` | 12.5 seconds |
+| Frames | `f:45` | Frame 45 — **no rounding** |
+| Relative | `+0.5` / `-1` | Offset from the current value |
+
+:::tip[Reuse the frame numbers the CLI gives you]
+A value in seconds is snapped to the nearest frame and reported back as `W_SNAPPED`.
+Feed values the CLI returned back as `f:<n>` so they are never rounded twice.
+At 29.97fps, "one second" is 30 frames, which is 1.001 seconds — the difference adds up.
+:::
+
+Pass negative values with `=`, as in `--in=-5`; `--in -5` is read as an option name.
+
+## What ripple means
+
+**Ripple** means "move everything after it along too".
+
+When you shorten a three-second clip to two seconds:
+
+- **Without ripple** (the default), only that clip gets shorter and a **one-second hole opens up**. The total duration is unchanged.
+- **With ripple** (`--ripple`), the following clips slide one second earlier and **no hole is left**. The whole timeline gets one second shorter.
+
+When a person says "cut that bit", they almost always mean the second one.
+
+```bash
+montash clip trim c3 --in +0.5 --ripple     # trim half a second off the head and close up
+montash clip delete c5 --ripple             # delete and close the hole
+```
+
+`--ripple` takes a scope.
+
+| Form | Affects |
+|------|---------|
+| `--ripple` / `--ripple=all` | Everything after it on **every track** (music and titles move too) |
+| `--ripple=track` | Only the following elements on that track |
+
+Use `--ripple=track` only when asked for something like "tighten the picture but leave the music where it is".
+
+`--ripple` is available on `clip move`, `clip trim`, `clip delete` and `clip set`.
+`clip add` does not take it yet — on insert, `--on-overlap push` pushes on every track.
+
+Trimming without ripple leaves a hole and warns with `W_GAP_CREATED`.
+Holes are listed by `timeline gaps`.
+
+```bash
+montash timeline gaps
+```
+
+## Trimming
+
+`clip trim` moves the **source in / out points**, which changes the clip's length on the timeline.
+
+```bash
+montash clip trim c2 --in +0.5 --ripple     # cut half a second off the head
+montash clip trim c2 --out -1 --ripple      # cut a second off the tail
+montash clip trim c2 --in f:30 --out f:180  # absolute values
+```
+
+```
+c3  f:150..f:255  (-15f)
+```
+
+## Splitting
+
+`clip split` cuts a clip in two at a timeline position.
+**The first half keeps the original ID; the second half gets a new one.**
+
+```bash
+montash clip split c1 --at 3 --json
+```
+
+```json
+{
+  "ok": true,
+  "result": {
+    "kept":    { "id": "c1", "start_f": 0,  "end_f": 90,  "in_f": 30,  "out_f": 120 },
+    "created": { "id": "c6", "start_f": 90, "end_f": 150, "in_f": 120, "out_f": 180 },
+    "linked":  { "kept": "c2", "created": "c7" }
+  }
+}
+```
+
+"Cut at twelve seconds and drop everything after" is a split followed by deleting `created.id`.
+
+```bash
+montash clip split c1 --at 12 --json     # read created.id (c6, say)
+montash clip delete c6 --ripple
+```
+
+## Moving and reordering
+
+```bash
+montash clip move c2 --by +f:15                # 15 frames later
+montash clip move c2 --to 00:00:05.000         # to an absolute position
+montash clip move c3 --before c2 --ripple      # put c3 in front of c2 (i.e. reorder)
+montash clip move c2 --track V2                # to another track
+```
+
+**Reordering is `--before` / `--after` plus `--ripple`.**
+What happens when the destination is occupied is chosen with `--on-overlap`.
+
+| Value | Meaning |
+|-------|---------|
+| `error` (default) | Fail if it would overlap |
+| `overwrite` | Overwrite the existing clip |
+| `push` | Push the existing clip aside (insert) |
+
+## Deleting
+
+```bash
+montash clip delete c5 --ripple          # delete and close up
+montash clip delete c5 c6 c7             # delete several (holes remain)
+```
+
+## Changing clip properties
+
+```bash
+montash clip set c1 --label "Opening"
+montash clip set c1 --speed 2.0          # double speed
+montash clip set c1 --volume 0.5
+montash clip set c1 --opacity 0.8
+```
+
+## Inspecting
+
+```bash
+montash clip list                        # clips in track and timeline order
+montash timeline show                    # the whole picture
+montash timeline show --from 11.5 --to 13   # what is at a given time
+montash timeline show --ascii            # a compact diagram
+montash validate                         # check the invariants
+```
+
+```
+00:00:08.500  (255 frames)
+V1 |c1[0..90] | c6[90..150] | c3[150..255]|
+A1 |c2[0..90] | c7[90..150] | c4[150..255]|
+A2 |c5[0..240]|
+T1 |x1[0..90]|
+```
+
+:::tip[Look before you leap]
+Every command accepts `--dry-run`, which shows what would change without writing anything.
+:::
+
+## Next
+
+- [Transitions and titles](/en/guides/transitions-and-text/)
+- [History](/en/guides/history/) — `montash undo` when you get it wrong
