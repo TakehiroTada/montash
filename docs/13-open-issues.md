@@ -66,8 +66,7 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 | D-9 | 中 | **`clip add` に `--ripple` が無い**。docs/04 §6 は「`--on-overlap push` は §6a の規則で全トラック。`--ripple=track` を併用すると当該トラックのみ」と書くが、実装の `clip add` は `--ripple` を受け付けず、押し出しは常に全トラック（`clip move|trim|delete|set` には `--ripple` がある） | `clip add` にも `--ripple[=all\|track]` を足して `--on-overlap push` の範囲を選べるようにする（D-5 のクリップ生成の共通化と一緒にやるのが自然） | open |
 | D-10 | 低 | **Web の履歴 API が docs/06 §3.2 より狭い**。`GET /api/history/:id`・`/api/history/diff`・`/api/blame/:elementId`・`/api/cli-examples`・`/api/fonts` が未実装（`GET /api/history` のみ）。許可リストには `revert` / `reset --hard` が入っているが CLI 側が未実装 | M4（W-11）で CLI の `show`/`diff`/`blame`/`revert` を仕上げるのに合わせて API も足す。docs/06 には未実装の印を付けた | open |
 | D-11 | 低 | **`montash help <command>` が未実装**。docs/04 §2 に項目があるが登録コマンドに無く、yargs の `--help` と `schema` しかない | 仕様から落とす（`schema` で足りる）か、`schema` の人間向けラッパとして実装する | open（要判断） |
-| D-12 | 低 | **`render --preset` の選択肢が 2 つだけ**。docs/04 §14 は 10 プリセット（`youtube-4k` / `instagram-reel` / `twitter` / `prores-422` / `archive-h265` / `audio-only-mp3` / `gif` / `thumbnail`）を挙げるが、実装は `youtube-1080p` / `web-preview` のみ | M4（W-12）で残りを追加。docs/04 §1.9 に現状を明記済み | open（M4） |
-
+| D-12 | 低 | **`render --preset` の選択肢が 2 つだけ**。docs/04 §14 は 10 プリセット（`youtube-4k` / `instagram-reel` / `twitter` / `prores-422` / `archive-h265` / `audio-only-mp3` / `gif` / `thumbnail`）を挙げるが、実装は `youtube-1080p` / `web-preview` のみ | M4（W-12）で残りを追加。docs/04 §1.9 に現状を明記済み | **done**（PR #24 でプリセット 10 種に拡張。`--preset` は choices 制約を外し `render presets` で一覧） |
 ## 決定ログ
 
 - 2026-09-14: A-1〜A-4 を推奨案で決定（ADR-13〜16）。B-1〜B-4 は事前 spike を行わず、該当モジュールの実装時に検証する方針（deferred）。残る `open` は A-5, A-7, A-8, A-12（中・低）、B-5〜B-11、C 群。
