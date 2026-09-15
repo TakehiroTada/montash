@@ -14,12 +14,15 @@ import {
   clipDurationF,
   clipEndF,
   isMediaClip,
+  isSubtitleClip,
+  isTextClip,
   type Project,
   type Track,
   type Transition,
 } from "../../core/schema.ts";
 import { type AudioStream, delayAudio, fitAudio, foldAcrossfade, mixAudio, normalizeAudioClip } from "./audio.ts";
 import { overlayPosition, overlayStream, type Transform } from "./overlay.ts";
+import { textFilters } from "./text.ts";
 import {
   type ClipGroup,
   clipHandles,
@@ -47,7 +50,11 @@ function assertSupported(project: Project): void {
   if (![1, 2].includes(project.settings.channels)) unsupported("more than two audio channels");
   for (const track of project.tracks) {
     if (!track.clips.length || track.muted) continue;
-    if (track.kind === "text") unsupported("text tracks");
+    // テキストトラックは映像合成の最後に ASS で焼く（§6）。ここでは置けるクリップ種別だけ確かめる
+    if (track.kind === "text") {
+      for (const clip of track.clips) if (!isTextClip(clip) && !isSubtitleClip(clip)) unsupported("generator clips");
+      continue;
+    }
     for (const clip of track.clips) {
       if (!isMediaClip(clip)) unsupported("text, subtitle or generator clips");
       if (clip.loop) unsupported("looped clips");
@@ -232,7 +239,12 @@ function buildVideo(ctx: GraphContext, range: GraphRange, total: number): string
   const tracks = ctx.project.tracks.filter((t) => t.kind === "video" && !t.muted && t.clips.length > 0);
   let base = tracks.length ? composeBaseTrack(ctx, tracks[0]!, range, total) : blankVideo(ctx, frames);
   for (const track of tracks.slice(1)) base = overlayTrackOnto(ctx, base, track, range);
-  return ctx.chain(base.label, [`fps=${ctx.rate}`, `trim=end_frame=${frames}`, ctx.tb, "format=yuv420p"], "V");
+  // テキスト・字幕は overlay の後、出力 format の前に 1 回だけ焼く（docs/07 §6）
+  return ctx.chain(
+    base.label,
+    [`fps=${ctx.rate}`, `trim=end_frame=${frames}`, ctx.tb, ...textFilters(ctx), "format=yuv420p"],
+    "V",
+  );
 }
 
 // ---------------------------------------------------------------------------

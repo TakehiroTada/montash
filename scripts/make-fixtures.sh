@@ -73,4 +73,25 @@ gen b60.mp4 \
   -f lavfi -i "sine=f=880:r=48000:d=3" \
   "${X264[@]}" -g 60 "${AAC[@]}" -frames:v 180 -t 3 -movflags +faststart
 
+# ja.srt: 日本語の字幕（W-14 の焼き込み・多重化の検証用）。ffmpeg を使わないので直接書く
+if [[ -e "$OUT_DIR/ja.srt" ]]; then
+  echo "skip  $OUT_DIR/ja.srt (exists)"
+else
+  echo "make  $OUT_DIR/ja.srt"
+  cat > "$OUT_DIR/ja.srt" <<'SRT'
+1
+00:00:00,500 --> 00:00:01,500
+最初の字幕です
+
+2
+00:00:02,000 --> 00:00:03,000
+二行に
+わたる字幕
+
+3
+00:00:03,500 --> 00:00:04,500
+Last cue
+SRT
+fi
+
 echo "done: $OUT_DIR"

@@ -20,8 +20,8 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, symlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { MontashError } from "../cli/errors.ts";
-import type { Fps, Project, Resolution, TextPosition, TextStyle } from "../core/schema.ts";
-import { isTextClip } from "../core/schema.ts";
+import type { Fps, Project, Resolution, SubtitleClip, TextPosition, TextStyle } from "../core/schema.ts";
+import { isSubtitleClip, isTextClip } from "../core/schema.ts";
 import { framesToMillis } from "../core/time.ts";
 import { resolveAssetPath } from "../core/validate.ts";
 import { type FontEntry, listFonts } from "./fonts.ts";
@@ -42,6 +42,8 @@ export interface TextClipLike {
   fade?: { in_f: number; out_f: number };
   /** 重ね順（テキストトラックの並び。既定 0） */
   layer?: number;
+  /** 縦マージン（px）の明示指定。字幕の `style.margin_bottom` に使う（既定は解像度の 5%） */
+  marginV?: number;
 }
 
 export interface AssBuildOptions {
@@ -332,7 +334,7 @@ function renderClip(clip: TextClipLike, opts: AssBuildOptions, borderStyle: 3 | 
     String(at.an),
     String(Math.round(at.margins.l)),
     String(Math.round(at.margins.r)),
-    String(Math.round(at.margins.v)),
+    String(Math.round(clip.marginV ?? at.margins.v)),
     "1",
   ].join(",");
 
@@ -639,4 +641,156 @@ export function subtitlesFilter(opts: SubtitlesFilterOptions): string {
   if (opts.fontsDir !== undefined) parts.push(`fontsdir='${escapeFilterValue(opts.fontsDir)}'`);
   if (opts.originalSize) parts.push(`original_size=${opts.originalSize.width}x${opts.originalSize.height}`);
   return `subtitles=${parts.join(":")}`;
+}
+
+// ---------------------------------------------------------------------------
+// 字幕素材（SRT / VTT / ASS）— docs/07 §7
+// ---------------------------------------------------------------------------
+
+/** 字幕ファイル 1 件分の表示（ミリ秒）。SRT / WebVTT の共通表現 */
+export interface SubtitleCue {
+  startMs: number;
+  endMs: number;
+  /** 改行を含む本文（タグは除去済み） */
+  text: string;
+}
+
+/** `HH:MM:SS,mmm` / `MM:SS.mmm`（VTT は時が省略できる） */
+const CUE_TIME = /(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
+const CUE_RANGE = new RegExp(`${CUE_TIME.source}\\s*-->\\s*${CUE_TIME.source}`);
+
+function cueMillis(h: string | undefined, m: string, s: string, frac: string): number {
+  const ms = Number(frac.padEnd(3, "0").slice(0, 3));
+  return ((Number(h ?? 0) * 60 + Number(m)) * 60 + Number(s)) * 1000 + ms;
+}
+
+/**
+ * SRT / WebVTT を解析して表示単位の一覧にする（純関数）。
+ *
+ * 番号行・`WEBVTT` ヘッダ・`NOTE` ブロック・キュー設定（`align:start` 等）は読み飛ばす。
+ * `<i>` のようなインラインタグは落とす（ASS のスタイルは字幕クリップの `style` が決めるため）。
+ */
+export function parseSubtitleCues(source: string): SubtitleCue[] {
+  const text = source.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  const cues: SubtitleCue[] = [];
+  for (const block of text.split(/\n{2,}/)) {
+    const lines = block.split("\n").filter((l) => l.trim() !== "");
+    if (!lines.length) continue;
+    if (/^WEBVTT/.test(lines[0] ?? "")) continue;
+    const at = lines.findIndex((l) => CUE_RANGE.test(l));
+    if (at < 0) continue;
+    const m = CUE_RANGE.exec(lines[at] as string);
+    if (!m) continue;
+    const startMs = cueMillis(m[1], m[2] as string, m[3] as string, m[4] as string);
+    const endMs = cueMillis(m[5], m[6] as string, m[7] as string, m[8] as string);
+    const body = lines
+      .slice(at + 1)
+      .join("\n")
+      .replace(/<[^>\n]*>/g, "")
+      .trim();
+    if (body === "") continue;
+    cues.push({ startMs, endMs: Math.max(endMs, startMs), text: body });
+  }
+  return cues.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+}
+
+/** ミリ秒 → フレーム（四捨五入）。字幕の時刻はフレームに丸めてから ASS に落とす */
+export function millisToFrames(ms: number, fps: Fps): number {
+  return Math.round((ms * fps.num) / (fps.den * 1000));
+}
+
+export interface CueClipOptions {
+  fps: Fps;
+  /** Style 名のもとになる ID（`s1` → `s1_0`, `s1_1` ...） */
+  idPrefix: string;
+  /** タイムライン上のずらし（`start_f + offset_f`。フレーム） */
+  offsetF: number;
+  style?: TextStyle;
+  marginV?: number;
+  layer?: number;
+}
+
+/**
+ * 字幕の表示単位をテキストクリップ列に変換する（純関数）。
+ * これで SRT/VTT はテロップと同じ 1 つの ASS に Events として統合される（docs/07 §7）。
+ */
+export function cuesToTextClips(cues: readonly SubtitleCue[], opts: CueClipOptions): TextClipLike[] {
+  const out: TextClipLike[] = [];
+  cues.forEach((cue, i) => {
+    const start = millisToFrames(cue.startMs, opts.fps) + opts.offsetF;
+    const end = millisToFrames(cue.endMs, opts.fps) + opts.offsetF;
+    const duration = Math.max(1, end - start);
+    if (start + duration <= 0) return;
+    out.push({
+      id: `${opts.idPrefix}_${i}`,
+      start_f: Math.max(0, start),
+      // 先頭が切れる場合は残りだけを出す（区間レンダーでの clamp は呼び出し側が行う）
+      duration_f: start < 0 ? duration + start : duration,
+      text: cue.text,
+      markup: "plain",
+      ...(opts.style !== undefined ? { style: opts.style } : {}),
+      ...(opts.marginV !== undefined ? { marginV: opts.marginV } : {}),
+      ...(opts.layer !== undefined ? { layer: opts.layer } : {}),
+    });
+  });
+  return out;
+}
+
+/**
+ * ASS 素材の Dialogue / Comment 時刻を `offsetMs` だけずらした文書を返す（純関数）。
+ * 素材のスタイルを尊重するため、本文には一切手を入れない（docs/07 §7）。
+ * ずらした結果が負になる行は落とす。
+ */
+export function shiftAssDocument(doc: string, offsetMs: number): string {
+  if (offsetMs === 0) return doc;
+  const out: string[] = [];
+  for (const line of doc.replace(/\r\n?/g, "\n").split("\n")) {
+    const m = /^(Dialogue|Comment):\s*([^,]*),([^,]*),([^,]*),(.*)$/.exec(line);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+    const start = parseAssTime(m[3] as string);
+    const end = parseAssTime(m[4] as string);
+    if (start === null || end === null) {
+      out.push(line);
+      continue;
+    }
+    const shiftedEnd = end + offsetMs;
+    if (shiftedEnd <= 0) continue;
+    out.push(
+      `${m[1]}: ${(m[2] as string).trim()},${formatAssTime(Math.max(0, start + offsetMs))},${formatAssTime(shiftedEnd)},${m[5]}`,
+    );
+  }
+  return out.join("\n");
+}
+
+/** `H:MM:SS.CC` → ミリ秒。解釈できなければ null */
+export function parseAssTime(value: string): number | null {
+  const m = /^\s*(\d+):(\d{1,2}):(\d{1,2})[.,](\d{1,2})\s*$/.exec(value);
+  if (!m) return null;
+  return ((Number(m[1]) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 + Number((m[4] as string).padEnd(2, "0")) * 10;
+}
+
+/** ミリ秒 → `H:MM:SS.CC`（センチ秒に切り捨て） */
+export function formatAssTime(ms: number): string {
+  const cs = Math.max(0, Math.floor(ms / 10));
+  const h = Math.floor(cs / 360000);
+  const m = Math.floor(cs / 6000) % 60;
+  const s = Math.floor(cs / 100) % 60;
+  return `${h}:${pad2(m)}:${pad2(s)}.${pad2(cs % 100)}`;
+}
+
+/** 字幕クリップを置かれている順に集める（テキストトラックのみ） */
+export function subtitleClipsOf(project: Project): Array<{ clip: SubtitleClip; track: string; layer: number }> {
+  const out: Array<{ clip: SubtitleClip; track: string; layer: number }> = [];
+  let layer = 0;
+  for (const track of project.tracks) {
+    if (track.kind !== "text") continue;
+    for (const clip of [...track.clips].sort((a, b) => a.start_f - b.start_f)) {
+      if (isSubtitleClip(clip)) out.push({ clip, track: track.id, layer });
+    }
+    layer += 1;
+  }
+  return out;
 }

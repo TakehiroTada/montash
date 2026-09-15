@@ -24,6 +24,7 @@ import { type Binaries, locateBinaries } from "./locate.ts";
 import { proxyState } from "./proxy.ts";
 import { verifyRender } from "./render.ts";
 import { type Progress, runFfmpeg } from "./run.ts";
+import { detectTextEngine, prepareText } from "./text-prepare.ts";
 
 /** セグメントの最小長（docs/07 §11.1「最小セグメント長 60 フレーム程度に統合」） */
 export const SEGMENT_MIN_F = 60;
@@ -288,7 +289,7 @@ function fingerprintInputs(inputs: readonly string[][], sources: Map<string, Sou
 export async function buildPreviewPlan(
   project: Project,
   dir: string,
-  opts: { height?: number } = {},
+  opts: { height?: number; bins?: Binaries } = {},
 ): Promise<PreviewPlan> {
   const validation = validateProject(project, { dir, checkFiles: true });
   if (!validation.ok)
@@ -311,10 +312,21 @@ export async function buildPreviewPlan(
   // --- 映像セグメント（docs/07 §11.1）。graph/ の buildGraph を区間指定で呼ぶ ---
   const bounds = segmentBoundaries(project, total);
   const segments: SegmentPlan[] = [];
+  const engine = opts.bins ? await detectTextEngine(opts.bins) : undefined;
   for (let i = 0; i + 1 < bounds.length; i++) {
     const from = bounds[i]!;
     const to = bounds[i + 1]!;
-    const graph = buildGraph(project, { resolution: res, source, range: { from_f: from, to_f: to }, audio: false });
+    const range = { from_f: from, to_f: to };
+    // テキストは「セグメント開始を 0 とした時刻にシフトした ASS」を焼く（docs/07 §11.1）
+    const text = await prepareText(project, dir, { range, ...(engine !== undefined ? { engine } : {}) });
+    const graph = buildGraph(project, {
+      resolution: res,
+      source,
+      range,
+      audio: false,
+      ...(text.burn !== undefined ? { text: text.burn } : {}),
+    });
+    for (const w of text.warnings) if (!warnings.some((x) => x.code === w.code)) warnings.push(w);
     // 位置が動いただけの同一内容はキャッシュを共有できるよう、区間ローカルのグラフだけをハッシュする
     const hash = canonicalHash({
       version: 3,
@@ -443,6 +455,7 @@ export async function buildPreview(
       throw new MontashError("E_FFMPEG_CANCELLED", "preview build cancelled", { exitCode: 130 });
   };
   checkCancelled();
+  const bins = opts.bins ?? locateBinaries();
   const height = opts.height ?? project.settings.proxy.height;
   const folder = projectPaths(dir).previewDir;
   const segmentDir = join(folder, SEGMENT_DIR);
@@ -481,7 +494,7 @@ export async function buildPreview(
   const progressFile = join(folder, "build.json");
 
   try {
-    const plan = await buildPreviewPlan(project, dir, { height });
+    const plan = await buildPreviewPlan(project, dir, { height, bins });
     const previous = await readPreviewManifest(dir);
 
     // どのセグメントを作り直すか（--force は全部、--from/--to はその区間にかかるものだけ）
@@ -521,8 +534,6 @@ export async function buildPreview(
       report({ ...p, percent: Math.min(100, ((doneUnits + units * fraction) / totalUnits) * 100) });
     };
     report({ percent: 0 });
-
-    const bins = opts.bins ?? locateBinaries();
 
     // --- 1. 映像セグメント ---
     for (const segment of todo) {

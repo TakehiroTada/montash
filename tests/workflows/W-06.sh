@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # W-06: テロップ・タイトルを入れる（docs/03 W-06）。
-# fonts list → text presets → text add（タイトル + ローワーサード）→ text list → text set → validate → undo。
-# レンダーへの結線（subtitles フィルタで焼く）はまだなので、W-06 では render を呼ばない。
-# 代わりに「今はまだ E_NOT_IMPLEMENTED になる」ことだけを 1 つ確認しておく。
+# fonts list → text presets → text add（タイトル + ローワーサード）→ text list → text set → validate → undo
+# → render（libass で焼き込み）→ render verify でフレーム数が一致することまで確認する。
 source "$(dirname "$0")/lib.sh"
 root=$(tmp_project_dir)
 proj="$root/project"
@@ -86,11 +85,31 @@ assert_exit 2 "a missing duration is a usage error"
 out=$(montash -C "$proj" text list --json)
 assert_json "$out" '.result.clips[1].id' 'x2' "failed commands changed nothing"
 
-section "W-06 render is wired up in a later PR"
-# ASS 生成（src/ffmpeg/ass.ts）は済んでいるが、レンダーグラフへの結線は次段。
-# 今は text トラックがあるとレンダーが明示的に断る、というところまでを確認する。
-out=$(montash -C "$proj" render -o "$root/out.mp4" --json)
-assert_exit 1 "render refuses text tracks for now"
-assert_json "$out" '.error.code' 'E_NOT_IMPLEMENTED' "E_NOT_IMPLEMENTED: text tracks (burn-in lands in the next PR)"
+section "W-06 step 6: render burns the text into the picture"
+# タイムラインは x2（f:360..450）まで伸びているので 450 フレーム。素材の後ろは背景色になる。
+out=$(montash -C "$proj" timeline show --json)
+assert_json "$out" '.result.duration_f' '450' "the timeline runs to the end of the lower third"
+
+out=$(montash -C "$proj" render -o "$root/out.mp4" --preset web-preview --resolution 320x180 \
+  --crf 30 --preset-speed ultrafast --progress none --json)
+assert_exit 0 "render with a text track"
+assert_json "$out" '.result.valid' 'true' "render verify passed inside render"
+assert_json "$out" '.result.actual_frames' '450' "the frame count matches timelineDurationF"
+assert_file_exists "$root/out.mp4" "the MP4 was written"
+
+out=$(montash -C "$proj" render verify "$root/out.mp4" --json)
+assert_exit 0 "render verify"
+assert_json "$out" '.result.expected_frames' '450' "render verify agrees on the frame count"
+assert_json "$out" '.result.output.streams[0].codec_type' 'video' "one video stream"
+assert_json "$out" '.result.output.streams[1].codec_type' 'audio' "one audio stream"
+
+# --dry-run の plan に焼き込みのフィルタが現れる（libass が無いビルドでは drawtext になる）
+out=$(montash -C "$proj" render -o "$root/plan.mp4" --preset web-preview --dry-run --json)
+assert_exit 0 "render --dry-run"
+case "$(json_get "$out" '.result.filter_complex')" in
+  *subtitles=*) pass "the plan burns the ASS with the subtitles filter" ;;
+  *drawtext=*) skip "libass is missing; the plan falls back to drawtext (W_TEXT_ENGINE_LIMITED)" ;;
+  *) fail "the render plan burns the text" "no subtitles= or drawtext= in filter_complex" ;;
+esac
 
 finish

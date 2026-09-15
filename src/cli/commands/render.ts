@@ -83,7 +83,7 @@ export const render = defineCommand({
       ...(args.presetSpeed ? { speed: String(args.presetSpeed) } : {}),
       ...(args.threads ? { threads: Number(args.threads) } : {}),
     };
-    const plan = buildRenderPlan(project, dir, output, options);
+    const plan = await buildRenderPlan(project, dir, output, { ...options, bins });
     const command = shellQuote([bins.ffmpeg, args.overwrite ? "-y" : "-n", ...plan.args]);
     if (ctx.globals.dryRun)
       return { result: { dry_run: true, ...plan, command }, warnings: plan.warnings, human: command };
