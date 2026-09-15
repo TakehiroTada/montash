@@ -47,7 +47,14 @@ export {
 export interface StatusLike {
   watching: boolean;
   watch_mode?: string | null;
-  head: { op: string | null; commit?: string | null; pending?: number; detached?: boolean } | null;
+  head: {
+    op: string | null;
+    commit?: string | null;
+    pending?: number;
+    detached?: boolean;
+    /** 現在の系列の最新 op（`montash checkout tip` の移動先） */
+    tip?: string | null;
+  } | null;
   preview: {
     state: "missing" | "building" | "ready" | "stale";
     url?: string;
@@ -87,10 +94,23 @@ export interface LogLine {
   message: string;
 }
 
+/** トーストに 1 つだけ付けられる操作（例: checkout の「元に戻す」。docs/13 D-8） */
+export interface ToastAction {
+  label: string;
+  run(): void | Promise<void>;
+}
+
 export interface Toast {
   id: number;
   level: "info" | "error";
   text: string;
+  action?: ToastAction;
+}
+
+export interface ToastOptions {
+  action?: ToastAction;
+  /** 自動で消えるまでの ms。既定は info 3000 / error 6000 */
+  ttlMs?: number;
 }
 
 export type SideTab = "inspector" | "assets" | "history";
@@ -158,7 +178,7 @@ export interface State {
   setAllowlist(a: string[]): void;
   setSpecs(s: Specs | null): void;
   log(level: LogLine["level"], message: string, actor?: string): void;
-  toast(level: Toast["level"], text: string): void;
+  toast(level: Toast["level"], text: string, opts?: ToastOptions): void;
   dismissToast(id: number): void;
 }
 
@@ -214,10 +234,10 @@ export const useStore = create<State>()((set) => ({
   setSpecs: (specs) => set({ specs }),
   log: (level, message, actor) =>
     set((s) => ({ logs: [...s.logs.slice(-499), { at: Date.now(), level, message, actor }] })),
-  toast: (level, text) => {
+  toast: (level, text, opts = {}) => {
     const id = ++toastSeq;
-    set((s) => ({ toasts: [...s.toasts, { id, level, text }] }));
-    setTimeout(() => useStore.getState().dismissToast(id), level === "error" ? 6000 : 3000);
+    set((s) => ({ toasts: [...s.toasts, { id, level, text, action: opts.action }] }));
+    setTimeout(() => useStore.getState().dismissToast(id), opts.ttlMs ?? (level === "error" ? 6000 : 3000));
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));

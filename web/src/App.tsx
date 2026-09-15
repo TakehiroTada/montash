@@ -96,12 +96,26 @@ export function App() {
       <LogPane />
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.level}`} onClick={() => dismiss(t.id)}>
-            {t.text.split("\n").map((line, i) => (
-              <div key={i} className={i > 0 ? "code" : ""}>
-                {line}
-              </div>
-            ))}
+          <div key={t.id} className={`toast ${t.level}`}>
+            <div onClick={() => dismiss(t.id)}>
+              {t.text.split("\n").map((line, i) => (
+                <div key={i} className={i > 0 ? "code" : ""}>
+                  {line}
+                </div>
+              ))}
+            </div>
+            {t.action ? (
+              <button
+                type="button"
+                className="toast-action"
+                onClick={() => {
+                  dismiss(t.id);
+                  void t.action?.run();
+                }}
+              >
+                {t.action.label}
+              </button>
+            ) : null}
           </div>
         ))}
       </div>
