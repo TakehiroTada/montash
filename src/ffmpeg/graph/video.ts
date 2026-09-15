@@ -6,6 +6,7 @@
  */
 import { MontashError } from "../../cli/errors.ts";
 import type { Clip, Resolution } from "../../core/schema.ts";
+import { buildEffectFilters, type EffectBuildContext } from "../../registry/effects.ts";
 import { type GraphContext, type Stream, unsupported } from "./types.ts";
 
 /** `tracks[].fade` / `clip.video.fade`（docs/05 §6） */
@@ -54,6 +55,11 @@ export function blankVideo(ctx: GraphContext, frames: number): Stream {
   return { label, frames };
 }
 
+/** エフェクトの `build()` に渡す文脈（I/O は渡さない） */
+export function effectContext(ctx: GraphContext, frames: number): EffectBuildContext {
+  return { fps: ctx.fps, resolution: ctx.res, frames, sampleRate: ctx.sampleRate };
+}
+
 /** `fade=t=in|out:s={start_frame}:n={nb_frames}`（フレーム指定。docs/07 §3） */
 export function fadeFilters(fade: VideoFade, frames: number, alpha: boolean): string[] {
   const out: string[] = [];
@@ -76,11 +82,12 @@ function cropFilter(crop: { x: number | string; y: number | string; w: number | 
   return `crop=${sizeExpr(crop.w, "iw")}:${sizeExpr(crop.h, "ih")}:${sizeExpr(crop.x, "iw")}:${sizeExpr(crop.y, "ih")}`;
 }
 
-function colorFilter(color: Record<string, number | undefined>): string | null {
-  const parts = (["brightness", "contrast", "saturation", "gamma"] as const)
-    .filter((k) => typeof color[k] === "number")
-    .map((k) => `${k}=${color[k]}`);
-  return parts.length ? `eq=${parts.join(":")}` : null;
+/**
+ * `clip.video.color` を組み込みエフェクト `color` として展開する（docs/13 D-15）。
+ * 実体はレジストリ側（`registry/effects/builtin.ts`）にあり、ここは呼ぶだけ。
+ */
+function colorFilters(color: Record<string, unknown>, ctx: GraphContext, frames: number): string[] {
+  return buildEffectFilters("video", [{ type: "color", params: color }], effectContext(ctx, frames));
 }
 
 /**
@@ -90,7 +97,6 @@ function colorFilter(color: Record<string, number | undefined>): string | null {
 export function normalizeVideoClip(ctx: GraphContext, spec: VideoClipSpec, mode: NormalizeMode): Stream {
   const { clip, srcIn, srcOut, frames } = spec;
   if (clip.loop) unsupported("looped video clips");
-  if (clip.effects.length) unsupported("clip effects");
   const v = clip.video;
   if (v?.lut) unsupported("3D LUTs");
   const asset = ctx.asset(clip.asset);
@@ -120,10 +126,9 @@ export function normalizeVideoClip(ctx: GraphContext, spec: VideoClipSpec, mode:
     if (scale !== 1) filters.push(`scale=iw*${scale}:-2:flags=bicubic`);
   }
   filters.push("setsar=1");
-  if (v?.color) {
-    const eq = colorFilter(v.color as Record<string, number | undefined>);
-    if (eq) filters.push(eq);
-  }
+  if (v?.color) filters.push(...colorFilters(v.color as Record<string, unknown>, ctx, frames));
+  // クリップの effects[] は配列順に、色補正のあと・format 前へ差し込む（docs/07 §3a）
+  filters.push(...buildEffectFilters("video", clip.effects, effectContext(ctx, frames)));
   filters.push(`format=${alpha ? "yuva420p" : "yuv420p"}`);
   if (opacity < 1) filters.push(`colorchannelmixer=aa=${opacity}`);
   filters.push(...speedFilters(ctx, clip.speed));

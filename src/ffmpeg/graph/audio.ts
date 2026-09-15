@@ -5,6 +5,7 @@
  * 秒は使わない（ADR-09）。トランジションの `audio: crossfade` は §8.2 の `acrossfade` で畳み込む。
  */
 import { MontashError } from "../../cli/errors.ts";
+import { buildEffectFilters, type EffectRef } from "../../registry/effects.ts";
 import type { GraphContext } from "./types.ts";
 
 /** 名前付き音声ストリーム（ラベルとサンプル数） */
@@ -32,6 +33,8 @@ export interface AudioClipSpec {
   fade?: AudioFade | undefined;
   speed: number;
   pitchKeep: boolean;
+  /** クリップの effects[]（docs/07 §8a） */
+  effects?: readonly EffectRef[] | undefined;
 }
 
 /** `atempo` は 0.5〜2 の範囲で多段にする（古いビルドでも動く。docs/07 §8.1） */
@@ -80,6 +83,13 @@ export function normalizeAudioClip(ctx: GraphContext, spec: AudioClipSpec): Audi
     `atrim=end_sample=${spec.samples}`,
     "asetpts=PTS-STARTPTS",
     `volume=${spec.gainDb}dB`,
+    // クリップの effects[] は配列順に、ゲインのあと・フェード前へ差し込む（docs/07 §8a）
+    ...buildEffectFilters("audio", spec.effects, {
+      fps: ctx.fps,
+      resolution: ctx.res,
+      frames: 0,
+      sampleRate: ctx.sampleRate,
+    }),
     ...fadeFilters(ctx, spec.fade, spec.samples),
   ];
   return { label: ctx.chain(spec.stream, filters, "a"), samples: spec.samples };
