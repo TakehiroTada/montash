@@ -26,7 +26,7 @@
 | ID | 優先度 | 懸念 | 検証内容 | 判定基準 | 状態 |
 |----|--------|------|----------|----------|------|
 | B-1 | 中 | `Bun.spawn` での長時間 ffmpeg 制御 | `-progress pipe:1` のストリーム逐次読み取り、SIGTERM でのキャンセルと後片付け、stderr 末尾の捕捉、exit code、サーバ異常終了時の子プロセス残留 | 60 秒のレンダーで進捗が 1 秒間隔で届き、キャンセル後 1 秒以内にプロセスが消える | spiked（`src/ffmpeg/run.ts`、macOS / Bun 1.3.14 / ffmpeg 9.0.1）。進捗は既定 `-stats_period` の **0.5 秒間隔**（実測 501〜505ms、`progressIntervalS` で変更可）で stdout から逐次届く。キャンセルは abort → SIGTERM → ffmpeg が exit 255 で自終了、**abort から 8〜15ms** で `E_FFMPEG_CANCELLED` が返り子プロセス残留なし（2 秒の猶予後 SIGKILL も実装）。stderr は末尾 30 行を保持し `detail.stderr_tail` に格納。残課題: サーバ異常終了時の子プロセス残留（M2 `serve` で検証） |
-| B-2 | 中 | コンパイル済みバイナリの自己 spawn と埋め込み資産 | `process.execPath` で自分を起動して `checkout` が動くか、`web/dist` を埋め込んで `Bun.file` 配信できるか、`--target` クロスコンパイル | 3 OS のバイナリで `montash serve` → History クリックが動く | deferred（M2 `serve` / M5 配布時に検証）  計画 P2-3 でプラグインの外部 `import()` 可否とあわせて検証する |
+| B-2 | 中 | コンパイル済みバイナリの自己 spawn と埋め込み資産 | `process.execPath` で自分を起動して `checkout` が動くか、`web/dist` を埋め込んで `Bun.file` 配信できるか、`--target` クロスコンパイル | 3 OS のバイナリで `montash serve` → History クリックが動く | **done**（P2-3 で実測。コンパイル済みバイナリから外部 JS / TS を実行時 `import()` できる。ただしプラグイン側が montash のモジュールを import することはできず、ホストが `register(host)` で API を渡す設計にした。docs/14 §6） |
 | B-3 | 中 | 大容量 multipart アップロード | `req.formData()` のメモリ挙動、ストリーム直書き | 2GB アップロードで RSS が +200MB 以内 | deferred（M3 `upload.ts` 実装時。上限 2GB は A-5 で決定） |
 | B-4 | 中 | `xfade=offset`（秒指定）と 29.97fps のフレーム境界 | ゴールデンテスト（08 章 §6）で合成後フレーム数と各カット点を検証 | 30 / 29.97 / 59.94 で `duration_f` 厳密一致 | deferred（M1 のゴールデンテストで事実上検証） |
 | B-5 | 中 | libass の `BorderStyle=4`、`fontsdir=`、`original_size` の挙動とバージョン差 | Ubuntu 22.04 / 24.04 / brew の libass で背景ボックス・CJK フォールバック・プロキシ解像度での縮尺を目視＋PSNR | 3 環境で同じ位置・折り返し | open |
@@ -50,7 +50,7 @@
 | C-7 | 低 | `scripts/spikes/` の再実行を忘れる | Bun 更新 PR で `bun run all` を CI に含める | open |
 | C-8 | 中 | **LICENSE ファイルが無い**: `package.json` は `"license": "MIT"` と宣言しているが、リポジトリ直下に LICENSE ファイルが存在しない。OSS として配布・引用するときの根拠が不足し、利用者向けドキュメントサイト（`website/`）のライセンスページも「MIT を予定」としか書けない | 著作権者名と年を確定して `LICENSE`（MIT）を追加し、`website/src/content/docs/{ja,en}/license.md` を実ファイルの内容に合わせて更新する | done（MIT の `LICENSE` と `THIRD-PARTY-NOTICES.md` を追加し、サイトのライセンスページも実体に合わせて更新） |
 | C-9 | 低 | **ドキュメントサイトの CI・公開先が未定**: `website/`（Astro + Starlight）は Node 前提のツールチェーンのため、`node` を潰して実行する既存 CI ジョブには含めていない。公開先（GitHub Pages 等）も未定で `astro.config.mjs` の `site` / `base` が未設定 | 公開先を決めてから、`website/` 専用の CI ジョブ（`bun install && bun run build`）を別ワークフローとして追加するか判断する | open |
-| C-10 | 中 | **プラグイン API の互換性維持方針が未定**。`apiVersion` を導入すると、ホスト側の受理範囲・非推奨期間・破壊的変更の扱いを決める必要がある。決めないままプラグインが増えると、montash の更新でサードパーティが一斉に壊れる | 14 章に互換規則を書く（ホストは `apiVersion` の N と N-1 を受理、非推奨は 1 マイナー分の猶予、破壊時は `E_PLUGIN_INCOMPATIBLE` で導入を拒否して hint を出す）。Phase 2 着手前に確定 | open |
+| C-10 | 中 | **プラグイン API の互換性維持方針が未定**。`apiVersion` を導入すると、ホスト側の受理範囲・非推奨期間・破壊的変更の扱いを決める必要がある。決めないままプラグインが増えると、montash の更新でサードパーティが一斉に壊れる | 14 章に互換規則を書く（ホストは `apiVersion` の N と N-1 を受理、非推奨は 1 マイナー分の猶予、破壊時は `E_PLUGIN_INCOMPATIBLE` で導入を拒否して hint を出す）。Phase 2 着手前に確定 | **done**（`PLUGIN_API_VERSION` / `MIN_PLUGIN_API_VERSION` で受理範囲を持ち、範囲外は `E_PLUGIN_INCOMPATIBLE` で読み込まない。docs/14 §6） |
 
 ## D. 実装の不具合・改善（実機確認で判明）
 
@@ -90,3 +90,4 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 - 2026-09-15: D-6 を決定。GitHub Actions は費用を抑えるため**自動実行しない**（`ci.yml` は残し `workflow_dispatch` のみ）。検証はローカルで `bun run verify`（check + 手順の E2E）。あわせて MIT の `LICENSE` と `THIRD-PARTY-NOTICES.md` を追加（C-8 解消）。ffmpeg は同梱せず外部プロセスで呼ぶが、install-deps が入れるビルドは GPL 構成要素を含む旨を明記。
 - 2026-09-15: **プラグインアーキテクチャの方針を決定**。「小さなカーネル + 固定 6 種の拡張点レジストリ + 宣言優先のプラグイン」。プラグインはピクセルを触らず `defineCommand` と同形の定義オブジェクトで **ffmpeg のグラフ片を返す純関数**を提供する。供給元は `builtin` / `project` / `plugin` の 3 種で、組み込み機能も同じレジストリを通す。計画は `docs/plans/2026-09-15-plugin-architecture.md`、仕様は 14 章（新設予定）。プラグイン以前に必要なカーネル整備を **D-13〜D-18** として起票し、API 互換方針を C-10 とした。
 - 2026-09-15: **Phase 0（カーネル整備）完了**。D-14 / D-15 / D-16 / D-17 / D-18 を実装し（PR #35〜#39）、D-13 は「リリース前なので後方互換は不要」との判断で deferred に。これで拡張点レジストリ（effects / positions / commands / requirements）と、プラグイン不在でもプロジェクトが開ける前提（F-EXT-4）が揃った。次は Phase 1（W-18、`effect` コマンドと `project.effects` の宣言）。
+- 2026-09-15: **Phase 1 / Phase 2 完了**（PR #41〜#47）。`effect` コマンド群、組み込みエフェクト 6 種、generator / transition のレジストリ化、プラグインホストと `plugin` コマンド群、Level C の `analyze` まで。プラグインは montash を import せずホストが `register(host)` で API を渡す形に決め（単一バイナリの実測に基づく）、B-2 と C-10 も解決した。残るは Phase 3（importer / exporter、Web の spec 駆動フォーム、`serve --allow/--deny`）。

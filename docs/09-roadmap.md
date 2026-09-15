@@ -77,13 +77,15 @@
 - npm 公開（`bunx montash`）、`bun build --compile` による OS 別単一バイナリ（linux-x64 / linux-arm64 / darwin-arm64 / darwin-x64。WSL は linux バイナリ）のリリース、`install-deps.sh` からのバイナリ取得オプション
 - 10 章の AI 操作ガイドを実運用で検証（実際に LLM に指示して W-01〜W-14 を通す）
 
-### M6. プラグイン — 13〜15 週目
+### M6. プラグイン — 13〜15 週目 ✅ 完了
 
 拡張点をレジストリ化し、外部から機能を足せるようにする（F-EXT-1〜4）。計画: `docs/plans/2026-09-15-plugin-architecture.md`。
 
 - **Phase 1（宣言プラグイン）**: **W-18** を先に書き、`effect add|set|remove|list|presets` → `project.effects`（テンプレート宣言。コード実行なし）→ 組み込みエフェクト拡充（**F-FX-4 の LUT / F-FX-7 のぼかし・モザイク / F-FX-3 の回転・反転**を前倒し）→ generator / transition の開放
 - **Phase 2（外部プラグイン）**: **W-19**、`src/plugins/` ホスト（マニフェスト・探索順・`apiVersion`・host API）、`plugin list|install|remove|doctor`、`project.plugins.requires[]`、単一バイナリとの両立検証（B-2 と統合）、Level C（解析・プロセス）の `capabilities`
 - 完了条件: `W-18.sh` / `W-19.sh` が通る。プラグインを外した環境で同じ project.json が開け、レンダー時にだけ `E_PLUGIN_MISSING` が出る
+- **結果**（PR #41〜#47）: 手順 W-18 / W-19 を先に確定 → `effect` コマンド群（パラメータ定義から CLI オプション・`schema`・`help` を導出）→ 組み込みエフェクト 6 種 → generator / transition のレジストリ化 → プラグインホスト（`register(host)` で API を渡す。**プラグインは montash を import しない**）→ `plugin` コマンド群 → Level C の `analyze`。
+  単一バイナリからの外部プラグイン読み込みも実機確認（B-2 / P2-3 解決）
 
 ### M7. 拡張の I/O と Web — 16〜17 週目
 
