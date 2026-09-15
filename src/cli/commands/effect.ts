@@ -15,7 +15,7 @@
  * ここの spec 組み立てを `registry/commands.ts` の実行時合成に寄せる。
  */
 import { findClip } from "../../core/clip-editing.ts";
-import { clipKind, type TrackClip } from "../../core/schema.ts";
+import type { TrackClip } from "../../core/schema.ts";
 import {
   collectParamOrigins,
   type EffectRef,
@@ -33,11 +33,12 @@ import { runMutation } from "../mutate.ts";
 // 共通
 // ---------------------------------------------------------------------------
 
-/** クリップの種別から、掛けられる効果の対象を決める（音声トラックのクリップは音声効果） */
-function targetOfClip(clip: TrackClip, trackKind: string): EffectTarget {
-  if (trackKind === "audio") return "audio";
-  if (clipKind(clip) === "media" && trackKind === "audio") return "audio";
-  return "video";
+/**
+ * 掛けられる効果の対象をトラック種別から決める。
+ * 音声トラックのクリップは音声効果、それ以外（video / text）は映像効果。
+ */
+function targetOfClip(trackKind: string): EffectTarget {
+  return trackKind === "audio" ? "audio" : "video";
 }
 
 function effectsOf(clip: TrackClip): EffectRef[] {
@@ -185,7 +186,7 @@ export const effectList = defineCommand<ListArgs>({
     const { loadProject } = await import("../../core/project.ts");
     const project = await loadProject(ctx.requireProjectDir());
     const { track, clip } = findClip(project, String(args.clip));
-    const target = targetOfClip(clip, track.kind);
+    const target = targetOfClip(track.kind);
     const registry = effectRegistry(target);
     const effects = effectsOf(clip).map((ref, i) => describeEffect(ref, i, registry.get(ref.type)));
     return {
@@ -240,7 +241,7 @@ export const effectAdd = defineCommand<MutateArgs>({
   async handler(ctx, args) {
     return runMutation(ctx, ({ project }) => {
       const { track, clip } = findClip(project, String(args.clip));
-      const target = targetOfClip(clip, track.kind);
+      const target = targetOfClip(track.kind);
       const spec = effectRegistry(target).require(String(args.effect));
       const params = paramsFromArgs(spec, args);
       // 範囲・型をここで検査しておく（レンダーまで持ち越さない）
@@ -284,7 +285,7 @@ export const effectSet = defineCommand<MutateArgs>({
   async handler(ctx, args) {
     return runMutation(ctx, ({ project }) => {
       const { track, clip } = findClip(project, String(args.clip));
-      const target = targetOfClip(clip, track.kind);
+      const target = targetOfClip(track.kind);
       const effects = effectsOf(clip);
       const at = indexOfEffect(effects, String(args.effect), clip.id);
       const ref = effects[at]!;
