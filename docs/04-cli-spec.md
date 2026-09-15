@@ -189,7 +189,6 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `assets show` | `--keyframes` | `--probe` は実装済み |
 | `clip add` | `--loop`, `--ripple`, `--on-overlap overwrite|push` | `clip add` の `--on-overlap` は `error` のみ（`overwrite` / `push` は `clip move/trim/set` 側に実装済み）。`--ripple` も `clip move/trim/delete/set` にはある（docs/13 D-9） |
 | `render` | `--from`, `--to`, `--skip-validate` | 区間レンダーは `render gif --from/--to` で可能。それ以外（`--last` `--vcodec` `--acodec` `--vbitrate` `--abitrate` `--pix-fmt` `--fps` `--two-pass` `--hwaccel` `--reframe`）は**すべて実装済み**、プリセットは 10 種 |
-| `serve` | `--max-upload` | `--allow` / `--deny` は実装済み（06 章 §3.3 の合成規則）。`--read-only` は実装済み、`--daemon` は未実装 |
 | `log` | `--since` | |
 | `commit` | `--body-file`, `--amend`, `--from-worktree` | `-m` / `--body` / `--last` / `--ops` / `--tag` / `--author` / `--allow-empty` / `--auto-message` は実装済み |
 | `project set` | `fps` / `resolution` キー | それ以外のキーは実装済み |
@@ -645,15 +644,18 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ```
 montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-preview]
-            [--read-only] [--allow <cmd,...>] [--deny <cmd,...>] [--max-upload 8G] [--daemon] [--dev]
+            [--read-only] [--allow-remote-write] [--allow <cmd,...>] [--deny <cmd,...>]
+            [--max-upload 2G] [--daemon] [--dev]
 ```
 
-`--max-upload` と `--daemon` の制御コマンド（`serve stop|status`）は未実装（§1.9）。`--dev` は Web UI を HMR 付きで配信する開発用。
+`--daemon` の制御コマンド（`serve stop|status`）は未実装（§1.9）。`--dev` は Web UI を HMR 付きで配信する開発用。
 
 - Web プレビューサーバを起動（06 章）。フォアグラウンドで実行し Ctrl-C で終了。`--daemon` でバックグラウンド化し `montash serve stop|status` で制御。
 - `project.json` と `.montash/history/` を監視し、変更があれば WebSocket でブラウザに通知。`--no-auto-preview` 以外では変更後にデバウンス（1.5 秒）して `preview build` を自動実行。
 - Web からの操作（履歴移動、素材管理）は `POST /api/cli` 経由で **同じ `montash` バイナリを `MONTASH_ACTOR=web` で子プロセス実行** する。許可リストは 06 章 §3.3。`--read-only` で全面無効化。
 - `--allow` / `--deny`: 既定の許可リストに足す／引く（繰り返し指定・カンマ区切り可。`--allow "effect set"`）。プラグインがマニフェストで宣言した `webAllow` も合成される。**`--deny` が `--allow` にもプラグインの `webAllow` にも勝ち、`--read-only` はそれらより強い**（書き込み API ごと閉じる）。渡せるのはコマンドパス 2 語までで、存在しないコマンドは `E_USAGE`。合成結果と出自は `GET /api/cli/allowlist` で確認できる（06 章 §3.3）。
+- `--host` が loopback（`127.0.0.0/8` / `localhost` / `::1`）以外なら、起動ログに `W_REMOTE_HOST` を出して **`--read-only` を強制**する。Web の `import <任意パス>` はこのユーザーが読めるファイルをすべて読めるので、LAN 公開時の既定を安全側に倒している（13 章 A-7）。`--allow-remote-write` を明示すると強制を解除するが、そのときは `W_REMOTE_WRITE` で「到達できる誰でも許可リストのコマンドを実行でき、`import <path>` で任意のファイルを読める」ことを毎回警告する。SSH トンネルで `127.0.0.1` に繋ぐほうが安全。
+- `--max-upload <size>`: `POST /api/upload` の上限（既定 `2G`）。`2G` / `512M` / `1.5GB` / バイト数を受け、単位は 2 進接頭辞（`1K` = 1024）。0 以下や解釈できない値は `E_USAGE`。上限を超えた送信は 413 `E_UPLOAD_TOO_LARGE` になり、`montash import <path>` での取り込みを案内する（13 章 A-5）。上限は起動時に決まり、`GET /api/status` の `server.max_upload_bytes` に出る。
 - `--open`: OS 既定ブラウザで開く（macOS `open`、Linux `xdg-open`、WSL `wslview`/`cmd.exe /c start`）。
 
 ### `montash preview build [--from <t>] [--to <t>] [--force] [--audio-only] [--height 360]` — W-04, W-06, W-07

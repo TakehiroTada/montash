@@ -24,6 +24,46 @@ import { serveFileRange } from "./range.ts";
 /** docs/13 A-5: `req.formData()` はメモリに載るので上限を 2GB に下げ、それ以上はパス指定 import を案内する */
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 
+/**
+ * multipart の枠（boundary・ヘッダ・他フィールド）にかかる余裕。
+ *
+ * `Bun.serve({ maxRequestBodySize })` を上限ちょうどにすると、Bun は本文を読む前に
+ * 素の 413（本文なし）を返してしまい、`E_UPLOAD_TOO_LARGE` の hint を出せない。
+ * 少しだけ広く取り、「わずかな超過」はハンドラが JSON で案内し、桁違いの本文は Bun が切る。
+ */
+export const UPLOAD_OVERHEAD_BYTES = 8 * 1024 * 1024;
+
+const SIZE_UNITS: Record<string, number> = {
+  b: 1,
+  k: 2 ** 10,
+  kb: 2 ** 10,
+  kib: 2 ** 10,
+  m: 2 ** 20,
+  mb: 2 ** 20,
+  mib: 2 ** 20,
+  g: 2 ** 30,
+  gb: 2 ** 30,
+  gib: 2 ** 30,
+  t: 2 ** 40,
+  tb: 2 ** 40,
+  tib: 2 ** 40,
+};
+
+/**
+ * `serve --max-upload` の値をバイト数に直す（docs/04 §13, docs/13 A-5）。
+ *
+ * `2G` / `512M` / `1.5GB` / `1048576`（単位なしはバイト）を受ける。2 進接頭辞で数える
+ * （`1K` = 1024）。解釈できない値や 0 以下は `null` を返し、呼び出し側が `E_USAGE` にする。
+ */
+export function parseUploadLimit(value: string): number | null {
+  const m = /^\s*([0-9]+(?:\.[0-9]+)?)\s*([a-z]+)?\s*$/i.exec(value);
+  if (!m) return null;
+  const mult = SIZE_UNITS[(m[2] ?? "b").toLowerCase()];
+  if (mult === undefined) return null;
+  const bytes = Math.floor(Number(m[1]) * mult);
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : null;
+}
+
 /** アップロードしたファイルの置き場所（プロジェクト相対） */
 export const INCOMING_DIR = join("assets", "incoming");
 

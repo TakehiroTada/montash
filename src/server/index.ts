@@ -3,7 +3,8 @@
  *
  * `Bun.serve({ hostname, port, routes, fetch, websocket })` を組み立てる。
  *   - `/`            開発: web/index.html の HTML import（HMR）／本番: web/dist/index.html を Bun.file で配信
- *   - `/api/*`       読み取り API（project / status / history / assets / specs / cli/allowlist）
+ *   - `/api/*`       読み取り API（project / status / history / history/:id / history/diff / blame /
+ *                    assets / specs / cli/allowlist）
  *   - `POST /api/cli` 許可リスト制の CLI 実行（cli-exec.ts）
  *   - `POST /api/upload` multipart 保存 → `import <path> --proxy`（assets.ts）
  *   - `/ws`          WebSocket push（server.publish("events", ...)）
@@ -25,10 +26,12 @@ import {
   hasAssetChanges,
   MAX_UPLOAD_BYTES,
   saveUpload,
+  UPLOAD_OVERHEAD_BYTES,
 } from "./assets.ts";
 import { CliExecutor, type CliExecutorOptions, type ExecResult, resolveCliCommand } from "./cli-exec.ts";
 import { computeProject, type SubtitleReader } from "./computed.ts";
 import { readHistoryView } from "./history.ts";
+import { type HistoryHttpDeps, handleBlame, handleHistoryDiff, handleHistoryShow } from "./history-api.ts";
 import { PreviewCoordinator, servePreview } from "./preview.ts";
 import { collectSpecs, type SpecsResponse } from "./specs.ts";
 import { createWatcher, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
@@ -49,14 +52,18 @@ export interface StartServerOptions {
   log?: (line: string) => void;
   /** CliExecutor の設定を上書きする（`serve` は合成済みの許可リストをここで渡す。テストでも使う） */
   cliExec?: Partial<CliExecutorOptions>;
-  /** `POST /api/upload` の上限バイト数（既定 2GB。docs/13 A-5） */
+  /** `POST /api/upload` の上限バイト数（既定 2GB。docs/13 A-5、`serve --max-upload`） */
   maxUploadBytes?: number;
+  /** loopback 以外の `--host` でも書き込みを許す（docs/13 A-7、`serve --allow-remote-write`） */
+  allowRemoteWrite?: boolean;
 }
 
 export interface RunningServer {
   server: Bun.Server<undefined>;
   url: string;
   readOnly: boolean;
+  /** 実際に使う `POST /api/upload` の上限バイト数 */
+  maxUploadBytes: number;
   watcher: Watcher | null;
   stop(): Promise<void>;
 }
@@ -65,6 +72,42 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 export function isLoopback(host: string): boolean {
   return LOOPBACK.has(host) || host.startsWith("127.");
+}
+
+/** 書き込み（`POST /api/cli` / `POST /api/upload`）を許すかの判定結果 */
+export interface WriteAccess {
+  readOnly: boolean;
+  /** 起動ログに出す警告（無ければ null） */
+  warning: { code: "W_REMOTE_HOST" | "W_REMOTE_WRITE"; message: string; hint: string } | null;
+}
+
+/**
+ * docs/13 A-7: Web の `import <任意パス>` はローカルのどのファイルでも読めるので、
+ * loopback 以外で listen するときは書き込みを止める（= 閲覧のみ）。
+ *
+ * 単一ユーザー・localhost 前提という設計はそのままに、LAN 公開を選んだときの既定を安全側に倒す。
+ * 明示的に `--allow-remote-write` を渡したときだけ解除し、そのときは何が露出するかを警告する。
+ */
+export function resolveWriteAccess(host: string, readOnly: boolean, allowRemoteWrite = false): WriteAccess {
+  if (isLoopback(host)) return { readOnly, warning: null };
+  if (!allowRemoteWrite) {
+    return {
+      readOnly: true,
+      warning: {
+        code: "W_REMOTE_HOST",
+        message: `listening on ${host} exposes this project to the network; forcing --read-only`,
+        hint: "Bind to 127.0.0.1, or pass --allow-remote-write if you really want writes from the network.",
+      },
+    };
+  }
+  return {
+    readOnly,
+    warning: {
+      code: "W_REMOTE_WRITE",
+      message: `--allow-remote-write: anyone who can reach ${host} can run allowlisted commands, and \`import <path>\` reads any file this user can read`,
+      hint: "Only use this on a trusted network, and prefer --host 127.0.0.1 with an SSH tunnel.",
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -134,12 +177,10 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   const projectDir = resolve(opts.projectDir);
   const targets = watchTargets(projectDir);
 
-  // docs/13 A-7: loopback 以外で listen するときは書き込みを強制的に無効化する
-  let readOnly = opts.readOnly;
-  if (!isLoopback(opts.host)) {
-    log(`warning [W_REMOTE_HOST]: listening on ${opts.host} exposes this project to the network; forcing --read-only`);
-    readOnly = true;
-  }
+  // docs/13 A-7: loopback 以外で listen するときは書き込みを既定で無効化する（`--allow-remote-write` で解除）
+  const access = resolveWriteAccess(opts.host, opts.readOnly, opts.allowRemoteWrite);
+  const readOnly = access.readOnly;
+  if (access.warning) log(`warning [${access.warning.code}]: ${access.warning.message}`);
 
   const executor = new CliExecutor({ projectDir, ...opts.cliExec });
   const maxUploadBytes = opts.maxUploadBytes ?? MAX_UPLOAD_BYTES;
@@ -185,6 +226,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     );
 
   const assetsDeps = { projectDir, json, jsonError };
+  const historyDeps: HistoryHttpDeps = { projectDir, json, jsonError };
 
   // 字幕クリップの尺は素材ファイルにしか無い。mtime をキーに読み取りを覚えておく（docs/13 D-1）
   const subtitleCache = new Map<string, { mtimeMs: number; source: string }>();
@@ -263,6 +305,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       dev: opts.dev,
       compiled: isCompiledBinary(),
       project_dir: projectDir,
+      max_upload_bytes: maxUploadBytes,
     },
   });
 
@@ -285,6 +328,15 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       GET: () => {
         return json(readHistoryView(projectDir).history);
       },
+    },
+    // 履歴の読み取り（docs/06 §3.2, docs/13 D-10）。CLI の show / diff / blame と同じ結果を返す。
+    // `/api/history/diff` は静的ルートなので `/api/history/:id` より先に一致する（Bun のルータの規則）
+    "/api/history/diff": { GET: (req) => handleHistoryDiff(historyDeps, new URL(req.url)) },
+    "/api/history/:id": {
+      GET: (req) => handleHistoryShow(historyDeps, String(req.params.id ?? ""), new URL(req.url)),
+    },
+    "/api/blame/:elementId": {
+      GET: (req) => handleBlame(historyDeps, String(req.params.elementId ?? ""), new URL(req.url)),
     },
     // コマンド定義 + エフェクトのパラメータ定義（docs/06 §3.2, §3.6）。Inspector のフォームはこれで組む。
     // 起動中は不変（プラグインのロードは起動時に済んでいる）なので 1 度だけ組み立てて使い回す
@@ -403,6 +455,9 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   const server = Bun.serve({
     hostname: opts.host,
     port: opts.port,
+    // Bun の既定（128MB）では 2GB のアップロードが通らない。上限ちょうどにすると本文を読む前に
+    // 素の 413 になるので、multipart の枠のぶんだけ広げて `E_UPLOAD_TOO_LARGE` を返せるようにする
+    maxRequestBodySize: maxUploadBytes + UPLOAD_OVERHEAD_BYTES,
     development: opts.dev ? { hmr: true, console: true } : false,
     routes,
     fetch(req) {
@@ -473,6 +528,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     server,
     url,
     readOnly,
+    maxUploadBytes,
     watcher,
     async stop() {
       await watcher?.close();
