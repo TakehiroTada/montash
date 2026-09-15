@@ -269,6 +269,16 @@
 
 `asset` の代わりに `generator` を持つクリップ。`{ "generator": "color", "params": {"color": "#000000"}, "start_f": .., "duration_f": .. }`、`{ "generator": "hold", "params": {"from_clip": "c1", "at": "end"} }`。
 
+`generator` は **ジェネレータレジストリ**（`src/registry/generators.ts`）に登録された名前で、**種類は固定ではない**（v3。docs/07 §3b、docs/14）。組み込みは 2 種で、いずれも外部プラグインとまったく同じ契約（`defineGenerator`）で書かれている。
+
+| 名前 | 供給元 | `params` | 備考 |
+|------|--------|----------|------|
+| `color` | `builtin` | `color`（`#rrggbb` / `#rrggbbaa` / 色名） | `timeline gaps --fill black` が置く背景クリップ |
+| `hold` | `builtin` | `from_clip`（必須）, `at`（`start` \| `end`、既定 `end`） | 別クリップの 1 フレームを保持（フリーズフレーム） |
+
+- 未登録の `generator` は §6.1a の未知種別と**同じ扱い**: `validate` は `W_UNKNOWN_CLIP_TYPE` の**警告**だけで、**読み込み・保存は通る**。**レンダーしようとしたときにだけ** `E_PLUGIN_MISSING` で止まる（F-EXT-4）。
+- `params` の必須・範囲などの検査は**レジストリの定義が持つ**（`hold` の `from_clip` など）。プラグインが供給するジェネレータも同じ経路で自分のパラメータを検査できる。
+
 ### 6.1b `effects`
 
 すべてのクリップ種別が `effects[]` を持てる（v3）。1 要素は `{ type, params, keyframes? }` で、`type` は**エフェクトレジストリ**に登録された名前（docs/07 §3a、docs/14）。
@@ -306,7 +316,7 @@
   "track": "V1",
   "from": "c1",                    // 先行クリップ
   "to": "c2",                      // 後続クリップ
-  "type": "fade",                  // xfade の transition 名
+  "type": "fade",                  // トランジションレジストリの名前（= xfade の transition 名）
   "duration_f": 15,
   "mode": "handle",                // handle | overlap
   "audio": "crossfade",            // crossfade | cut
@@ -317,6 +327,9 @@
 - `mode: handle`: レンダー時に `ext_from = ceil(duration_f / 2)`、`ext_to = duration_f - ext_from` として `from.out_f += ext_from`、`to.in_f -= ext_to` に素材を延長して重ねる（`project.json` 上の in/out は変更しない）。`validate` は `from.out_f + ext_from <= from.asset.duration_f` と `to.in_f - ext_to >= 0` を確認する（不足なら `E_INSUFFICIENT_HANDLE` と最大 `duration_f`）。
 - `mode: overlap`: in/out はそのまま。`to.start_f` が `project.json` 上で既に `duration_f` 分前倒しされている。
 - 先頭／末尾フェード（`montash fade`）はトランジションではなく、`tracks[].fade` またはクリップの `video.fade` として保存。
+- `type` は **トランジションレジストリ**（`src/registry/transitions.ts`）を通す。登録済みの名前は**別名**（`crossfade` → `fade`）と**パラメータ仕様**を持ち、別名は CLI（保存時）とレンダー時の両方で正規名に解決される。
+- **登録されていない `type` も従来どおり `xfade` にそのまま渡す**。ffmpeg の `xfade` は 50 種以上を持ち、その一覧はバージョンで増えるため本体に列挙しない。クリップ種別（§6.1a）と違い、本体が知らなくても ffmpeg がグラフを解釈できるので `E_PLUGIN_MISSING` にはしない。
+- `params` は `xfade` のオプションにそのまま渡る。仕様が登録されていないキーは「英数字と簡単な算術」だけ（式インジェクション対策）、登録されているキーは型に応じて色（`#rrggbb`）や式も受け取れる（`custom` の `expr` はシングルクォートで包んで渡す）。
 
 ## 8. `audio`（タイムライン全体）
 

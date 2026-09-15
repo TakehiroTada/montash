@@ -8,6 +8,7 @@
 import { MontashError } from "../../cli/errors.ts";
 import type { Transition } from "../../core/schema.ts";
 import { handleExtension } from "../../core/validate.ts";
+import { resolveTransitionType, transitionParamsSuffix } from "../../registry/transitions.ts";
 import type { GraphContext, Stream } from "./types.ts";
 
 /** クリップ ID → そのクリップを from / to とするトランジション */
@@ -69,20 +70,13 @@ export function groupByTransitions<T extends { id: string }>(
   return groups;
 }
 
-/** `params` を `key=value` の並びにする（ffmpeg のオプション区切りを壊す値は拒否する） */
+/**
+ * `params` を `key=value` の並びにする。
+ * 検査はトランジションレジストリ（`registry/transitions.ts`）が持つ: 仕様が無いパラメータは
+ * 従来どおりの許可文字、仕様があるものは型に応じて色や式も通す。
+ */
 function transitionParams(tr: Transition): string {
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(tr.params)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
-      throw new MontashError("E_USAGE", `transition "${tr.id}": invalid parameter name ${JSON.stringify(key)}`);
-    const text = typeof value === "number" || typeof value === "boolean" ? String(value) : String(value ?? "");
-    if (!/^[A-Za-z0-9_.+*/() -]*$/.test(text))
-      throw new MontashError("E_USAGE", `transition "${tr.id}": parameter "${key}" has unsupported characters`, {
-        hint: "xfade parameters may only contain letters, digits and simple arithmetic.",
-      });
-    parts.push(`${key}=${text}`);
-  }
-  return parts.length ? `:${parts.join(":")}` : "";
+  return transitionParamsSuffix(tr.id, tr.type, tr.params);
 }
 
 /**
@@ -112,7 +106,10 @@ export function foldXfade(ctx: GraphContext, parts: readonly Stream[], transitio
     const offset = current.frames - d;
     const label = ctx.chain(
       [current.label, next.label],
-      [`xfade=transition=${tr.type}:duration=${ctx.secs(d)}:offset=${ctx.secs(offset)}${transitionParams(tr)}`, ctx.tb],
+      [
+        `xfade=transition=${resolveTransitionType(tr.type)}:duration=${ctx.secs(d)}:offset=${ctx.secs(offset)}${transitionParams(tr)}`,
+        ctx.tb,
+      ],
     );
     current = { label, frames: current.frames + next.frames - d };
   }

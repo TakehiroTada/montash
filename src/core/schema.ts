@@ -272,11 +272,17 @@ export const SubtitleClipSchema = z.looseObject({
 });
 export type SubtitleClip = z.infer<typeof SubtitleClipSchema>;
 
-/** 生成クリップ（`asset` の代わりに `generator`） */
+/**
+ * 生成クリップ（`asset` の代わりに `generator`）。
+ *
+ * `generator` は**ジェネレータレジストリ**（`src/registry/generators.ts`）に登録された名前だが、
+ * ここでは `z.string()` として受ける。未登録の種別でも **読み込み・保存は通し、レンダー時にだけ**
+ * `E_PLUGIN_MISSING` にする（未知クリップ種別 D-14 と同じ扱い。docs/05 §6.4、F-EXT-4）。
+ */
 export const GeneratorClipSchema = z.looseObject({
   id: z.string().min(1),
   type: z.literal("generator"),
-  generator: z.enum(["color", "hold"]),
+  generator: z.string().min(1),
   params: z.record(z.string(), z.unknown()).default({}),
   start_f: FrameSchema,
   duration_f: z.int().positive(),

@@ -20,6 +20,7 @@ import {
 import { framesToSeconds } from "../../core/time.ts";
 import { requireTrack } from "../../core/timeline.ts";
 import { validateProject } from "../../core/validate.ts";
+import { resolveTransitionType, TRANSITION_NAME_RE } from "../../registry/transitions.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError, type Warning } from "../errors.ts";
 import { currentHead, runMutation } from "../mutate.ts";
@@ -29,15 +30,16 @@ import { createIdAllocator } from "./clip-edit.ts";
 /** トランジションの最小長（docs/04 §8） */
 const MIN_DURATION_F = 2;
 
-/** docs/04 §8 の別名（`crossfade` は ffmpeg の `fade` と同じ） */
-const TYPE_ALIASES: Record<string, string> = { crossfade: "fade" };
-
-/** `--type` を検証して ffmpeg の xfade transition 名に正規化する */
+/**
+ * `--type` を検証して ffmpeg の xfade transition 名に正規化する。
+ * 別名表（`crossfade` → `fade`）はトランジションレジストリが持つ（計画 P1-4）。
+ * **登録されていない名前もそのまま通す**（ffmpeg の xfade が解釈する。registry/transitions.ts 冒頭）。
+ */
 function normalizeType(value: unknown): string {
   const raw = String(value);
-  if (!/^[a-z][a-z0-9_]*$/.test(raw))
+  if (!TRANSITION_NAME_RE.test(raw))
     throw errors.usage(`--type ${JSON.stringify(raw)} is not a valid xfade transition name`);
-  return TYPE_ALIASES[raw] ?? raw;
+  return resolveTransitionType(raw);
 }
 
 function describeTransition(project: Project, tr: Transition) {

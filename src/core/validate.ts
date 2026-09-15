@@ -9,12 +9,14 @@
  */
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { validateGeneratorClip } from "../registry/generators.ts";
 import {
   type Asset,
   type Clip,
   clipDurationF,
   clipEndF,
   clipKind,
+  isGeneratorClip,
   isMediaClip,
   isSubtitleClip,
   isTextClip,
@@ -310,15 +312,23 @@ function checkClips(project: Project, _trackById: Map<string, Track>, c: Collect
             message: `subtitle clip "${clip.id}" must reference a subtitle asset (got ${asset.type} "${asset.id}")`,
             path: `${path}/asset`,
           });
-      } else if (kind === "generator" && "generator" in clip && clip.generator === "hold") {
-        const params = (clip as { params?: Record<string, unknown> }).params ?? {};
-        const from = params.from_clip;
-        if (typeof from !== "string")
-          c.error({
-            code: "E_CLIP_NOT_FOUND",
-            message: `hold generator "${clip.id}" needs params.from_clip`,
-            path: `${path}/params`,
-          });
+      } else if (isGeneratorClip(clip)) {
+        // 種別ごとの検査はジェネレータレジストリが持つ（`hold` の `params.from_clip` など）。
+        // ここに種別名を直書きすると、プラグインが供給するジェネレータが自分のパラメータを
+        // 検査できず「組み込みだけができること」が残る（計画 P1-4、docs/14）。
+        const ctx = { fps, resolution: res };
+        const view = { id: clip.id, generator: clip.generator, params: clip.params, duration_f: clip.duration_f };
+        for (const issue of validateGeneratorClip(view, ctx)) {
+          const entry: Issue = {
+            code: issue.code,
+            message: issue.message,
+            path: `${path}${issue.path ?? ""}`,
+            ...(issue.hint !== undefined ? { hint: issue.hint } : {}),
+            ...(issue.detail !== undefined ? { detail: issue.detail } : {}),
+          };
+          if (issue.level === "warning") c.warn(entry);
+          else c.error(entry);
+        }
       }
     });
   });
