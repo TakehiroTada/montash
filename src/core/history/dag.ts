@@ -108,8 +108,14 @@ export interface ChildChoice {
  * 子が複数あるときに進む先を決める。「最後に HEAD だった系列」の子を優先し、
  * 判断材料が無ければ最後に作られた子。
  */
-export function preferredChild(index: OpIndex, opId: string, moves: Move[]): ChildChoice {
-  const candidates = childrenOf(index, opId);
+export function preferredChild(
+  index: OpIndex,
+  opId: string,
+  moves: Move[],
+  ignored?: ReadonlySet<string>,
+): ChildChoice {
+  // `reset --hard` で捨てられた子は辿らない（docs/11 §4.3）
+  const candidates = ignored ? childrenOf(index, opId).filter((c) => !ignored.has(c)) : childrenOf(index, opId);
   if (candidates.length === 0) return { chosen: null, candidates };
   if (candidates.length === 1) return { chosen: candidates[0] as string, candidates };
   const events = headEvents(index, moves);
@@ -126,13 +132,13 @@ export function preferredChild(index: OpIndex, opId: string, moves: Move[]): Chi
   return { chosen: best ? best.id : (candidates[candidates.length - 1] as string), candidates };
 }
 
-/** 系列の先端。子を辿り、分岐は preferredChild で選ぶ */
-export function tipOf(index: OpIndex, opId: string, moves: Move[]): string {
+/** 系列の先端。子を辿り、分岐は preferredChild で選ぶ。`ignored` の op は辿らない */
+export function tipOf(index: OpIndex, opId: string, moves: Move[], ignored?: ReadonlySet<string>): string {
   let cur = opId;
   const seen = new Set<string>();
   while (!seen.has(cur)) {
     seen.add(cur);
-    const next = preferredChild(index, cur, moves).chosen;
+    const next = preferredChild(index, cur, moves, ignored).chosen;
     if (next === null) return cur;
     cur = next;
   }
@@ -148,6 +154,8 @@ export interface RefContext {
   head: string | null;
   moves?: Move[];
   index?: OpIndex;
+  /** `reset --hard` で捨てられた op（`tip` の解決から外す） */
+  ignored?: ReadonlySet<string>;
 }
 
 export interface ResolvedRef {
@@ -214,7 +222,7 @@ export function resolveRef(ref: string, ctx: RefContext): ResolvedRef {
 
   if (trimmed === "tip") {
     if (ctx.head === null) throw notFound(trimmed, ctx, "HEAD is not set (history is empty)");
-    return { op: tipOf(index, ctx.head, moves), via: "tip", back: 0 };
+    return { op: tipOf(index, ctx.head, moves, ctx.ignored), via: "tip", back: 0 };
   }
 
   if (OP_ID.test(trimmed)) {

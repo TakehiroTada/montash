@@ -110,6 +110,29 @@ export interface Move {
   last_op: string | null;
 }
 
+/** `reset --hard` 1 回の記録（docs/11 §4.3） */
+export interface ResetEntry {
+  at: string;
+  actor: Actor;
+  actor_detail?: string;
+  /** ユーザーが指定した参照 */
+  ref: string;
+  /** 移動先（reset 後の HEAD） */
+  to: string;
+  /** このリセットで「無視する」ことにした op */
+  ops: string[];
+}
+
+/**
+ * `.montash/history/reset.json`。`reset --hard` で捨てられた op の集合。
+ * 物理削除はしないので `log --all` では見える（docs/11 §4.3）。
+ */
+export interface ResetState {
+  /** 無視する op（`log` の既定表示・tip 探索から外す） */
+  ignored: string[];
+  entries: ResetEntry[];
+}
+
 /** `montash status` / 各コマンドの `head` に載せる状態（docs/04 §1.5） */
 export interface HeadState {
   /** 現在の op id。履歴が空なら null */

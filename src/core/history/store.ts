@@ -8,11 +8,11 @@
  * ここでは DAG の解釈はせず、ファイルの読み書きと採番だけを行う。
  */
 
-import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ExitCode, MontashError } from "../../cli/errors.ts";
 import { canonicalHash, type HashFn } from "./hash.ts";
-import type { Commit, Move, Op, TagMap } from "./types.ts";
+import type { Commit, Move, Op, ResetState, TagMap } from "./types.ts";
 
 export const HISTORY_DIR = join(".montash", "history");
 
@@ -51,6 +51,7 @@ export class HistoryStore {
       ensureFile(store.path("commits.jsonl"), ""),
       ensureFile(store.path("moves.jsonl"), ""),
       ensureFile(store.path("tags.json"), "{}\n"),
+      ensureFile(store.path("reset.json"), `${JSON.stringify(EMPTY_RESET, null, 2)}\n`),
     ]);
     return store;
   }
@@ -105,6 +106,23 @@ export class HistoryStore {
     }
   }
 
+  /** objects/ にあるハッシュ一覧（`sha1:...` 形式で返す） */
+  async listObjects(): Promise<string[]> {
+    const dir = join(this.dir, "objects");
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return [];
+    }
+    return names.filter((n) => n.endsWith(".json")).map((n) => `sha1:${n.slice(0, -".json".length)}`);
+  }
+
+  /** object を物理削除する（`history prune` のみが使う。docs/11 §4.5） */
+  async removeObject(hash: string): Promise<void> {
+    await rm(this.objectPath(hash), { force: true });
+  }
+
   // ---- 追記専用ログ ----
 
   async readOps(): Promise<Op[]> {
@@ -119,20 +137,38 @@ export class HistoryStore {
     return readJsonl<Move>(this.path("moves.jsonl"));
   }
 
-  /** op を追記する。`id` は既存行数から採番（`o_0001`...） */
+  /**
+   * op を追記する。`id` は既存 ID の最大値 + 1（`o_0001`...）。
+   * `history prune` で行が減っても ID を再利用しないよう、行数ではなく最大値で採番する。
+   */
   async appendOp(op: Omit<Op, "id">): Promise<Op> {
-    const count = await countLines(this.path("ops.jsonl"));
-    const full: Op = { id: formatId("o_", count + 1), ...op };
+    const [ops, counters] = await Promise.all([this.readOps(), this.readCounters()]);
+    const next = Math.max(maxIdNumber(ops.map((o) => o.id)), counters.op) + 1;
+    const full: Op = { id: formatId("o_", next), ...op };
     await appendFile(this.path("ops.jsonl"), `${JSON.stringify(full)}\n`);
     return full;
   }
 
-  /** commit を追記する（`k_0001`...） */
+  /** commit を追記する（`k_0001`...）。採番規則は appendOp と同じ */
   async appendCommit(commit: Omit<Commit, "id">): Promise<Commit> {
-    const count = await countLines(this.path("commits.jsonl"));
-    const full: Commit = { id: formatId("k_", count + 1), ...commit };
+    const [commits, counters] = await Promise.all([this.readCommits(), this.readCounters()]);
+    const next = Math.max(maxIdNumber(commits.map((c) => c.id)), counters.commit) + 1;
+    const full: Commit = { id: formatId("k_", next), ...commit };
     await appendFile(this.path("commits.jsonl"), `${JSON.stringify(full)}\n`);
     return full;
+  }
+
+  /** ops.jsonl / moves.jsonl を書き直す（`history prune` と `history import` のみが使う） */
+  async writeOps(ops: readonly Op[]): Promise<void> {
+    await atomicWrite(this.path("ops.jsonl"), ops.map((o) => `${JSON.stringify(o)}\n`).join(""));
+  }
+
+  async writeCommits(commits: readonly Commit[]): Promise<void> {
+    await atomicWrite(this.path("commits.jsonl"), commits.map((c) => `${JSON.stringify(c)}\n`).join(""));
+  }
+
+  async writeMoves(moves: readonly Move[]): Promise<void> {
+    await atomicWrite(this.path("moves.jsonl"), moves.map((m) => `${JSON.stringify(m)}\n`).join(""));
   }
 
   async appendMove(move: Move): Promise<Move> {
@@ -160,6 +196,52 @@ export class HistoryStore {
 
   async writeTags(tags: TagMap): Promise<void> {
     await atomicWrite(this.path("tags.json"), `${JSON.stringify(tags, null, 2)}\n`);
+  }
+
+  // ---- counters（prune で行が減っても ID を再利用しないための高水位。docs/11 §4.5） ----
+
+  async readCounters(): Promise<{ op: number; commit: number }> {
+    try {
+      const raw = JSON.parse(await readFile(this.path("counters.json"), "utf8")) as Record<string, unknown>;
+      return { op: Number(raw.op) || 0, commit: Number(raw.commit) || 0 };
+    } catch {
+      return { op: 0, commit: 0 };
+    }
+  }
+
+  async writeCounters(counters: { op: number; commit: number }): Promise<void> {
+    await atomicWrite(this.path("counters.json"), `${JSON.stringify(counters, null, 2)}\n`);
+  }
+
+  // ---- reset（`reset --hard` で log の既定表示から外す op 集合。docs/11 §4.3） ----
+
+  async readReset(): Promise<ResetState> {
+    const path = this.path("reset.json");
+    let text: string;
+    try {
+      text = await readFile(path, "utf8");
+    } catch {
+      return { ...EMPTY_RESET };
+    }
+    if (text.trim() === "") return { ...EMPTY_RESET };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      throw new MontashError("E_HISTORY_CORRUPT", "reset.json is not valid JSON", { detail: { path }, cause: err });
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new MontashError("E_HISTORY_CORRUPT", "reset.json must be an object", { detail: { path } });
+    }
+    const raw = parsed as Partial<ResetState>;
+    return {
+      ignored: Array.isArray(raw.ignored) ? raw.ignored.filter((x): x is string => typeof x === "string") : [],
+      entries: Array.isArray(raw.entries) ? raw.entries : [],
+    };
+  }
+
+  async writeReset(state: ResetState): Promise<void> {
+    await atomicWrite(this.path("reset.json"), `${JSON.stringify(state, null, 2)}\n`);
   }
 
   // ---- HEAD ----
@@ -198,11 +280,16 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   await rename(tmp, path);
 }
 
-async function countLines(path: string): Promise<number> {
-  const text = await readFile(path, "utf8");
-  let n = 0;
-  for (const line of text.split("\n")) if (line.trim() !== "") n++;
-  return n;
+const EMPTY_RESET: ResetState = { ignored: [], entries: [] };
+
+/** `o_0042` 形式の ID 列から最大の数値を返す（空なら 0） */
+function maxIdNumber(ids: readonly string[]): number {
+  let max = 0;
+  for (const id of ids) {
+    const n = Number.parseInt(id.slice(2), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max;
 }
 
 /** JSONL を読む。壊れた行は E_HISTORY_CORRUPT（ファイルと行番号を detail に） */

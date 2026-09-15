@@ -32,6 +32,7 @@ describe("HistoryStore", () => {
       "moves.jsonl",
       "objects",
       "ops.jsonl",
+      "reset.json",
       "tags.json",
     ]);
     expect(await store.getHead()).toBeNull();

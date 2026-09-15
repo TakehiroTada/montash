@@ -22,6 +22,7 @@ import {
   audioOffset,
   audioShow,
 } from "./audio.ts";
+import { blame } from "./blame.ts";
 import { checkout } from "./checkout.ts";
 import { clipAdd, clipList } from "./clip.ts";
 import { clipDelete, clipMove, clipSet, clipSplit, clipTrim } from "./clip-edit.ts";
@@ -40,7 +41,9 @@ import { previewBuild, previewStatus } from "./preview.ts";
 import { projectSet, projectShow } from "./project.ts";
 import { proxyBuild, proxyStatus } from "./proxy.ts";
 import { redo } from "./redo.ts";
-import { render, renderPresets, renderVerify } from "./render.ts";
+import { render, renderAudio, renderBatch, renderGif, renderPresets, renderStill, renderVerify } from "./render.ts";
+import { reset } from "./reset.ts";
+import { revert } from "./revert.ts";
 import { schema } from "./schema.ts";
 import { serve } from "./serve.ts";
 import { show } from "./show.ts";
@@ -135,15 +138,22 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(render),
   spec(renderVerify),
   spec(renderPresets),
-  // 履歴: blame, revert, reset → M4
+  spec(renderBatch),
+  spec(renderStill),
+  spec(renderGif),
+  spec(renderAudio),
+  // 履歴（docs/04 §15）
   spec(status),
   spec(log),
   spec(show),
   spec(diff),
+  spec(blame),
   spec(commit),
   spec(checkout),
   spec(undo),
   spec(redo),
+  spec(revert),
+  spec(reset),
   spec(tag),
   spec(tagList),
   spec(tagDelete),

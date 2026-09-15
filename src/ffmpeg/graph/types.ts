@@ -103,6 +103,11 @@ export interface OutputSpec {
   threads?: number;
   /** `-movflags +faststart` */
   faststart?: boolean;
+  /**
+   * 出力段に追加する引数（`-b:v 8M` / `-profile:v high` / `-tag:v hvc1` / `-pass 2` など）。
+   * `-f <format> <path>` の直前に置かれる（docs/07 §9 のプリセット表・2 パス・hwaccel 用）。
+   */
+  extraArgs?: readonly string[];
   /** ソフト字幕の多重化（docs/07 §7 `mode: soft`）。入力はグラフの入力の後ろに足される */
   subtitles?: SoftSubtitle[];
 }

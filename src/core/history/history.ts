@@ -19,10 +19,22 @@ import {
   resolveRef,
   tipOf,
 } from "./dag.ts";
-import { diffJson, extractAffects, findConflicts, invertChanges } from "./diff.ts";
+import { diffJson, escapeToken, extractAffects, findConflicts, getAt, invertChanges, parsePointer } from "./diff.ts";
 import type { HashFn } from "./hash.ts";
 import { HistoryStore } from "./store.ts";
-import type { Actor, Affects, Change, Commit, CommitStats, HeadState, Move, MoveKind, Op, Tag } from "./types.ts";
+import type {
+  Actor,
+  Affects,
+  Change,
+  Commit,
+  CommitStats,
+  HeadState,
+  Move,
+  MoveKind,
+  Op,
+  ResetState,
+  Tag,
+} from "./types.ts";
 
 export interface HistoryOptions {
   hash?: HashFn;
@@ -87,6 +99,8 @@ export interface LogResult {
   entries: LogEntry[];
   /** コミットに属さない op（時系列順）。既定は HEAD 系列上、`all` は全て */
   pending: Op[];
+  /** `reset --hard` で既定表示から外されている op（`all` のときだけ中身が入る） */
+  reset: string[];
 }
 
 export interface ShowResult {
@@ -104,6 +118,50 @@ export interface RevertResult {
   changes: Change[];
   /** 適用できないパス（空なら適用可） */
   conflicts: string[];
+}
+
+export interface ResetResult extends MoveResult {
+  /** このリセットで新たに無視することにした op */
+  discarded: string[];
+  /** 無視される op の総数（過去のリセットぶんを含む） */
+  ignored: string[];
+}
+
+export interface BlameHit {
+  element: string;
+  op: Op;
+  commit: Commit | null;
+  /** その要素に関係する変更だけ */
+  changes: Change[];
+}
+
+export interface PruneOptions {
+  keepCommits?: number;
+  keepDays?: number;
+  dryRun?: boolean;
+  /** 現在時刻（テスト用） */
+  now?: Date;
+}
+
+export interface PruneResult {
+  dry_run: boolean;
+  /** 削除する（した）op */
+  ops: string[];
+  /** 削除する（した）object ハッシュ */
+  objects: string[];
+  /** 削除する（した）moves.jsonl の行数 */
+  moves: number;
+  kept: { ops: number; commits: number; objects: number };
+}
+
+export interface ExportResult {
+  path: string;
+  counts: { ops: number; commits: number; moves: number; tags: number; objects: number };
+}
+
+export interface ImportResult extends ExportResult {
+  added: { ops: number; commits: number; moves: number; tags: number; objects: number };
+  head: string | null;
 }
 
 export interface VerifyResult {
@@ -127,6 +185,9 @@ interface Snapshot {
   index: OpIndex;
   /** op id → commit id */
   commitOf: Map<string, string>;
+  /** `reset --hard` で捨てられた op */
+  ignored: Set<string>;
+  reset: ResetState;
 }
 
 export class History {
@@ -148,18 +209,29 @@ export class History {
   // ---- 読み出し ----
 
   private async load(): Promise<Snapshot> {
-    const [rawOps, commits, moves, tags, head] = await Promise.all([
+    const [rawOps, commits, moves, tags, head, reset] = await Promise.all([
       this.store.readOps(),
       this.store.readCommits(),
       this.store.readMoves(),
       this.store.readTags(),
       this.store.getHead(),
+      this.store.readReset(),
     ]);
     const commitOf = new Map<string, string>();
     for (const c of commits) for (const id of c.ops) commitOf.set(id, c.id);
     // ops.jsonl 上の commit は常に null なので commits から補完する
     const ops = rawOps.map((op) => ({ ...op, commit: commitOf.get(op.id) ?? null }));
-    return { ops, commits, moves, tags, head, index: buildIndex(ops), commitOf };
+    return {
+      ops,
+      commits,
+      moves,
+      tags,
+      head,
+      index: buildIndex(ops),
+      commitOf,
+      ignored: new Set(reset.ignored),
+      reset,
+    };
   }
 
   /** 所属コミットを補完した op 一覧（ops.jsonl 順） */
@@ -194,7 +266,7 @@ export class History {
         detail: { head: s.head },
       });
     }
-    const tip = tipOf(s.index, s.head, s.moves);
+    const tip = tipOf(s.index, s.head, s.moves, s.ignored);
     const state: HeadState = {
       head: s.head,
       headOp,
@@ -345,7 +417,7 @@ export class History {
     const warnings: Warning[] = [];
     let cur = s.head;
     for (let i = 0; i < n; i++) {
-      const choice = preferredChild(s.index, cur, s.moves);
+      const choice = preferredChild(s.index, cur, s.moves, s.ignored);
       if (choice.chosen === null) throw nothingTo("redo", i, n);
       if (choice.candidates.length > 1) {
         warnings.push(
@@ -429,9 +501,11 @@ export class History {
       commits = [...s.commits];
       uncommitted = s.ops.filter((o) => o.commit === null);
     } else {
+      // 既定は HEAD 系列上、かつ `reset --hard` で捨てられていないもの（docs/11 §4.3）
       const chain = new Set(pathToRoot(s.index, s.head));
-      commits = s.commits.filter((c) => chain.has(c.head));
-      uncommitted = s.ops.filter((o) => o.commit === null && chain.has(o.id));
+      const visible = (id: string): boolean => chain.has(id) && !s.ignored.has(id);
+      commits = s.commits.filter((c) => visible(c.head) && !c.ops.some((id) => s.ignored.has(id)));
+      uncommitted = s.ops.filter((o) => o.commit === null && visible(o.id));
     }
     if (opts.grep !== undefined) {
       const needle = opts.grep.toLowerCase();
@@ -447,7 +521,7 @@ export class History {
         ? { commit, ops: commit.ops.map((id) => s.index.byId.get(id)).filter((o): o is Op => o !== undefined) }
         : { commit },
     );
-    return { entries, pending: uncommitted };
+    return { entries, pending: uncommitted, reset: opts.all ? [...s.ignored] : [] };
   }
 
   async show(ref: string): Promise<ShowResult> {
@@ -550,6 +624,338 @@ export class History {
     return { ref: resolved, changes, conflicts: findConflicts(current, changes) };
   }
 
+  // ---- reset --hard（docs/11 §4.3） ----
+
+  /**
+   * HEAD を ref へ移動し、その先の op を「参照上」無視する（物理削除はしない）。
+   * 無視された op は `log` の既定表示・`tip` の解決から外れるが、`log --all` では見える。
+   */
+  async reset(ref: string, actor: Actor, actorDetail?: string): Promise<ResetResult> {
+    const s = await this.load();
+    const resolved = resolveRef(ref, s);
+    // 対象の子孫（対象自身は含めない）を無視する
+    const discarded = [...descendants(s.index, resolved.op)].filter((id) => id !== resolved.op && !s.ignored.has(id));
+    const move = await this.moveTo(s, resolved.op, "reset", actor, actorDetail, ref);
+    const ignored = [...new Set([...s.reset.ignored, ...discarded])];
+    await this.store.writeReset({
+      ignored,
+      entries: [
+        ...s.reset.entries,
+        {
+          at: this.store.now(),
+          actor,
+          ...(actorDetail !== undefined ? { actor_detail: actorDetail } : {}),
+          ref,
+          to: resolved.op,
+          ops: discarded,
+        },
+      ],
+    });
+    // 無視集合を反映した HEAD 状態で返す（tip が捨てた側を指さないように）。
+    // moveTo は無視集合を書く前に判定しているので、detached でなくなった警告は取り除く
+    const head = this.headState(await this.load());
+    const warnings = head.detached ? move.warnings : move.warnings.filter((w) => w.code !== "W_DETACHED_HEAD");
+    return { ...move, warnings, head, discarded, ignored };
+  }
+
+  /** `reset --hard` で無視されている op */
+  async resetState(): Promise<ResetState> {
+    return this.store.readReset();
+  }
+
+  // ---- blame（docs/11 §4.1） ----
+
+  /**
+   * 要素 ID（クリップ・テキスト・トランジション・アセット等）を最後に変更した op を探す。
+   * `op.affects.clips` → changes の path の一部が ID → スナップショット上の `id` の順に判定する。
+   *
+   * 既定は HEAD 系列の祖先だけを見る（`all` で全系列）。見つからなければ null。
+   */
+  async blame(element: string, opts: { all?: boolean } = {}): Promise<BlameHit | null> {
+    const s = await this.load();
+    const chain = s.head === null ? new Set<string>() : new Set(pathToRoot(s.index, s.head));
+    const candidates = s.ops.filter((o) => (opts.all ? true : chain.has(o.id)));
+    const cache = new Map<string, unknown>();
+    const snapshot = async (hash: string): Promise<unknown> => {
+      const hit = cache.get(hash);
+      if (hit !== undefined) return hit;
+      const value = await this.store.getObject(hash).catch(() => null);
+      cache.set(hash, value);
+      return value;
+    };
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const op = candidates[i] as Op;
+      const changes: Change[] = [];
+      const [after, before] = await Promise.all([snapshot(op.after), snapshot(op.before)]);
+      for (const c of op.changes) {
+        if (changeTouches(c, element, after, before)) changes.push(c);
+      }
+      if (changes.length === 0 && !op.affects.clips.includes(element)) continue;
+      const commitId = op.commit;
+      const commit = commitId ? (s.commits.find((x) => x.id === commitId) ?? null) : null;
+      return { element, op, commit, changes: changes.length > 0 ? changes : op.changes };
+    }
+    return null;
+  }
+
+  /** 現在のプロジェクト（HEAD の after）に存在する要素 ID（blame の候補提示用） */
+  async elementIds(): Promise<string[]> {
+    const s = await this.load();
+    if (s.head === null) return [];
+    const op = s.index.byId.get(s.head);
+    if (!op) return [];
+    const project = await this.store.getObject(op.after).catch(() => null);
+    return collectIds(project);
+  }
+
+  // ---- prune（docs/11 §4.5） ----
+
+  /**
+   * コミットに属さない古い op と、どこからも参照されない object を削除する。
+   *
+   * 守るもの: HEAD とその祖先、コミット済み op、コミットの head、タグの解決先、
+   * 直近 `keepCommits` 件のコミット以降の op、`keepDays` 日以内の op、
+   * および「生き残る子を持つ op」（DAG が切れないように）。
+   */
+  async prune(opts: PruneOptions = {}): Promise<PruneResult> {
+    const keepCommits = opts.keepCommits ?? 100;
+    const keepDays = opts.keepDays ?? 30;
+    if (!Number.isFinite(keepCommits) || keepCommits < 0)
+      throw new MontashError("E_USAGE", `--keep-commits must be >= 0 (got ${keepCommits})`);
+    if (!Number.isFinite(keepDays) || keepDays < 0)
+      throw new MontashError("E_USAGE", `--keep-days must be >= 0 (got ${keepDays})`);
+    const s = await this.load();
+    const cutoff = (opts.now ?? new Date()).getTime() - keepDays * 86_400_000;
+
+    const protectedIds = new Set<string>();
+    if (s.head !== null) for (const id of pathToRoot(s.index, s.head)) protectedIds.add(id);
+    for (const c of s.commits) {
+      protectedIds.add(c.head);
+      for (const id of c.ops) protectedIds.add(id);
+    }
+    for (const tag of Object.values(s.tags)) {
+      try {
+        protectedIds.add(resolveRef(tag.target, { ...s, tags: {} }).op);
+      } catch {
+        /* 解決できないタグは無視（verify が報告する） */
+      }
+    }
+    // 直近 keepCommits 件のコミット以降にある op は残す
+    const recent = s.commits.slice(Math.max(0, s.commits.length - keepCommits));
+    const boundary = recent[0];
+    if (boundary) for (const id of descendants(s.index, boundary.head)) protectedIds.add(id);
+
+    // 子が全て削除対象でなければ削除しない（親リンクを壊さないため）。末尾から評価する
+    const remove = new Set<string>();
+    for (let i = s.ops.length - 1; i >= 0; i--) {
+      const op = s.ops[i] as Op;
+      if (protectedIds.has(op.id)) continue;
+      if (Date.parse(op.at) >= cutoff) continue;
+      const children = s.index.children.get(op.id) ?? [];
+      if (children.some((c) => !remove.has(c))) continue;
+      remove.add(op.id);
+    }
+
+    const keptOps = s.ops.filter((o) => !remove.has(o.id));
+    const referenced = new Set<string>();
+    for (const op of keptOps) {
+      referenced.add(op.before);
+      referenced.add(op.after);
+    }
+    const allObjects = await this.store.listObjects();
+    const orphanObjects = allObjects.filter((h) => !referenced.has(h));
+    const keptMoves = s.moves.filter((m) => !remove.has(m.to) && (m.from === null || !remove.has(m.from)));
+
+    const result: PruneResult = {
+      dry_run: opts.dryRun === true,
+      ops: [...remove],
+      objects: orphanObjects,
+      moves: s.moves.length - keptMoves.length,
+      kept: { ops: keptOps.length, commits: s.commits.length, objects: allObjects.length - orphanObjects.length },
+    };
+    if (opts.dryRun) return result;
+    if (remove.size > 0) {
+      // 削除前の最大 ID を覚えておき、採番が巻き戻らないようにする
+      const counters = await this.store.readCounters();
+      await this.store.writeCounters({
+        op: Math.max(counters.op, maxId(s.ops.map((o) => o.id))),
+        commit: Math.max(counters.commit, maxId(s.commits.map((c) => c.id))),
+      });
+      await this.store.writeOps(keptOps.map((o) => ({ ...o, commit: null })));
+      await this.store.writeMoves(keptMoves);
+    }
+    for (const hash of orphanObjects) await this.store.removeObject(hash);
+    if (remove.size > 0) {
+      const reset = await this.store.readReset();
+      await this.store.writeReset({
+        ignored: reset.ignored.filter((id) => !remove.has(id)),
+        entries: reset.entries.map((e) => ({ ...e, ops: e.ops.filter((id) => !remove.has(id)) })),
+      });
+    }
+    return result;
+  }
+
+  // ---- export / import（docs/11 §4.5） ----
+
+  /** 履歴一式を 1 本の JSONL にする（監査・持ち出し用）。1 行 1 レコード、`type` で種別を持つ */
+  async exportLines(): Promise<{ lines: string[]; counts: ExportResult["counts"] }> {
+    const s = await this.load();
+    const hashes = new Set<string>();
+    for (const op of s.ops) {
+      hashes.add(op.before);
+      hashes.add(op.after);
+    }
+    const lines: string[] = [];
+    lines.push(JSON.stringify({ type: "meta", format: "montash-history", version: 1, at: this.store.now() }));
+    for (const hash of hashes) {
+      const value = await this.store.getObject(hash);
+      lines.push(JSON.stringify({ type: "object", hash, value }));
+    }
+    // ops.jsonl の commit は常に null（読み出し時に commits から補完する）
+    for (const op of s.ops) lines.push(JSON.stringify({ type: "op", op: { ...op, commit: null } }));
+    for (const c of s.commits) lines.push(JSON.stringify({ type: "commit", commit: c }));
+    for (const m of s.moves) lines.push(JSON.stringify({ type: "move", move: m }));
+    for (const [name, tag] of Object.entries(s.tags)) lines.push(JSON.stringify({ type: "tag", name, tag }));
+    lines.push(JSON.stringify({ type: "reset", reset: s.reset }));
+    lines.push(JSON.stringify({ type: "head", op: s.head }));
+    return {
+      lines,
+      counts: {
+        ops: s.ops.length,
+        commits: s.commits.length,
+        moves: s.moves.length,
+        tags: Object.keys(s.tags).length,
+        objects: hashes.size,
+      },
+    };
+  }
+
+  /**
+   * `exportLines()` の JSONL を取り込む。
+   * 既存の履歴と ID が衝突したら `E_HISTORY_IMPORT_CONFLICT`（空の履歴なら丸ごと復元する）。
+   */
+  async importLines(lines: readonly string[]): Promise<Omit<ImportResult, "path">> {
+    const s = await this.load();
+    const ops: Op[] = [];
+    const commits: Commit[] = [];
+    const moves: Move[] = [];
+    const tags: Record<string, Tag> = {};
+    const objects: Array<{ hash: string; value: unknown }> = [];
+    let head: string | null = null;
+    let reset: ResetState | null = null;
+    let sawMeta = false;
+
+    lines.forEach((line, i) => {
+      if (line.trim() === "") return;
+      let rec: Record<string, unknown>;
+      try {
+        rec = JSON.parse(line) as Record<string, unknown>;
+      } catch (err) {
+        throw new MontashError("E_HISTORY_CORRUPT", `line ${i + 1} is not valid JSON`, {
+          hint: "The file must be one produced by `montash history export`.",
+          detail: { line: i + 1 },
+          cause: err,
+        });
+      }
+      switch (rec.type) {
+        case "meta":
+          sawMeta = true;
+          if (rec.format !== "montash-history")
+            throw new MontashError("E_HISTORY_CORRUPT", `unsupported export format ${String(rec.format)}`, {
+              detail: { line: i + 1 },
+            });
+          break;
+        case "object":
+          objects.push({ hash: String(rec.hash), value: rec.value });
+          break;
+        case "op":
+          ops.push(rec.op as Op);
+          break;
+        case "commit":
+          commits.push(rec.commit as Commit);
+          break;
+        case "move":
+          moves.push(rec.move as Move);
+          break;
+        case "tag":
+          tags[String(rec.name)] = rec.tag as Tag;
+          break;
+        case "reset":
+          reset = rec.reset as ResetState;
+          break;
+        case "head":
+          head = typeof rec.op === "string" ? rec.op : null;
+          break;
+        default:
+          throw new MontashError("E_HISTORY_CORRUPT", `line ${i + 1} has unknown record type ${String(rec.type)}`, {
+            detail: { line: i + 1 },
+          });
+      }
+    });
+    if (!sawMeta)
+      throw new MontashError("E_HISTORY_CORRUPT", "the file has no montash-history meta record", {
+        hint: "Use a file produced by `montash history export -o <file.jsonl>`.",
+      });
+
+    const existingOps = new Set(s.ops.map((o) => o.id));
+    const existingCommits = new Set(s.commits.map((c) => c.id));
+    const conflicts = [
+      ...ops.filter((o) => existingOps.has(o.id)).map((o) => o.id),
+      ...commits.filter((c) => existingCommits.has(c.id)).map((c) => c.id),
+    ];
+    if (conflicts.length > 0)
+      throw new MontashError(
+        "E_HISTORY_IMPORT_CONFLICT",
+        `${conflicts.length} id(s) already exist in this history: ${conflicts.slice(0, 5).join(", ")}`,
+        {
+          hint: "Import into a project whose .montash/history is empty (audit restore), or export from there first.",
+          detail: { conflicts },
+        },
+      );
+
+    for (const o of objects) {
+      const actual = this.hash(o.value);
+      if (actual !== o.hash)
+        throw new MontashError("E_HISTORY_CORRUPT", `object ${o.hash} in the export hashes to ${actual}`, {
+          detail: { hash: o.hash, actual },
+        });
+      await this.store.putObject(o.value);
+    }
+    const mergedOps = [...s.ops.map((o) => ({ ...o, commit: null })), ...ops].sort(byIdNumber);
+    const mergedCommits = [...s.commits, ...commits].sort(byIdNumber);
+    await this.store.writeOps(mergedOps);
+    await this.store.writeCommits(mergedCommits);
+    await this.store.writeMoves([...s.moves, ...moves]);
+    const mergedTags = { ...s.tags, ...tags };
+    await this.store.writeTags(mergedTags);
+    if (reset !== null) {
+      const incoming = reset as ResetState;
+      await this.store.writeReset({
+        ignored: [...new Set([...s.reset.ignored, ...incoming.ignored])],
+        entries: [...s.reset.entries, ...incoming.entries],
+      });
+    }
+    if (s.head === null && head !== null) await this.store.setHead(head);
+    const finalHead = await this.store.getHead();
+    return {
+      counts: {
+        ops: mergedOps.length,
+        commits: mergedCommits.length,
+        moves: s.moves.length + moves.length,
+        tags: Object.keys(mergedTags).length,
+        objects: objects.length,
+      },
+      added: {
+        ops: ops.length,
+        commits: commits.length,
+        moves: moves.length,
+        tags: Object.keys(tags).length,
+        objects: objects.length,
+      },
+      head: finalHead,
+    };
+  }
+
   // ---- verify ----
 
   /** docs/11 §7 の不変条件 1, 2, 4（＋ HEAD と object 内容ハッシュ）を検証する */
@@ -584,9 +990,13 @@ export class History {
 
     // 2. DAG の連続性・ID の重複
     const seen = new Set<string>();
+    // `history prune` で行が減ることがあるので「連番」ではなく「重複なく増加する」ことだけを見る
+    let lastOpNumber = 0;
     s.ops.forEach((op, i) => {
-      if (op.id !== `o_${String(i + 1).padStart(4, "0")}`)
-        problems.push(`op #${i + 1} has id ${op.id} (expected o_${String(i + 1).padStart(4, "0")})`);
+      const n = idNumber(op.id);
+      if (!/^o_\d{4,}$/.test(op.id)) problems.push(`op #${i + 1} has a malformed id ${op.id}`);
+      else if (n <= lastOpNumber) problems.push(`op #${i + 1} (${op.id}) does not come after the previous op`);
+      lastOpNumber = Math.max(lastOpNumber, n);
       if (seen.has(op.id)) problems.push(`duplicate op id ${op.id}`);
       seen.add(op.id);
       if (op.parent !== null) {
@@ -605,9 +1015,12 @@ export class History {
 
     // 4. コミットの連続性
     const committed = new Map<string, string>();
+    let lastCommitNumber = 0;
     s.commits.forEach((c, i) => {
-      const expectedId = `k_${String(i + 1).padStart(4, "0")}`;
-      if (c.id !== expectedId) problems.push(`commit #${i + 1} has id ${c.id} (expected ${expectedId})`);
+      const n = idNumber(c.id);
+      if (!/^k_\d{4,}$/.test(c.id)) problems.push(`commit #${i + 1} has a malformed id ${c.id}`);
+      else if (n <= lastCommitNumber) problems.push(`commit #${i + 1} (${c.id}) does not come after the previous one`);
+      lastCommitNumber = Math.max(lastCommitNumber, n);
       const parentCommit = c.parent === null ? null : (s.commits.find((p) => p.id === c.parent) ?? null);
       if (c.parent !== null && !parentCommit) problems.push(`${c.id}.parent ${c.parent} does not exist`);
       if (!s.index.byId.has(c.head)) problems.push(`${c.id}.head ${c.head} does not exist`);
@@ -665,6 +1078,63 @@ export class History {
 }
 
 // ---- ヘルパ ----
+
+/** `o_0042` → 42（数値部分） */
+function idNumber(id: string): number {
+  const n = Number.parseInt(id.slice(2), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function maxId(ids: readonly string[]): number {
+  return ids.reduce((max, id) => Math.max(max, idNumber(id)), 0);
+}
+
+function byIdNumber(a: { id: string }, b: { id: string }): number {
+  return idNumber(a.id) - idNumber(b.id);
+}
+
+/**
+ * 変更 1 件が要素 ID に触れているか。
+ * 1) path のいずれかのセグメントが ID そのもの（`/assets/x1/...`）
+ * 2) path の接頭辞が指すオブジェクト（after、無ければ before）の `id` が一致（`/tracks/0/clips/2/in_f`）
+ * 3) 追加・削除された値そのものの `id` が一致
+ */
+function changeTouches(change: Change, element: string, after: unknown, before: unknown): boolean {
+  const tokens = parsePointer(change.path);
+  if (tokens.includes(element)) return true;
+  for (let i = tokens.length; i > 0; i--) {
+    const prefix = `/${tokens.slice(0, i).map(escapeToken).join("/")}`;
+    for (const snapshot of [after, before]) {
+      if (snapshot === null || snapshot === undefined) continue;
+      const at = getAt(snapshot, prefix);
+      if (at.found && idOf(at.value) === element) return true;
+    }
+  }
+  return idOf(change.value) === element || idOf(change.from) === element;
+}
+
+function idOf(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === "string" ? id : null;
+}
+
+/** スナップショットに含まれる `id` と `assets` のキーを集める（blame の候補提示用） */
+function collectIds(value: unknown, out: Set<string> = new Set()): string[] {
+  if (Array.isArray(value)) {
+    for (const v of value) collectIds(v, out);
+  } else if (value !== null && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.id === "string") out.add(obj.id);
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === "object" && v !== null) collectIds(v, out);
+      else if (k === "id" && typeof v === "string") out.add(v);
+    }
+    if (typeof obj.assets === "object" && obj.assets !== null && !Array.isArray(obj.assets))
+      for (const k of Object.keys(obj.assets)) out.add(k);
+  }
+  return [...out];
+}
 
 /** 最後のコミット以降で headId の祖先（自身を含む）にある op。時系列順 */
 function pendingOps(s: Snapshot, headId: string): Op[] {

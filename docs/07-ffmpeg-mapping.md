@@ -229,7 +229,8 @@ libass 無しの環境のみ。テキストクリップごとに `drawtext=fontf
 
 - 共通: `-y`（`--overwrite` 時のみ）、`-hide_banner -nostats -progress pipe:1`、`-map [Vout] -map [Aout]`、`-frames:v {total_f}`（尺の固定はフレーム数で）、`-r {num}/{den}`（`--fps` で別 fps 指定時は最終段に `fps=` を追加）、`-shortest` は使わない。
 - `--hwaccel auto`: `h264_videotoolbox`（macOS）→ `h264_nvenc` → `h264_vaapi` → `h264_qsv` の順。ビットレート指定に切り替え、`-crf` は無視して警告。
-- `--reframe center`: `crop=ih*9/16:ih:(iw-ow)/2:0,scale=1080:1920`。省略時は `scale=...:force_original_aspect_ratio=decrease,pad=...`。
+- `--reframe center|left|right|<x>%`: タイムライン解像度で合成してから出力段で crop → scale する。crop の幅・高さ・オフセットは ffmpeg の式（`ih*9/16` など）ではなく **Bun 側で計算した具体値**を渡す。`yuv420p` は幅・高さ・オフセットがすべて偶数でなければならず、式のままだと奇数になりうるため、切り出し寸法は最も近い偶数へ丸め（元の寸法は超えない）、オフセットは偶数へ切り下げる。
+  例: タイムライン 1920x1080 → `instagram-reel`(1080x1920) の `center` は `crop=608:1080:656:0,scale=1080:1920:flags=bicubic,setsar=1`（`left` は `x=0`、`right` は `x=1312`、`40%` は `x=524`）。省略時は crop せず、グラフ側の `scale=...:force_original_aspect_ratio=decrease,pad=...` でレターボックスする。
 - `--two-pass`: `-pass 1 -f null /dev/null` → `-pass 2`。
 - 終了後 `ffprobe -count_frames` で `render verify`（`nb_read_frames == total_f`、音声尺 ± 1 フレーム）。
 
