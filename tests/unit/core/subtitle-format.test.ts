@@ -300,12 +300,33 @@ describe("句点が無い区間は話者の間で切る（D-22）", () => {
     ]);
   });
 
-  test("間を見ないと 1 字幕にまとまってしまう（これが D-22 の症状）", () => {
+  // 間を見ないと、文の切れ目ではなく字数で割れる。2 文が 1 字幕に地続きで入ってしまうのが D-22 の症状。
+  // （字数で割った結果 2 字幕になることはあるが、切れ目は文の境目と一致しない）
+  test("間を見ないと文の切れ目で分かれない（これが D-22 の症状）", () => {
     const cues = formatTranscript(REAL, { pauseGapMs: 0 });
-    expect(cues).toHaveLength(1);
-    expect(cues[0]!.text.replace(/\n/g, "")).toBe(
-      "テックライブのお知らせとありがとうございますテックライブの33回目のお知らせです",
-    );
+    const flat = cues.map((c) => c.text.replace(/\n/g, ""));
+    expect(flat.some((t) => t.includes("ありがとうございますテックライブ"))).toBe(true);
+    expect(flat).not.toContain("テックライブの33回目のお知らせです");
+  });
+
+  // 実素材（朝ミ 14 分の切り抜き）で、2 行字幕 132 件のうち 15 件が語の途中で割れていた。
+  // 原因は cue が容量ちょうど（20 字 × 2 行 = 40 字）まで詰まっていて、行の切れ目に選択肢が
+  // 1 つしか無かったこと。cue 側を少し短く切って、行折り返しに余地を残す。
+  test("容量いっぱいに詰めて行を語の途中で割らない（D-21 の実素材で出た形）", () => {
+    const long =
+      "テーマは大規模プロジェクトを支えるフロントエンドのリアルということで10月14日で" +
+      "案件の振り返りということでPMを含めてレトロスペクティブを一緒にさせていただいた";
+    const cues = formatTranscript([{ text: long, startMs: 0, endMs: long.length * 130 }], { pauseGapMs: 0 });
+    for (const cue of cues) {
+      const lines = cue.text.split("\n");
+      if (lines.length < 2) continue;
+      const joined = lines.join("");
+      let at = 0;
+      for (const line of lines.slice(0, -1)) {
+        at += line.length;
+        expect(breakScore(joined, at)).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 
   test("既定の間は 0.5 秒", () => {

@@ -439,12 +439,34 @@ export function pauseRanges(text: string, [s, e]: Range, gaps: readonly number[]
   return out;
 }
 
-/** どうしても長い区間を文字数で割る（語の途中では切らない） */
-function splitByLength(text: string, [s, e]: Range, capacity: number, out: Range[], ctx: BreakContext): void {
+/** 1 字幕の見た目の枠（行の長さと行数）。cue をどこで切るかはこれに依存する */
+export interface LineGeometry {
+  maxCharsPerLine: number;
+  maxLines: number;
+}
+
+/**
+ * どうしても長い区間を文字数で割る（語の途中では切らない）。
+ *
+ * 容量いっぱいまで詰めると、そのあとの**行折り返しに選べる位置が無くなる**（`wrapCuts` の注記）。
+ * そこで「切ってよい位置」のうち、**その塊が語を割らずに折り返せる**ものを優先して選ぶ。
+ * 見つからなければ従来どおりいちばん好ましい位置で切る（詰めるより割るほうがまだ読める、ではなく、
+ * どちらも無理な入力＝1 語が長すぎる場合なので、ここで粘っても良くならない）。
+ */
+function splitByLength(
+  text: string,
+  [s, e]: Range,
+  capacity: number,
+  out: Range[],
+  ctx: BreakContext,
+  geom: LineGeometry,
+): void {
   let pos = s;
-  while (e - pos > capacity) {
-    const cut = findBreak(text, pos + 1, pos + capacity, pos + capacity, ctx);
-    if (cut <= pos) break;
+  while (e - pos > geom.maxCharsPerLine) {
+    // 残り全部が 1 字幕に収まり、かつ語を割らずに折り返せるなら、そこで終わり
+    if (e - pos <= capacity && isWrappable(text, [pos, e], geom)) break;
+    const cut = findChunkCut(text, pos, Math.min(e - 1, pos + capacity), ctx, geom);
+    if (cut <= pos || cut >= e) break;
     out.push([pos, cut]);
     pos = cut;
   }
@@ -452,11 +474,35 @@ function splitByLength(text: string, [s, e]: Range, capacity: number, out: Range
 }
 
 /**
+ * `pos` から始まる 1 字幕の終わりを選ぶ。好ましい区切りを長いほうから順に試し、
+ * **語を割らずに折り返せる**最初のものを採る（純関数）。
+ */
+function findChunkCut(text: string, pos: number, hiLimit: number, ctx: BreakContext, geom: LineGeometry): number {
+  const first = findBreak(text, pos + 1, hiLimit, hiLimit, ctx);
+  if (first <= pos) return first;
+  let hi = hiLimit;
+  for (let guard = 0; guard < 64; guard++) {
+    const cut = findBreak(text, pos + 1, hi, hi, ctx);
+    if (cut <= pos) break;
+    if (cut - pos <= geom.maxCharsPerLine || isWrappable(text, [pos, cut], geom)) return cut;
+    hi = cut - 1;
+    if (hi <= pos + 1) break;
+  }
+  return first;
+}
+
+/**
  * 1 文を字幕 1 枚に収まる区間へ割る（純関数）。
  * 文 → 読点 → 文字数、の順に緩めていく。
  */
-export function chunkSentence(text: string, range: Range, capacity: number, ctx: BreakContext = {}): Range[] {
-  if (range[1] - range[0] <= capacity) return [range];
+export function chunkSentence(
+  text: string,
+  range: Range,
+  capacity: number,
+  ctx: BreakContext = {},
+  geom: LineGeometry = { maxCharsPerLine: capacity, maxLines: 1 },
+): Range[] {
+  if (range[1] - range[0] <= capacity && isWrappable(text, range, geom)) return [range];
   const merged: Range[] = [];
   let cur: Range | null = null;
   for (const piece of commaRanges(text, range)) {
@@ -470,8 +516,8 @@ export function chunkSentence(text: string, range: Range, capacity: number, ctx:
   if (cur !== null) merged.push(cur);
   const out: Range[] = [];
   for (const r of merged) {
-    if (r[1] - r[0] <= capacity) out.push(r);
-    else splitByLength(text, r, capacity, out, ctx);
+    if (r[1] - r[0] <= capacity && isWrappable(text, r, geom)) out.push(r);
+    else splitByLength(text, r, capacity, out, ctx, geom);
   }
   return out;
 }
@@ -517,27 +563,50 @@ export function wrapLines(text: string, maxCharsPerLine: number, maxLines: numbe
   const body = text.trim();
   if (body === "") return [];
   if (body.length <= maxCharsPerLine) return [body];
+  const { cuts } = wrapCuts(body, maxCharsPerLine, maxLines);
   const lines: string[] = [];
+  let pos = 0;
+  for (const cut of cuts) {
+    lines.push(body.slice(pos, cut));
+    pos = cut;
+  }
+  lines.push(body.slice(pos));
+  return applyKinsoku(lines.map((l) => l.trim()).filter((l) => l !== ""));
+}
+
+/**
+ * `wrapLines()` が入れる行の切れ目を返す（純関数）。`clean` は**すべての切れ目が語境界だった**か。
+ *
+ * 行の切れ目は「両側が `maxCharsPerLine` に収まる」範囲でしか選べない。字幕本文が容量ちょうど
+ * （`maxCharsPerLine * maxLines`）まで詰まっていると選べる位置が 1 つしかなく、そこが語の途中でも
+ * 割るしかなくなる（実素材で 2 行字幕 132 件のうち 15 件がこれだった）。
+ * `clean` を見て cue 側を少し短く切り直すために、判定をここに出している。
+ */
+export function wrapCuts(body: string, maxCharsPerLine: number, maxLines: number): { cuts: number[]; clean: boolean } {
+  const cuts: number[] = [];
+  let clean = true;
   let pos = 0;
   while (pos < body.length) {
     const remaining = body.length - pos;
-    if (lines.length === maxLines - 1 || remaining <= maxCharsPerLine) {
-      lines.push(body.slice(pos));
-      break;
-    }
-    const linesLeft = maxLines - lines.length;
+    if (cuts.length === maxLines - 1 || remaining <= maxCharsPerLine) break;
+    const linesLeft = maxLines - cuts.length;
     // 残りが最後の行に収まるよう、ここより手前では切らない
     const minCut = Math.max(pos + 1, pos + remaining - (linesLeft - 1) * maxCharsPerLine);
     const target = pos + Math.min(maxCharsPerLine, Math.ceil(remaining / linesLeft));
     const cut = findBreak(body, minCut, pos + maxCharsPerLine, target);
-    if (cut <= pos) {
-      lines.push(body.slice(pos));
-      break;
-    }
-    lines.push(body.slice(pos, cut));
+    if (cut <= pos) break;
+    if (breakScore(body, cut) < 0) clean = false;
+    cuts.push(cut);
     pos = cut;
   }
-  return applyKinsoku(lines.map((l) => l.trim()).filter((l) => l !== ""));
+  return { cuts, clean };
+}
+
+/** 1 字幕の本文が、語を割らずに `maxLines` 行へ折れるか */
+function isWrappable(text: string, [s, e]: Range, geom: LineGeometry): boolean {
+  const body = text.slice(s, e).trim();
+  if (body.length <= geom.maxCharsPerLine) return true;
+  return wrapCuts(body, geom.maxCharsPerLine, geom.maxLines).clean;
 }
 
 // ---------------------------------------------------------------------------
@@ -637,7 +706,7 @@ export function formatTranscript(
     for (const segment of pauseRanges(text, trimmed, gaps, pauseGapMs)) {
       const paused = trimRange(text, segment);
       if (paused === null) continue;
-      for (const chunk of chunkSentence(text, paused, capacity, ctx)) {
+      for (const chunk of chunkSentence(text, paused, capacity, ctx, { maxCharsPerLine, maxLines })) {
         const r = trimRange(text, chunk);
         if (r !== null) ranges.push(r);
       }
