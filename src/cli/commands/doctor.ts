@@ -10,6 +10,13 @@ import {
   RECOMMENDED_FFMPEG,
   STATIC_FFMPEG_HOME,
 } from "../../ffmpeg/locate.ts";
+import {
+  findModel,
+  findTranscriber,
+  MODEL_INSTALL_HINT,
+  TRANSCRIBER_HOME,
+  TRANSCRIBER_INSTALL_HINT,
+} from "../../ffmpeg/transcribe.ts";
 import { defineCommand } from "../define-command.ts";
 import { MontashError, type Warning, warning } from "../errors.ts";
 
@@ -139,6 +146,31 @@ export const doctor = defineCommand<Args>({
       });
     }
 
+    // --- 書き起こしエンジン（`subtitle generate`。任意。W-22） ---
+    // 本体には組み込まないので「無い」は問題ではなく警告。どこを探したかと導入方法を出す。
+    const engine = findTranscriber({ env: ctx.env });
+    const model = findModel({ env: ctx.env });
+    const transcriber = {
+      found: engine !== null,
+      path: engine?.path ?? null,
+      source: engine?.source ?? null,
+      model,
+      home: TRANSCRIBER_HOME,
+    };
+    if (engine === null) {
+      warnings.push(
+        warning("W_TRANSCRIBER_NOT_FOUND", `no transcription engine found (${TRANSCRIBER_HOME}/bin, PATH)`, {
+          hint: `\`montash subtitle generate\` needs one. ${TRANSCRIBER_INSTALL_HINT}`,
+        }),
+      );
+    } else if (model === null) {
+      warnings.push(
+        warning("W_TRANSCRIBER_MODEL_NOT_FOUND", `${engine.path} is installed but no model (*.bin) was found`, {
+          hint: MODEL_INSTALL_HINT,
+        }),
+      );
+    }
+
     // --- install-deps.sh --check --json ---
     let installDeps: unknown;
     if (args.fixHints) {
@@ -161,6 +193,7 @@ export const doctor = defineCommand<Args>({
       bun,
       platform: plat,
       ffmpeg,
+      transcriber,
       problems,
       ...(installDeps !== undefined ? { install_deps: installDeps } : {}),
     };
@@ -190,6 +223,13 @@ export const doctor = defineCommand<Args>({
       } else {
         lines.push("  ffmpeg    not found");
       }
+      lines.push(
+        `  transcribe ${
+          transcriber.found
+            ? `${String(transcriber.path)}${transcriber.model ? ` (model ${String(transcriber.model)})` : " [NO MODEL]"}`
+            : "not found (optional; needed by `subtitle generate`)"
+        }`,
+      );
       for (const p of problems) lines.push(`  [${p.code}] ${p.message}\n    hint: ${p.hint}`);
       return lines.join("\n");
     };

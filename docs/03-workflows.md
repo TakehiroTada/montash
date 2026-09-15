@@ -484,6 +484,47 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 
 ---
 
+## W-22. 音声から字幕を起こす
+
+- **目的**: 動画の音声を書き起こし、**読める**字幕（SRT）にしてタイムラインに載せる。
+- **起点**: 「この動画に字幕を付けて」「喋ってる内容を字幕にして。用語は『多面観察』『総括次長』」
+- **事前条件**: 書き起こしエンジン（既定は whisper.cpp の `whisper-cli`）とモデルが**人の手で**導入されている。
+  **montash はエンジンもモデルも取得しない**（ネットワークから何も取らない方針。docs/14「やらないこと」。モデルは数百 MB ある）。
+- **手順**:
+
+| # | 誰 | 何をする | コマンド |
+|---|----|----------|----------|
+| 1 | AI | エンジンとモデルがあるかを確認する（無ければ人間に導入を依頼して手順終了） | `montash doctor --json`（`result.transcriber`） |
+| 2 | 人 | 無ければ導入する（**AI は導入しない**。数百 MB のモデルを取りに行くため） | `brew install whisper-cpp` + ggml モデルを `~/.local/share/montash/whisper/` に置く |
+| 3 | AI | タイムラインの音声を書き起こし、整形して SRT にし、字幕クリップとして置く | `montash subtitle generate --lang ja` |
+| 4 | AI | 固有名詞が化けていたら用語リストを渡してやり直す | `montash subtitle generate --lang ja --vocabulary "多面観察,総括次長" --overwrite` |
+| 5 | AI | できた字幕を確認する（必要なら SRT を直接直す） | `montash subtitle list --json` / `montash explain s1 --json` |
+| 6 | AI | 見た目を整える（フォント・大きさ・位置） | `montash subtitle set s1 --size 40 --margin-bottom 60` |
+| 7 | AI | 書き出して確認する | `montash render -o out/final.mp4` |
+
+- **整形の規則**（エンジンが返すのはトークン単位の時刻なので、そのままでは読めない。ここが montash の仕事）:
+  - **文（。！？）でまとめるのを最優先**。長い文は読点（、）で分け、それでも長ければ文字数で分ける
+  - **語の途中で切らない**（カタカナ語・漢字の連なり・助詞の直前で切ると「事前ガ / イダンス」のように読めなくなる）
+  - 1 字幕 = 最大 2 行 × 約 20 字、表示 1.2〜5.5 秒、日本語の禁則処理、字幕どうしは重ねない
+  - 既定値は `--max-chars` / `--max-lines` / `--min-duration` / `--max-duration` で変えられる
+- **完了条件**: SRT が書かれ、字幕素材として取り込まれ、テキストトラックに字幕クリップが 1 本ある
+  （`montash subtitle list` に出る）。`--no-add` を付けたときは SRT が書かれているだけ。
+- **失敗と対処**:
+  - **エンジンが無い** → `E_TRANSCRIBER_NOT_FOUND`。`hint` の導入方法（`brew install whisper-cpp` / whisper.cpp のビルド）を
+    人間に提示する。`--engine-path` / `MONTASH_TRANSCRIBER` で場所を教えることもできる。**AI が勝手に入れない**。
+  - **モデルが無い** → `E_TRANSCRIBER_MODEL_NOT_FOUND`。置き場（`~/.local/share/montash/whisper/`）と
+    `--model` / `MONTASH_TRANSCRIBER_MODEL` を提示する。
+  - **認識精度が低い**（固有名詞が化ける・社内用語が別の語になる） → `--vocabulary "多面観察,総括次長"` に
+    正しい表記を並べて `--overwrite` でやり直す。実地ではこれで結果が大きく変わった。
+    それでも直らない語は SRT を直接直してから `montash subtitle add` で付け直す。
+  - 何も認識できなかった → `E_TRANSCRIPT_EMPTY`。`--lang` が実際の言語と合っているか、
+    そもそも音声があるか（`montash audio show`）を確認する。
+  - エンジンが失敗した → `E_TRANSCRIBER_FAILED`。`detail.stderr_tail` を読む（モデルとビルドの不一致が多い）。
+  - 書き起こしに時間が掛かる → `--asset <id>` で 1 素材だけ、`--threads`、より小さいモデルを使う。`--timeout` で打ち切れる。
+- **派生コマンド**: `subtitle generate`, `subtitle list|set`, `doctor`
+
+---
+
 ## 手順から導出されたコマンド一覧（04 章の目次）
 
 | グループ | コマンド | 由来手順 |
@@ -498,7 +539,7 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 | テキスト | `text add|set|remove|list|presets` | W-06 |
 | オーバーレイ | `overlay add|set|remove|list` | W-08 |
 | 音声 | `audio gain|fade|duck|normalize|analyze|show` | W-07 |
-| 字幕 | `subtitle add|set|remove|list` | W-14 |
+| 字幕 | `subtitle add|set|remove|list|generate` | W-14, W-22 |
 | プレビュー | `serve`, `preview build|status` | W-02, W-04 |
 | 出力 | `render`, `render verify|presets|batch` | W-09, W-11, W-12 |
 | 履歴 | `status`, `log`, `show`, `diff`, `blame`, `commit`, `-m`, `checkout`, `undo`, `redo`, `revert`, `reset`, `tag`, `history prune|verify|export|import` | W-10, W-11, W-15, W-16 |

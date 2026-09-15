@@ -161,6 +161,11 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_BATCH_PARSE` | `batch` の行が JSON Lines としても bash 行としても読めない | 受理形式（`detail.line` に行番号） |
 | `E_BATCH_EMPTY` | `batch` の入力に実行できる行が無い | 1 行 1 コマンドの書き方 |
 | `E_BATCH_UNSUPPORTED` | バッチの中で実行できないコマンド（`batch`/`serve`/`init`、`--atomic` では `checkout`/`undo`/`redo`/`revert`/`reset`/`commit` など HEAD を動かすもの） | バッチの外で実行する、または `--continue-on-error` |
+| `E_TRANSCRIBER_NOT_FOUND` | `subtitle generate` の書き起こしエンジンが無い（montash は取得しない） | 導入方法（`brew install whisper-cpp` 等）、`--engine-path` / `MONTASH_TRANSCRIBER` |
+| `E_TRANSCRIBER_MODEL_NOT_FOUND` | モデル（`*.bin`）が無い | 置き場（`~/.local/share/montash/whisper/`）、`--model` / `MONTASH_TRANSCRIBER_MODEL` |
+| `E_TRANSCRIBER_FAILED` | エンジンが非 0 終了 / JSON を書かなかった | `detail.stderr_tail`（モデルとビルドの不一致が多い） |
+| `E_TRANSCRIBER_TIMEOUT` / `E_TRANSCRIBER_CANCELLED` | `--timeout` 超過 / 中断 | 小さいモデル、`--asset` で範囲を絞る |
+| `E_TRANSCRIPT_EMPTY` | 音声から 1 つも字幕が作れなかった | `--lang` の確認、音声の有無（`audio show`） |
 | `E_BATCH_FAILED` | `--atomic` のバッチが途中で失敗（開始前へ巻き戻し済み） | 失敗した行の hint、`detail.lines` に各行の結果 |
 
 警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満）, `W_BATCH_MESSAGE_IGNORED`（`--atomic` のバッチの行に付いた `-m` は無視した））。
@@ -661,6 +666,24 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ASS 素材（`.ass` / `.ssa`）を `burn` するときは素材自身の Style が勝つので、スタイル指定は `W_SUBTITLE_STYLE_IGNORED` で無視を知らせる。
 
+### `montash subtitle generate [--asset <id>] [--lang ja] [--vocabulary <語,語>] [--engine <name>] [--engine-path <p>] [--model <p>] [--threads N] [--timeout <s>] [-o <path.srt>] [--overwrite] [--no-add] [--mode burn|soft] [--track <t>] [--at <t>] [--font <family>] [--asset-id <id>] [--id <id>] [--max-chars 20] [--max-lines 2] [--min-duration 1.2] [--max-duration 5.5]` — W-22
+
+音声を書き起こして字幕にする。1 コマンドで「音声の書き出し → 書き起こし → 整形 → SRT → `import` → `subtitle add`」までをやる。
+
+- **書き起こしエンジンは組み込まない**（docs/14「やらないこと」: ネットワークから何も取得しない。モデルは数百 MB）。
+  外部コマンドを呼ぶだけで、既定は whisper.cpp の `whisper-cli`（次いで `whisper-cpp` / `whisper`）。
+  探索順は `--engine-path` → `MONTASH_TRANSCRIBER` → `~/.local/share/montash/whisper/bin` → PATH。
+  モデルは `--model` → `MONTASH_TRANSCRIBER_MODEL` → `~/.local/share/montash/whisper/*.bin`。
+  どちらも無ければ `E_TRANSCRIBER_NOT_FOUND` / `E_TRANSCRIBER_MODEL_NOT_FOUND`（`montash doctor` の `result.transcriber` でも見られる）。
+- 入力は既定でタイムラインのミックス（`render audio` と同じ経路で 16kHz モノラル WAV を作る）。`--asset <id>` で素材 1 つだけにできる。
+- `--vocabulary "多面観察,総括次長"` はエンジンの `--prompt` に渡る。固有名詞の精度が大きく変わるので、分かっているなら必ず渡す。
+- **整形（トークン → 読める字幕）は montash 側が行う**（`src/core/subtitle-format.ts` の純関数）。
+  文（。！？）でまとめるのを最優先し、長い文は読点、それでも長ければ文字数で分ける。語の途中（カタカナ語・漢字の連なり・助詞の直前）では切らない。
+  1 字幕 = 最大 `--max-lines` 行 × `--max-chars` 字（既定 2 × 20）、表示 `--min-duration`〜`--max-duration` 秒（既定 1.2〜5.5）、日本語の禁則処理、字幕どうしは重ねない。
+- 出力は既定で `<project>/subtitles/<name>.<lang>.srt`。`--no-add` を付けると SRT を書くだけで `project.json` は変えない。
+- `result` は `srt` / `cues` / `tokens` / `engine` / `model` / `language` / `vocabulary` / `command`（エンジンの引数）/ `asset` / `clip`。
+- 見た目（サイズ・色・位置）の調整は `subtitle set` に任せる。
+
 ---
 
 ## 13. プレビュー
@@ -862,3 +885,4 @@ c2 — media clip on track V1 (video)
 | `schema` | 全般 | F-AI-1〜3 |
 | `batch` | W-20 | F-AI-5 |
 | `explain` | W-21 | F-AI-4, F-EXT-4 |
+| `subtitle generate` | W-22 | F-FX-1, N-2 |
