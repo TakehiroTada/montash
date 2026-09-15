@@ -57,6 +57,38 @@ export interface ResolveContext {
 // 字句
 // ---------------------------------------------------------------------------
 
+/**
+ * 負の時間表記の渡し方（docs/13 B-11、docs/04 §1.3）。
+ *
+ * 実機（yargs 17）で確かめた挙動:
+ * - `--in -10` / `--in -0.5` … 数値に見えるので値として渡る（`--in=-10` と同じ結果）
+ * - `--in -f:300` / `--out -12:30` … 短縮フラグとして読まれ `E_USAGE: Unknown argument: f`
+ *
+ * どちらも `=` を挟めば必ず値として渡るので、案内は `--in=-10` の形に統一する。
+ */
+export const NEGATIVE_TIME_HINT =
+  'Pass negative values with "=" so the parser keeps the sign: --in=-10, --in=-f:300, --by=-f:15.';
+
+/**
+ * `=` なしだと yargs が短縮フラグとして読んでしまう負の時間表記
+ * （数値に見える `-10` / `-0.5` は yargs が値として扱うのでここには含めない）。
+ */
+const RE_SWALLOWED_TIME = /^-(?:[fs]:\d+|(?:\d+:)?\d{1,2}:\d{1,2}(?:\.\d{1,3})?)$/;
+
+/**
+ * `--in -f:300` のように、負の時間表記が短縮フラグとして食われた並びを argv から探す。
+ * 見つかれば `--in=-f:300` と書くよう案内する（cli/index.ts の fail ハンドラ）。
+ */
+export function findSwallowedNegativeTime(argv: readonly string[]): { option: string; value: string } | null {
+  for (let i = 0; i < argv.length - 1; i++) {
+    const option = argv[i]!;
+    const value = argv[i + 1]!;
+    if (!option.startsWith("--") || option.includes("=")) continue;
+    if (RE_SWALLOWED_TIME.test(value)) return { option, value };
+  }
+  return null;
+}
+
 /** 秒: "12" / "12.5" / ".5" */
 const RE_SECONDS = /^(\d+(?:\.\d*)?|\.\d+)$/;
 /** フレーム: "f:375" */
@@ -76,8 +108,10 @@ function acceptedForms(opts: Required<ParseTimeOptions>): string {
 }
 
 function invalidTime(raw: string, why: string, opts: Required<ParseTimeOptions>, extraHint?: string): MontashError {
+  // 負値は `=` を挟んだ形でしか安全に渡せない（docs/13 B-11）
+  const parts = [extraHint, acceptedForms(opts), raw.trim().startsWith("-") ? NEGATIVE_TIME_HINT : undefined];
   return new MontashError("E_INVALID_TIME", `invalid time ${JSON.stringify(raw)}: ${why}`, {
-    hint: extraHint ? `${extraHint} ${acceptedForms(opts)}` : acceptedForms(opts),
+    hint: parts.filter((p): p is string => p !== undefined).join(" "),
     detail: { input: raw },
   });
 }

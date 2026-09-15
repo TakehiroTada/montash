@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  assetsList,
   assetsNewText,
   assetsRelink,
   assetsRemove,
@@ -414,5 +415,65 @@ describe("assets relink", () => {
     expect((await failure(assetsRelink, { path: "/tmp/x.txt" })).code).toBe("E_USAGE");
     expect((await failure(assetsRelink, { id: "gone", path: join(outside, "nope.txt") })).code).toBe("E_ASSET_MISSING");
     expect((await failure(assetsRelink, { search: join(outside, "nope") })).code).toBe("E_ASSET_MISSING");
+  });
+});
+
+/**
+ * docs/13 A-12: 日本語ファイル名の Unicode 正規化（macOS は NFD、Linux は NFC）。
+ * `--match name` は両辺を NFC に正規化してから比べるので、どちらの組み合わせでも当たる。
+ */
+describe("assets relink --match name と Unicode 正規化", () => {
+  const NFC = "そば.txt".normalize("NFC");
+  const NFD = NFC.normalize("NFD");
+  const BODY = "日本語ファイル名\n";
+
+  /** 名前でしか当たらない（サイズもハッシュも外れる）テキスト素材を 1 つ置く */
+  async function assetNamed(pathName: string): Promise<void> {
+    await writeProject((p) => {
+      p.assets!.ja = {
+        id: "ja",
+        type: "text",
+        path: join(outside, pathName),
+        owned: false,
+        tags: [],
+        duration_s: null,
+        duration_f: null,
+        size: 99_999,
+        hash_head: sha256("something else"),
+        text_preview: "",
+        line_count: 0,
+      };
+    });
+  }
+
+  test("前提: NFC と NFD は別の文字列で、macOS のファイルシステムは書いたままを返す", async () => {
+    expect(NFD).not.toBe(NFC);
+    expect(NFD.normalize("NFC")).toBe(NFC);
+  });
+
+  test.each([
+    ["project.json が NFC、ディスクが NFD", NFC, NFD],
+    ["project.json が NFD、ディスクが NFC", NFD, NFC],
+    ["両方 NFC", NFC, NFC],
+  ])("%s でも名前で再リンクできる", async (_label, assetName, fileName) => {
+    const moved = join(outside, "moved-ja");
+    await mkdir(moved, { recursive: true });
+    await writeFile(join(moved, fileName), BODY, "utf8");
+    await assetNamed(assetName);
+
+    const res = await call(assetsRelink, { id: "ja", search: moved, match: "name" });
+    const result = res.result as { relinked: Array<{ matched_by: string }>; unresolved: string[] };
+    expect(result.unresolved).toEqual([]);
+    expect(result.relinked[0]?.matched_by).toBe("name");
+    const project = await loadProject(dir);
+    const ja = project.assets.ja!;
+    expect(ja.type === "text" && ja.text_preview).toBe(BODY);
+    await rm(moved, { recursive: true, force: true });
+  });
+
+  test("assets list --search も NFC に揃えて照合する", async () => {
+    await assetNamed(NFD);
+    const res = await call(assetsList, { search: "そば".normalize("NFC") });
+    expect((res.result as { assets: Array<{ id: string }> }).assets.map((a) => a.id)).toEqual(["ja"]);
   });
 });

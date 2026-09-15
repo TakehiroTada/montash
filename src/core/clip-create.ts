@@ -4,7 +4,8 @@
  * 「アセットを 1 本トラックに置く」手続きは `clip add` と `overlay add`（と将来の
  * `text add` / `subtitle add` の一部）で共通なので、ここに 1 つだけ置く。
  * 引数の解釈（時間表記・スタイル・アセット種別の妥当性）は cli/commands/ 側、
- * 「どこに何を足すか」だけがここの責務。
+ * 「どこに何を足すか」と「置き先が埋まっていたらどう空けるか」（`--on-overlap` / `--ripple`）
+ * だけがここの責務。押し出しの規則そのものは core/ripple.ts（docs/04 §6a、ADR-16）。
  *
  * 不変条件（docs/05 §14）:
  * - 映像クリップと音声クリップの `link` は常に相互参照で、`start_f` と尺が一致する。
@@ -14,8 +15,10 @@
  * core を純粋なまま保つ（ADR-13）。
  */
 import type { z } from "zod";
-import { errors, MontashError } from "../cli/errors.ts";
+import { errors, MontashError, type Warning } from "../cli/errors.ts";
+import { assertUnlocked, carveRange } from "./clip-editing.ts";
 import { assertIdAvailable } from "./ids.ts";
+import { type RippleScope, rippleTimeline } from "./ripple.ts";
 import {
   type Clip,
   type ClipAudioSchema,
@@ -32,6 +35,20 @@ export type ClipAudioInput = z.input<typeof ClipAudioSchema>;
 
 /** 次の要素 ID を 1 つ発行する。`.montash/ids.json` を触るので呼び出し側が用意する */
 export type IdAllocator = () => string | Promise<string>;
+
+/** `--on-overlap` の値（docs/04 §6）。`clip add` / `clip move` で同じ意味 */
+export const ON_OVERLAP_VALUES = ["error", "overwrite", "push"] as const;
+export type OnOverlap = (typeof ON_OVERLAP_VALUES)[number];
+
+/** `--on-overlap` オプションの値（yargs は string で受ける）を OnOverlap に変換する */
+export function parseOnOverlap(value: unknown): OnOverlap {
+  if (value === undefined || value === null) return "error";
+  if (typeof value === "string" && (ON_OVERLAP_VALUES as readonly string[]).includes(value)) return value as OnOverlap;
+  throw new MontashError("E_USAGE", `invalid --on-overlap value ${JSON.stringify(value)}`, {
+    hint: `Use one of ${ON_OVERLAP_VALUES.join(", ")}.`,
+    exitCode: 2,
+  });
+}
 
 export interface AddClipInput {
   /** 参照するアセット ID */
@@ -54,6 +71,10 @@ export interface AddClipInput {
   video?: ClipVideoInput;
   /** 音声ブロックの初期値 */
   audio?: ClipAudioInput;
+  /** 置き先が埋まっていたときの扱い（docs/04 §6）。既定は `error` */
+  onOverlap?: OnOverlap;
+  /** 押し出し（`push`）の範囲（docs/04 §6a, ADR-16）。既定は `false`（= `--ripple` なし） */
+  ripple?: RippleScope;
 }
 
 export interface AddClipResult {
@@ -63,6 +84,8 @@ export interface AddClipResult {
   linked: Clip | null;
   /** `linked` を置いたトラック */
   linkedTrack: Track | null;
+  /** 押し出し（`push`）／上書き（`overwrite`）で動いた・消えたクリップ */
+  moved: string[];
 }
 
 /**
@@ -84,11 +107,23 @@ function sortTrackClips(track: Track): void {
 /**
  * クリップを 1 本（必要ならリンク音声と 2 本）作ってトラックに置く。
  *
- * 順序は `clip add` の既存実装をそのまま保つ:
- * リンク先トラックの解決 → 重なり検査（主 → リンク） → `--id` の重複検査 → 採番 → 生成 → 追加。
- * 重なりがあれば `E_CLIP_OVERLAP`、ロックされたトラックなら `E_TRACK_LOCKED`（`assertPlacement`）。
+ * 順序:
+ * リンク先トラックの解決 → ロック検査 → `--id` の重複検査 → 置き先を空ける（push / overwrite）
+ * → 重なり検査（主 → リンク） → 採番 → 生成 → 追加。
+ * 重なりがあれば `E_CLIP_OVERLAP`、ロックされたトラックなら `E_TRACK_LOCKED`。
+ * `--id` の検査を先に済ませるのは、押し出してから ID で落ちて project を壊さないため。
+ *
+ * 置き先の空け方は `clip move` と同じ規則（docs/04 §6, §6a、ADR-16）:
+ * - `--ripple` が付いている、または `--on-overlap push` → 追加尺ぶん後続を押し出す（リップル挿入）。
+ *   範囲は `--ripple=track` なら当該トラック（とリンク先）、それ以外は全トラック。
+ * - `--on-overlap overwrite` → 重なった部分を既存クリップから削る（`carveRange`）。
  */
-export async function addClip(project: Project, input: AddClipInput, allocate: IdAllocator): Promise<AddClipResult> {
+export async function addClip(
+  project: Project,
+  input: AddClipInput,
+  allocate: IdAllocator,
+  warnings: Warning[] = [],
+): Promise<AddClipResult> {
   const track = input.track;
   const startF = input.start_f;
   const endF = startF + (input.out_f - input.in_f);
@@ -96,9 +131,28 @@ export async function addClip(project: Project, input: AddClipInput, allocate: I
   const linkedTrack = input.linkAudio ? requireTrack(project, counterpartTrackId(track.id, "video")) : null;
   if (linkedTrack && linkedTrack.kind !== "audio") throw errors.usage("linked track must be audio");
 
-  assertPlacement(track, startF, endF);
-  if (linkedTrack) assertPlacement(linkedTrack, startF, endF);
+  const destinations = linkedTrack ? [track, linkedTrack] : [track];
+  const scope = input.ripple ?? false;
+  const onOverlap = input.onOverlap ?? "error";
+  for (const t of destinations) assertUnlocked(t);
   if (input.id !== undefined) assertIdAvailable(project, input.id);
+
+  // 置き先を空ける（`clip move` の移動先の処理と同じ形）
+  const moved: string[] = [];
+  if (scope !== false || onOverlap === "push") {
+    const pushScope: RippleScope = scope === false ? "all" : scope;
+    moved.push(
+      ...rippleTimeline(
+        project,
+        { point: startF, delta: endF - startF, scope: pushScope, tracks: destinations.map((t) => t.id) },
+        warnings,
+      ),
+    );
+  } else if (onOverlap === "overwrite") {
+    for (const t of destinations) carveRange(project, t, startF, endF, new Set(), warnings);
+  }
+
+  for (const t of destinations) assertPlacement(t, startF, endF);
 
   const clip = ClipSchema.parse({
     id: input.id ?? (await allocate()),
@@ -131,5 +185,5 @@ export async function addClip(project: Project, input: AddClipInput, allocate: I
   }
   track.clips.push(clip);
   sortTrackClips(track);
-  return { clip, linked, linkedTrack };
+  return { clip, linked, linkedTrack, moved: [...new Set(moved)] };
 }

@@ -6,7 +6,13 @@
  */
 import { describe, expect, test } from "bun:test";
 import { MontashError, type Warning } from "../../../src/cli/errors.ts";
-import { addClip, assertSourceRange, type IdAllocator } from "../../../src/core/clip-create.ts";
+import {
+  addClip,
+  assertSourceRange,
+  type IdAllocator,
+  ON_OVERLAP_VALUES,
+  parseOnOverlap,
+} from "../../../src/core/clip-create.ts";
 import { carveRange } from "../../../src/core/clip-editing.ts";
 import { AssetSchema, clipEndF, isMediaClip, type Project, TrackSchema } from "../../../src/core/schema.ts";
 import { counterpartTrackId, requireTrack } from "../../../src/core/timeline.ts";
@@ -210,6 +216,175 @@ describe("addClip", () => {
         ),
       ).rejects.toMatchObject({ code: "E_TRACK_NOT_FOUND" });
     });
+  });
+
+  // docs/13 D-9: `clip add` にも `--ripple` / `--on-overlap overwrite|push` を足した
+  describe("--on-overlap / --ripple（docs/04 §6, §6a）", () => {
+    /** V1/A1 に 30f を 2 組、A2 に BGM を 60f 置いた状態 */
+    function filled(): Project {
+      const project = makeProject();
+      addPair(project, 1, 0, 30, 0);
+      addPair(project, 2, 30, 60, 30);
+      addBgm(project, "z1", 0, 60);
+      return project;
+    }
+
+    const starts = (project: Project, trackId: string) =>
+      track(project, trackId).clips.map((c) => `${c.id}@${c.start_f}`);
+
+    test("push（既定 = ripple all）は全トラックを押し出す", async () => {
+      const project = filled();
+      const warnings: Warning[] = [];
+      const { clip, moved } = await addClip(
+        project,
+        {
+          asset: "a",
+          track: track(project, "V1"),
+          start_f: 0,
+          in_f: 0,
+          out_f: 15,
+          linkAudio: true,
+          onOverlap: "push",
+        },
+        allocator(10),
+        warnings,
+      );
+      expect(clip.start_f).toBe(0);
+      expect(starts(project, "V1")).toEqual(["c10@0", "c1@15", "c3@45"]);
+      expect(starts(project, "A1")).toEqual(["c11@0", "c2@15", "c4@45"]);
+      // A2 の BGM も全トラックリップルの対象なので後ろへずれる
+      expect(starts(project, "A2")).toEqual(["z1@15"]);
+      expect(moved).toEqual(expect.arrayContaining(["c1", "c2", "c3", "c4", "z1"]));
+      expect(validateProject(project).ok).toBe(true);
+    });
+
+    test("push で編集点を跨ぐ BGM は尺が伸びる（§6a の挿入規則）", async () => {
+      const project = filled();
+      await addClip(
+        project,
+        { asset: "a", track: track(project, "V1"), start_f: 30, in_f: 0, out_f: 15, onOverlap: "push" },
+        allocator(10),
+      );
+      // z1（0..60）は f:30 を跨ぐので 15f 伸びて 0..75 になる
+      expect(starts(project, "A2")).toEqual(["z1@0"]);
+      expect(clipEndF(track(project, "A2").clips[0]!)).toBe(75);
+      expect(validateProject(project).ok).toBe(true);
+    });
+
+    test("push + --ripple=track は当該トラック（とリンク先）だけを押し出す", async () => {
+      const project = filled();
+      const { moved } = await addClip(
+        project,
+        {
+          asset: "a",
+          track: track(project, "V1"),
+          start_f: 0,
+          in_f: 0,
+          out_f: 15,
+          linkAudio: true,
+          onOverlap: "push",
+          ripple: "track",
+        },
+        allocator(10),
+      );
+      expect(starts(project, "V1")).toEqual(["c10@0", "c1@15", "c3@45"]);
+      expect(starts(project, "A1")).toEqual(["c11@0", "c2@15", "c4@45"]);
+      // A2 は対象外なので BGM は動かず尺も変わらない
+      expect(starts(project, "A2")).toEqual(["z1@0"]);
+      expect(clipEndF(track(project, "A2").clips[0]!)).toBe(60);
+      expect(moved).not.toContain("z1");
+      expect(validateProject(project).ok).toBe(true);
+    });
+
+    test("--ripple だけでも挿入になる（`clip move --ripple` と同じ）", async () => {
+      const project = filled();
+      await addClip(
+        project,
+        { asset: "a", track: track(project, "V1"), start_f: 0, in_f: 0, out_f: 15, linkAudio: true, ripple: "track" },
+        allocator(10),
+      );
+      expect(starts(project, "V1")).toEqual(["c10@0", "c1@15", "c3@45"]);
+      expect(starts(project, "A2")).toEqual(["z1@0"]);
+    });
+
+    test("overwrite は重なった分を既存クリップから削り、後続は動かさない", async () => {
+      const project = filled();
+      const { moved } = await addClip(
+        project,
+        {
+          asset: "bgm",
+          track: track(project, "A2"),
+          start_f: 40,
+          in_f: 0,
+          out_f: 30,
+          audioOnly: true,
+          onOverlap: "overwrite",
+        },
+        allocator(10),
+      );
+      // z1（0..60）は末尾を削られて 0..40 になり、V1/A1 は動かない
+      expect(starts(project, "A2")).toEqual(["z1@0", "c10@40"]);
+      expect(clipEndF(track(project, "A2").clips[0]!)).toBe(40);
+      expect(starts(project, "V1")).toEqual(["c1@0", "c3@30"]);
+      expect(moved).toEqual([]);
+      expect(validateProject(project).ok).toBe(true);
+    });
+
+    test("既定（--ripple も --on-overlap も無し）は従来どおり重なりで E_CLIP_OVERLAP、project は変わらない", async () => {
+      const project = filled();
+      const before = structuredClone(project);
+      await expect(
+        addClip(
+          project,
+          { asset: "a", track: track(project, "V1"), start_f: 0, in_f: 0, out_f: 15, linkAudio: true },
+          allocator(10),
+        ),
+      ).rejects.toMatchObject({ code: "E_CLIP_OVERLAP" });
+      expect(project).toEqual(before);
+    });
+
+    test("push でもロックされたトラックには置けず、他トラックも動かさない", async () => {
+      const project = filled();
+      track(project, "V1").locked = true;
+      const before = structuredClone(project);
+      await expect(
+        addClip(
+          project,
+          { asset: "a", track: track(project, "V1"), start_f: 0, in_f: 0, out_f: 15, onOverlap: "push" },
+          allocator(10),
+        ),
+      ).rejects.toMatchObject({ code: "E_TRACK_LOCKED" });
+      expect(project).toEqual(before);
+    });
+
+    test("重複 ID は押し出す前に E_ID_EXISTS で弾く", async () => {
+      const project = filled();
+      const before = structuredClone(project);
+      await expect(
+        addClip(
+          project,
+          { asset: "a", track: track(project, "V1"), start_f: 0, in_f: 0, out_f: 15, id: "c1", onOverlap: "push" },
+          allocator(10),
+        ),
+      ).rejects.toMatchObject({ code: "E_ID_EXISTS" });
+      expect(project).toEqual(before);
+    });
+  });
+});
+
+describe("parseOnOverlap", () => {
+  test("error / overwrite / push を受け、未指定は error", () => {
+    expect(parseOnOverlap(undefined)).toBe("error");
+    for (const v of ON_OVERLAP_VALUES) expect(parseOnOverlap(v)).toBe(v);
+  });
+
+  test("知らない値は E_USAGE", () => {
+    expect(() => parseOnOverlap("shift")).toThrow(MontashError);
+    try {
+      parseOnOverlap("shift");
+    } catch (e) {
+      expect((e as MontashError).code).toBe("E_USAGE");
+    }
   });
 });
 

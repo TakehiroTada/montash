@@ -5,6 +5,7 @@
  * 編集点より後ろを詰める／押し出す規則は core/ripple.ts（docs/04 §6a, ADR-16）。
  */
 import { timelineDurationF } from "../../core/assets.ts";
+import { ON_OVERLAP_VALUES, parseOnOverlap } from "../../core/clip-create.ts";
 import {
   assertUnlocked,
   type ClipLocation,
@@ -53,10 +54,11 @@ const unlinkOption: OptionSpec = {
   describe: "detach the linked audio/video clip and edit this clip alone",
 };
 
-const onOverlapOption: OptionSpec = {
+/** `--on-overlap` は `clip add` と `clip move` で同じ意味・同じ選択肢（docs/04 §6） */
+export const onOverlapOption: OptionSpec = {
   type: "string",
   describe: "what to do when the destination is occupied",
-  choices: ["error", "overwrite", "push"],
+  choices: [...ON_OVERLAP_VALUES],
   default: "error",
 };
 
@@ -140,7 +142,7 @@ export const clipMove = defineCommand({
     if (positions.length === 0 && args.track === undefined)
       throw errors.usage("specify one of --to, --by, --before, --after or --track");
     const scope = parseRippleScope(args.ripple);
-    const onOverlap = String(args.onOverlap ?? "error");
+    const onOverlap = parseOnOverlap(args.onOverlap);
 
     return runMutation(ctx, ({ project }) => {
       const warnings: Warning[] = [];
