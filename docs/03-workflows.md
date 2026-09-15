@@ -38,6 +38,10 @@
 | W-15 | 作業をコミットとして記録する（git ライク） | 履歴 | M |
 | W-16 | Web の History タイムラインで戻る・進む | 履歴・確認 | M |
 | W-17 | Web で素材を管理する | 準備 | S |
+| W-18 | クリップに効果を掛ける | 演出 | S |
+| W-19 | プラグインを導入して使う | 拡張 | S |
+| W-22 | 音声から字幕を起こす | 演出 | S |
+| W-23 | 長い録画からハイライト候補を出す | 編集 | S |
 
 ---
 
@@ -525,6 +529,48 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 
 ---
 
+## W-23. 長い録画からハイライト候補を出す
+
+- **目的**: 21 分の会議録画のような長い素材から、**どこを使うかを決める材料**を得る。
+  montash は候補を出すだけで、**選ぶのは人**（または人の指示を受けた AI）。
+- **起点**: 「この 21 分の朝ミーティングから 5 分の切り抜きを作りたい」「どこが使えそう？」
+- **事前条件**: 素材が取り込まれている（W-02）。書き起こしを使う場合は W-22 と同じくエンジンとモデルが導入されている
+  （`--no-transcribe` なら無音区間だけで済むので不要）。
+- **手順**:
+
+| # | 誰 | 何をする | コマンド |
+|---|----|----------|----------|
+| 1 | AI | 候補を出す（**この時点ではタイムラインは空のまま**） | `montash suggest highlights --asset rec --max 5:00 --json` |
+| 2 | 人 | 候補と根拠（`lead` / `keywords` / `evidence`）を見て、採る区間を決める | 出力を読む |
+| 3 | AI | 人が選んだ区間だけを置く（候補ごとの `command` をそのまま使える） | `montash clip add --asset rec --in 00:02:57 --out 00:03:32` |
+| 4 | AI | 並べ終わったらタイムラインを確認する | `montash timeline show --ascii` |
+| 5 | AI | 区間ごとにテロップを入れる（任意） | `montash text add --text "PM ナレッジ公開" --at ... --duration ...` |
+| 6 | AI | 字幕を起こす（任意。W-22） | `montash subtitle generate --lang ja` |
+| 7 | AI | 書き出す | `montash render -o out/highlight.mp4` |
+
+- **候補の出しかた**（すべて機械的。**LLM は使わない**。詳しくは docs/04 §16）:
+  - 無音区間（`silencedetect`）・書き起こしトークンの隙間 → **間（ま）**
+  - 前後 45 秒の窓で使う語のコサイン類似度 → **語彙の移り変わり**
+  - 「では」「続いて」「ということで」など → **切り出しの語**
+  - 無音でない割合・1 秒あたりの文字数 → **発話密度**
+  - `lead` は書き起こしの先頭の文そのもの、`keywords` は tf-idf。**要約ではない**ので、
+    `evidence`（前後の間・語彙の移り変わり・切り出しの語・密度）と併せて人が読む。
+- **完了条件**: 候補のリストが返り、**タイムラインは変わっていない**（`montash status` に op が増えない）。
+  人が選んだぶんだけを `clip add` で置く。
+- **失敗と対処**:
+  - 話し声が見つからない → `E_NO_HIGHLIGHTS`。`montash audio analyze` で本当に音があるか確かめ、
+    `--min-length` を下げるか `--noise-db` を上げる。
+  - 候補が細かすぎる／粗すぎる → `--min-length` / `--max-length` / `--threshold` で調整する。
+  - 書き起こしエンジンが無い → `--no-transcribe`（無音区間だけ）で出せる。ただし `lead` / `keywords` は空になる。
+  - 固有名詞が化けて `keywords` が読めない → W-22 と同じく `--vocabulary "多面観察,総括次長"` を渡す。
+- **やってはいけないこと**: **候補をそのままタイムラインに流し込まない。** このコマンドが候補を出すのは
+  「AI が独断で区間を選んで重要な話題を落とした」（docs/13 D-23）をもう一度やらないためで、
+  `score` の順位は「まとまって喋っているか」の目安にすぎない（実素材では人の選択と 76% しか一致しない）。
+  **候補のリストは人が選んだ区間をほぼ取りこぼさない**ので、リストとして人に見せることに価値がある。
+- **派生コマンド**: `suggest highlights`, `clip add`, `timeline show`, `audio analyze`, `subtitle generate`
+
+---
+
 ## 手順から導出されたコマンド一覧（04 章の目次）
 
 | グループ | コマンド | 由来手順 |
@@ -540,6 +586,7 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 | オーバーレイ | `overlay add|set|remove|list` | W-08 |
 | 音声 | `audio gain|fade|duck|normalize|analyze|show` | W-07 |
 | 字幕 | `subtitle add|set|remove|list|generate` | W-14, W-22 |
+| 候補提示 | `suggest highlights` | W-23 |
 | プレビュー | `serve`, `preview build|status` | W-02, W-04 |
 | 出力 | `render`, `render verify|presets|batch` | W-09, W-11, W-12 |
 | 履歴 | `status`, `log`, `show`, `diff`, `blame`, `commit`, `-m`, `checkout`, `undo`, `redo`, `revert`, `reset`, `tag`, `history prune|verify|export|import` | W-10, W-11, W-15, W-16 |

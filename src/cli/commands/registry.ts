@@ -59,6 +59,7 @@ import { show } from "./show.ts";
 import { status } from "./status.ts";
 import { subtitleAdd, subtitleList, subtitleRemove, subtitleSet } from "./subtitle.ts";
 import { subtitleGenerate } from "./subtitle-generate.ts";
+import { suggestHighlightsCommand } from "./suggest.ts";
 import { tag, tagDelete, tagList } from "./tag.ts";
 import { textAdd, textList, textPresets, textRemove, textSet } from "./text.ts";
 import { timelineGaps, timelineShow } from "./timeline.ts";
@@ -188,4 +189,5 @@ export const commands: ReadonlyArray<AnySpec> = [
   // AI 支援（docs/04 §16）: batch / explain
   spec(batch),
   spec(explain),
+  spec(suggestHighlightsCommand),
 ];
