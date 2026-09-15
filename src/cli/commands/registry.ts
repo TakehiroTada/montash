@@ -1,6 +1,10 @@
 /**
- * コマンドレジストリ。新しいコマンドはここに 1 行追加する（docs/04 の順に並べる）。
+ * 組み込みコマンドの一覧。新しいコマンドはここに 1 行追加する（docs/04 の順に並べる）。
  * 各コマンドは defineCommand() で定義し、1 ファイル 1〜数コマンド。
+ *
+ * この配列を直接読むのは `registry/commands.ts` の `getCommands()` だけにする。
+ * yargs 登録・`montash schema`・`montash help` はすべて `getCommands()`（組み込み + 実行時登録の
+ * 合成）を通すので、実行時に足したコマンドが schema / help から漏れない（docs/13 D-18）。
  */
 import type { CommandSpec } from "../define-command.ts";
 import {

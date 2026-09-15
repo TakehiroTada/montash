@@ -8,6 +8,7 @@
  *   - どのオプションが時間表記（`12.5` / `00:00:12.500` / `f:375`）を受け取るか
  * 逆に全コマンド共通のグローバルオプションは並べない（`--help` で見られるため）。
  */
+import { getCommands } from "../../registry/commands.ts";
 import { type CommandSpec, defineCommand, type OptionSpec, type PositionalSpec, toSchema } from "../define-command.ts";
 import { errors } from "../errors.ts";
 
@@ -162,8 +163,8 @@ export const help = defineCommand<Args>({
     { cmd: "montash help clip add --json", note: "same content as `montash schema`" },
   ],
   async handler(_ctx, args) {
-    // 循環 import を避けるため遅延 import（schema.ts と同じ）
-    const { commands } = await import("./registry.ts");
+    // 組み込み + 実行時登録の合成（docs/13 D-18）。schema.ts と同じ経路を通る
+    const commands = await getCommands();
     const wanted = (args.command ?? []).join(" ").trim();
 
     if (wanted === "") {

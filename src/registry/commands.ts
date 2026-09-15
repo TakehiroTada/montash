@@ -1,0 +1,77 @@
+/**
+ * コマンド宣言の合成（docs/08 §2 §5, docs/13 D-18 / 計画 P0-6）。
+ *
+ * 組み込みコマンド（`cli/commands/registry.ts` の静的配列）と、実行時に `registerCommand()` で
+ * 登録されたコマンドを合成して 1 本のリストにする。`cli/index.ts`（yargs 登録）・`montash schema`・
+ * `montash help` の 3 者がすべてこの `getCommands()` を通るので、追加したコマンドが
+ * 「実行はできるが schema / help に出ない」という取りこぼしが起きない。
+ *
+ * **組み込み配列は静的 import しない。** `cli/commands/registry.ts` は `schema.ts` / `help.ts` を
+ * import しており、その 2 つがこのモジュールを import するため、静的に結ぶと循環する。
+ * 組み込みの読み込みだけを `await import()` に閉じ込め、`getCommands()` を async にしている
+ * （`buildCli()` が async なのはこのため）。
+ */
+import { buildCommandTree, type CommandSpec } from "../cli/define-command.ts";
+import { type FeatureRequirements, registerRequirements, unregisterRequirements } from "./requirements.ts";
+
+/** 各コマンドは固有の Args 型を持つため、レジストリでは共通型に寄せる（実行時は yargs が検証する） */
+export type AnyCommandSpec = CommandSpec<Record<string, unknown>>;
+
+/** 供給元（docs/plans/2026-09-15-plugin-architecture.md）。今は builtin と、口だけ開けた 2 種 */
+export type CommandSource = "builtin" | "project" | "plugin";
+
+export interface RegisterCommandOptions {
+  /** 供給元ラベル（既定: "plugin"） */
+  source?: CommandSource;
+  /** このコマンドが必要とする ffmpeg 機能。`doctor` の検査対象に合成される */
+  requires?: FeatureRequirements;
+}
+
+export interface CommandRegistration {
+  spec: AnyCommandSpec;
+  source: CommandSource;
+}
+
+const registered = new Map<string, CommandRegistration>();
+
+const requirementsId = (path: string) => `command:${path}`;
+
+/**
+ * 実行時にコマンドを 1 つ足す。同じパスの再登録は上書きする（組み込みと衝突する場合は
+ * `getCommands()` が `duplicate command path` で弾く）。
+ */
+export function registerCommand(spec: AnyCommandSpec, opts: RegisterCommandOptions = {}): void {
+  registered.set(spec.path, { spec, source: opts.source ?? "plugin" });
+  if (opts.requires) registerRequirements(requirementsId(spec.path), opts.requires);
+}
+
+export function unregisterCommand(path: string): void {
+  registered.delete(path);
+  unregisterRequirements(requirementsId(path));
+}
+
+/** テスト用。実行時登録をすべて捨てる（組み込みには触らない） */
+export function clearRegisteredCommands(): void {
+  for (const path of [...registered.keys()]) unregisterCommand(path);
+}
+
+export function registeredCommands(): readonly CommandRegistration[] {
+  return [...registered.values()];
+}
+
+/** 組み込みコマンド（順序は docs/04 の並び）。循環 import を避けるため遅延 import する */
+async function builtinCommands(): Promise<readonly AnyCommandSpec[]> {
+  const { commands } = await import("../cli/commands/registry.ts");
+  return commands;
+}
+
+/**
+ * 組み込み + 実行時登録の合成リスト。組み込みの並びは保ったまま、登録順に後ろへ足す。
+ * 重複パスはここで検出する（yargs へ登録する前に落としたいので `buildCommandTree` を通す）。
+ */
+export async function getCommands(): Promise<readonly AnyCommandSpec[]> {
+  const specs: AnyCommandSpec[] = [...(await builtinCommands())];
+  for (const reg of registered.values()) specs.push(reg.spec);
+  buildCommandTree(specs); // duplicate command path の検出
+  return specs;
+}

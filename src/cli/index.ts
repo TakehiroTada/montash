@@ -1,13 +1,13 @@
 /**
  * montash CLI エントリ。
  *
- * yargs にグローバルオプションとコマンド（src/cli/commands/registry.ts）を登録し、
+ * yargs にグローバルオプションとコマンド（registry/commands.ts の getCommands()）を登録し、
  * 各コマンドの実行を runLeaf() で包んで出力整形・エラー処理・終了コードを一元化する。
  * docs/04 §1（共通仕様）, docs/08 §3.1
  */
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { commands } from "./commands/registry.ts";
+import { getCommands } from "../registry/commands.ts";
 import { createContext, type GlobalOptions } from "./context.ts";
 import { type CommandSpec, registerCommands } from "./define-command.ts";
 import { ExitCode, MontashError, toMontashError } from "./errors.ts";
@@ -118,7 +118,11 @@ export function guardHelpCommand(argv: readonly string[]): string[] {
   return positionals.length === 1 && positionals[0] === "help" ? [...argv, ""] : [...argv];
 }
 
-export function buildCli(rawArgv: string[]) {
+/**
+ * コマンド定義は `getCommands()`（組み込み + 実行時登録）から取るため async
+ * （将来はここでプラグインを `await import()` してから合成する。docs/13 D-18）。
+ */
+export async function buildCli(rawArgv: string[]) {
   const argv = guardHelpCommand(rawArgv);
   const y = yargs(argv)
     .scriptName("montash")
@@ -247,10 +251,10 @@ export function buildCli(rawArgv: string[]) {
     })
     .wrap(Math.min(110, process.stdout.columns ?? 100));
 
-  registerCommands(y, commands, runLeaf);
+  registerCommands(y, await getCommands(), runLeaf);
   return y;
 }
 
 if (import.meta.main) {
-  await buildCli(hideBin(process.argv)).parseAsync();
+  await (await buildCli(hideBin(process.argv))).parseAsync();
 }

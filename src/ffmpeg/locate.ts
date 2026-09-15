@@ -11,12 +11,18 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { errors, MontashError } from "../cli/errors.ts";
+import { recommendedFilters, requiredEncoders, requiredFilters } from "../registry/requirements.ts";
 
 export const STATIC_FFMPEG_HOME = join(homedir(), ".local", "share", "montash", "ffmpeg");
 export const MIN_FFMPEG = "4.4";
 export const RECOMMENDED_FFMPEG = "6.0";
 
-/** 必須（無いと render 不可） */
+/**
+ * 以下は「組み込みが必要とする機能」。拡張が宣言した分は `registry/requirements.ts` が合成する
+ * （docs/13 D-18）。登録が空のときはこれらの定数そのままで、従来と同じ判定になる。
+ *
+ * 必須（無いと render 不可）
+ */
 export const REQUIRED_ENCODERS = ["libx264", "aac"] as const;
 export const REQUIRED_FILTERS = [
   "xfade",
@@ -152,9 +158,13 @@ export async function inspectFfmpeg(binaries: Binaries): Promise<FfmpegInfo> {
     present: names.filter((n) => set.has(n)),
     missing: names.filter((n) => !set.has(n)),
   });
-  const reqEnc = has(encoders, REQUIRED_ENCODERS);
-  const reqFlt = has(filters, REQUIRED_FILTERS);
-  const rec = has(filters, RECOMMENDED_FILTERS);
+  // 組み込み + 拡張が宣言した requires の合成（登録が空なら定数そのまま）
+  const wantEncoders = requiredEncoders(REQUIRED_ENCODERS);
+  const wantFilters = requiredFilters(REQUIRED_FILTERS);
+  const wantRecommended = recommendedFilters(RECOMMENDED_FILTERS, wantFilters);
+  const reqEnc = has(encoders, wantEncoders);
+  const reqFlt = has(filters, wantFilters);
+  const rec = has(filters, wantRecommended);
   const textEngine: FfmpegInfo["textEngine"] = filters.has("subtitles")
     ? "libass"
     : filters.has("drawtext")
