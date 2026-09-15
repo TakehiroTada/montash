@@ -163,3 +163,34 @@ describe("effect remove / list", () => {
     expect(out.effects[1]?.missing).toBe(true);
   });
 });
+
+describe("プラグインのエフェクトのパラメータが CLI オプションに載る", () => {
+  // ドッグフーディングで踏んだ不具合（`effect add c2 denoise --amount 10` が
+  // `Unknown arguments: amount` になった）。`effect add` / `effect set` のオプションは
+  // 「登録済みエフェクトのパラメータの和集合」なので、モジュール読み込み時に固めてはいけない。
+  test("後から登録した効果のパラメータが getCommands() 経由で現れる", async () => {
+    const { getCommands } = await import("../../../src/registry/commands.ts");
+    const { defineEffect, registerEffect } = await import("../../../src/registry/effects.ts");
+    const optionsOf = async (path: string) => {
+      const spec = (await getCommands()).find((c) => c.path === path);
+      return Object.keys(spec?.options ?? {});
+    };
+
+    expect(await optionsOf("effect add")).not.toContain("late-param");
+
+    registerEffect(
+      defineEffect({
+        name: "late-registered",
+        target: "video",
+        summary: "",
+        params: { "late-param": { type: "number", describe: "added after module load" } },
+        build: () => [],
+      }),
+      "plugin",
+    );
+
+    // 再取得すると載っている（schema / help / yargs はすべてここを通る）
+    expect(await optionsOf("effect add")).toContain("late-param");
+    expect(await optionsOf("effect set")).toContain("late-param");
+  });
+});
