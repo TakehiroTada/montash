@@ -43,6 +43,7 @@ import { importAssets } from "./import.ts";
 import { init } from "./init.ts";
 import { log } from "./log.ts";
 import { overlayAdd, overlayList, overlayRemove, overlaySet } from "./overlay.ts";
+import { pluginDoctor, pluginInstall, pluginList, pluginRemove } from "./plugin.ts";
 import { previewBuild, previewStatus } from "./preview.ts";
 import { projectSet, projectShow } from "./project.ts";
 import { proxyBuild, proxyStatus } from "./proxy.ts";
@@ -72,6 +73,11 @@ export const commands: ReadonlyArray<AnySpec> = [
   // 環境・メタ
   spec(doctor),
   spec(schema),
+  // プラグイン（docs/04 §plugin、W-19）
+  spec(pluginList),
+  spec(pluginInstall),
+  spec(pluginRemove),
+  spec(pluginDoctor),
   spec(help),
   // プロジェクト
   spec(init),

@@ -428,6 +428,16 @@ export const ProjectSchema = z.looseObject({
     track_gain_db: {},
   }),
   text_presets: z.record(z.string(), TextPresetSchema).default({}),
+  /** このプロジェクトが必要とするプラグイン（docs/14、W-19）。記録するだけで自動導入はしない */
+  plugins: z
+    .looseObject({
+      requires: z
+        .array(
+          z.looseObject({ id: z.string().min(1), version: z.string().optional(), api_version: z.int().optional() }),
+        )
+        .default([]),
+    })
+    .optional(),
   render_presets: z.record(z.string(), RenderPresetSchema).default({}),
   meta: MetaSchema.default({ tags: [] }),
 });

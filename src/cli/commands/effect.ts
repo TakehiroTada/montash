@@ -15,7 +15,8 @@
  * ここの spec 組み立てを `registry/commands.ts` の実行時合成に寄せる。
  */
 import { findClip } from "../../core/clip-editing.ts";
-import type { TrackClip } from "../../core/schema.ts";
+import type { Project, TrackClip } from "../../core/schema.ts";
+import { loadedPlugins } from "../../plugins/loader.ts";
 import {
   collectParamOrigins,
   type EffectRef,
@@ -102,6 +103,35 @@ function describeEffect(ref: EffectRef, index: number, spec: EffectSpec | undefi
     params: ref.params ?? {},
     ...(spec ? { summary: spec.summary, source: spec.name } : { missing: true }),
   };
+}
+
+/**
+ * プラグイン由来の効果を使ったら、そのプラグインをプロジェクトの依存として記録する（W-19 手順 4）。
+ * 記録するだけで自動導入はしない。他の環境で開いたとき `plugin doctor` が不足を指摘できるようにするため。
+ */
+function recordPluginRequirement(project: Project, target: EffectTarget, effectName: string): void {
+  const entry = effectRegistry(target).entry(effectName);
+  if (!entry || entry.source !== "plugin") return;
+  const owner = pluginOwnerOf(target, effectName);
+  if (!owner) return;
+
+  const bag = (project as { plugins?: { requires?: Array<{ id: string; version?: string }> } }).plugins ?? {
+    requires: [],
+  };
+  const requires = bag.requires ?? [];
+  if (requires.some((r) => r.id === owner.manifest.id)) return;
+  requires.push({
+    id: owner.manifest.id,
+    ...(owner.manifest.version ? { version: owner.manifest.version } : {}),
+  });
+  bag.requires = requires;
+  (project as { plugins?: unknown }).plugins = bag;
+}
+
+/** その効果を登録したプラグインを探す */
+function pluginOwnerOf(target: EffectTarget, effectName: string) {
+  const key = `${target}:${effectName}`;
+  return loadedPlugins().find((p) => p.registered.effects.includes(key));
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +278,7 @@ export const effectAdd = defineCommand<MutateArgs>({
       resolveEffectParams(spec, params);
 
       const effects = effectsOf(clip);
+      recordPluginRequirement(project, target, spec.name);
       const ref: EffectRef = { type: spec.name, params };
       const at = args.index === undefined ? effects.length : Math.max(0, Math.min(Number(args.index), effects.length));
       effects.splice(at, 0, ref);

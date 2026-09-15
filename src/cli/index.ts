@@ -7,8 +7,9 @@
  */
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+import { loadAllPlugins } from "../plugins/loader.ts";
 import { getCommands } from "../registry/commands.ts";
-import { createContext, type GlobalOptions } from "./context.ts";
+import { createContext, findProjectDirFrom, type GlobalOptions } from "./context.ts";
 import { type CommandSpec, registerCommands } from "./define-command.ts";
 import { ExitCode, MontashError, toMontashError } from "./errors.ts";
 import { printFailure, printSuccess } from "./output.ts";
@@ -255,6 +256,33 @@ export async function buildCli(rawArgv: string[]) {
   return y;
 }
 
+/**
+ * プラグインを読み込んでから CLI を組み立てる（docs/14、W-19）。
+ *
+ * 読み込みはコマンド定義より **前** に済ませる必要がある。プラグインが登録した効果の
+ * パラメータが `effect add` のオプションになり、`schema` / `help` にも載るため。
+ *
+ * 1 つのプラグインが壊れていても montash 全体は止めない。失敗は stderr に警告として出し、
+ * 残りを読み続ける（プロジェクトは開けるべき。F-EXT-4）。
+ */
+export async function loadPluginsForCli(argv: readonly string[]): Promise<void> {
+  // 起動のたびにプロジェクトを探索したくないので、-C / MONTASH_PROJECT と cwd だけを見る
+  const projectFlag = argv.findIndex((a) => a === "-C" || a === "--project");
+  const explicit = projectFlag >= 0 ? argv[projectFlag + 1] : process.env.MONTASH_PROJECT;
+  const projectDir = explicit ?? findProjectDirFrom(process.cwd());
+  const verbose = argv.includes("-v") || argv.includes("--verbose");
+
+  const { failures } = await loadAllPlugins(projectDir, {
+    ...(verbose ? { onLog: (m: string) => process.stderr.write(`${m}\n`) } : {}),
+  });
+  for (const f of failures) {
+    process.stderr.write(`warning [${f.error.code}]: ${f.error.message}\n`);
+    if (f.error.hint) process.stderr.write(`  hint: ${f.error.hint}\n`);
+  }
+}
+
 if (import.meta.main) {
-  await (await buildCli(hideBin(process.argv))).parseAsync();
+  const argv = hideBin(process.argv);
+  await loadPluginsForCli(argv);
+  await (await buildCli(argv)).parseAsync();
 }
