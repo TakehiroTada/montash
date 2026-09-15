@@ -171,7 +171,7 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 
 - 既定で `127.0.0.1` のみ。`--host` が loopback 以外のときは起動ログに `W_REMOTE_HOST` を出し、**`--read-only` を強制**する（13 章 A-7。解除手段は設けていない）。
 - `--read-only`: `POST /api/cli` と `POST /api/upload` を無効化（405）。閲覧のみの旧動作。
-- `--allow/--deny` で許可コマンドを調整（既定は §3.3）。**未実装**（現状は §3.3 の固定リスト。04 章 §1.9）。
+- `--allow/--deny` で許可コマンドを調整する（合成規則は §3.3）。繰り返し指定とカンマ区切りの両方を受ける（`--allow "effect set" --allow "effect add"` / `--allow "effect set,effect add"`）。
 - `--dev`: Web UI を Bun の HTML import 開発サーバ（HMR）で配信する。省略時は `web/dist`。
 - `--daemon` とその制御（`serve stop|status`）は未実装（04 章 §1.9）。
 - 監視対象: `project.json`、`.montash/history/**`、`.montash/preview/**`、`.montash/cache/**`、`.montash/render/progress.json`（chokidar; WSL `/mnt/*` はポーリング）。
@@ -219,6 +219,39 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 | 補助 | `preview build`, `validate` |
 
 **既定で不許可**（CLI で行う）: `clip *`, `track *`, `transition *`, `text *`, `overlay *`, `audio *`, `subtitle *`, `render *`, `commit`, `init`, `project set`, `history prune`, `batch`。
+
+**許可リストの合成（`serve --allow/--deny` とプラグインの `webAllow`）**
+
+```
+上の既定リスト  +  プラグインの webAllow  +  serve --allow   −   serve --deny
+```
+
+| 出自 | 由来 | 備考 |
+|------|------|------|
+| `default` | 上の既定リスト | フラグもプラグインも無ければこれだけ（従来と完全に同一） |
+| `plugin:<id>` | プラグインのマニフェストの `webAllow`（14 章 §3） | 読み込み済みプラグインの宣言を足す |
+| `flag` | `serve --allow` | 利用者の明示指定 |
+
+- **優先順位は `--deny` > `--allow` ≒ `webAllow` > 既定**。`--deny` は最後に引くので、**既定にも `--allow` にも `webAllow` にも勝つ**（明示的な拒否を常に最優先にする）。`--allow` と `webAllow` はどちらも「足す」だけなので互いに衝突しない。
+- **`--read-only` はさらに強い**。`--read-only`（および loopback 以外の `--host` による強制 read-only）では `POST /api/cli` 自体が 405 `E_READ_ONLY` になるため、`--allow` で足したコマンドも実行できない（許可リストは `GET /api/cli/allowlist` から見えるだけ）。`--allow` と併用すると `W_ALLOWLIST_IGNORED` を警告する。
+- `--allow` / `--deny` に渡せるのは **コマンドパス 2 語まで**（`checkout` / `effect set`）。照合規則（`args[0]` と `args[0] args[1]`）に合わせている。`clip` のようなグループ名や存在しないコマンドは起動時に `E_USAGE` で弾く。2 語目がフラグの形（`reset --hard`）は 1 語目をコマンドとして検証する。`--json` などサーバが固定するグローバルオプション（08 章 §4.5）は `--allow` に渡せない。
+- 同じコマンドが複数の出自から来ても許可リストには 1 つだけ載り、出自が並ぶ（例: `checkout` → `["default", "plugin:com.example.glow"]`）。
+
+**`GET /api/cli/allowlist`**
+
+```jsonc
+{
+  "allowlist": ["checkout", "undo", ..., "effect set"],   // 照合に使う配列（従来どおり）
+  "entries": [                                            // 出自つきの内訳（allowlist と同じ順）
+    { "command": "checkout",   "origins": ["default"] },
+    { "command": "effect set", "origins": ["plugin:com.example.glow", "flag"] }
+  ],
+  "denied": ["reset --hard"],                             // --deny で取り除いたもの
+  "read_only": false
+}
+```
+
+`allowlist` / `read_only` は従来のままで、`entries` / `denied` を足しただけ（既存クライアントはそのまま動く）。
 
 #### `POST /api/upload`（multipart）
 

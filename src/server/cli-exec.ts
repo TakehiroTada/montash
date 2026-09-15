@@ -35,7 +35,96 @@ export const DEFAULT_ALLOWLIST: readonly string[] = [
 ];
 
 /** サーバ側で固定し、クライアントからの上書きを禁止するグローバルオプション（docs/08 §4.5） */
-const FORBIDDEN_FLAGS = new Set(["-C", "--project", "--ffmpeg-path", "--ffprobe-path", "--json", "--yes", "-y"]);
+export const FORBIDDEN_FLAGS: ReadonlySet<string> = new Set([
+  "-C",
+  "--project",
+  "--ffmpeg-path",
+  "--ffprobe-path",
+  "--json",
+  "--yes",
+  "-y",
+]);
+
+// ---------------------------------------------------------------------------
+// 許可リストの合成（docs/06 §3.3）
+//
+//   既定（DEFAULT_ALLOWLIST） + プラグインの webAllow + `serve --allow`  −  `serve --deny`
+//
+// `--deny` は最後に引くので `--allow` にも `webAllow` にも勝つ（利用者の明示指定が最優先）。
+// ---------------------------------------------------------------------------
+
+/** 許可リスト 1 エントリの出自。`"default"` / `"flag"` / `"plugin:<id>"` */
+export type AllowlistOrigin = "default" | "flag" | `plugin:${string}`;
+
+export interface AllowlistEntry {
+  /** 照合に使うコマンド（`"checkout"` / `"assets set"` のように 2 語まで） */
+  command: string;
+  /** 出自。同じコマンドが複数の出自から来た場合は追加順に並ぶ */
+  origins: AllowlistOrigin[];
+}
+
+export interface ResolvedAllowlist {
+  /** 照合に使うコマンド配列（従来の `allowlist` と同じ形・同じ順） */
+  allowlist: string[];
+  /** 出自つきの内訳（`allowlist` と同じ順） */
+  entries: AllowlistEntry[];
+  /** `--deny` で取り除かれたコマンド */
+  denied: string[];
+}
+
+/** 許可リストに `webAllow` を提供するプラグイン（`src/plugins` に依存しないための最小形） */
+export interface AllowlistPlugin {
+  id: string;
+  webAllow?: readonly string[];
+}
+
+export interface AllowlistSources {
+  /** 土台になる許可リスト（既定: `DEFAULT_ALLOWLIST`） */
+  base?: readonly string[];
+  /** プラグインのマニフェスト宣言（`webAllow`） */
+  plugins?: readonly AllowlistPlugin[];
+  /** `serve --allow` で足すコマンド */
+  allow?: readonly string[];
+  /** `serve --deny` で引くコマンド。`allow` / `webAllow` より強い */
+  deny?: readonly string[];
+}
+
+/** 前後の空白を落とし、語の区切りを 1 つの空白にそろえる */
+export function normalizeAllowlistCommand(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * 許可リストを合成する。何も渡さなければ `DEFAULT_ALLOWLIST` と完全に同一（順序込み）。
+ */
+export function resolveAllowlist(src: AllowlistSources = {}): ResolvedAllowlist {
+  const denied: string[] = [];
+  for (const raw of src.deny ?? []) {
+    const command = normalizeAllowlistCommand(raw);
+    if (command !== "" && !denied.includes(command)) denied.push(command);
+  }
+  const denySet = new Set(denied);
+
+  const byCommand = new Map<string, AllowlistEntry>();
+  const add = (raw: string, origin: AllowlistOrigin): void => {
+    const command = normalizeAllowlistCommand(raw);
+    if (command === "" || denySet.has(command)) return;
+    const found = byCommand.get(command);
+    if (found) {
+      if (!found.origins.includes(origin)) found.origins.push(origin);
+      return;
+    }
+    byCommand.set(command, { command, origins: [origin] });
+  };
+
+  for (const command of src.base ?? DEFAULT_ALLOWLIST) add(command, "default");
+  for (const plugin of src.plugins ?? [])
+    for (const command of plugin.webAllow ?? []) add(command, `plugin:${plugin.id}`);
+  for (const command of src.allow ?? []) add(command, "flag");
+
+  const entries = [...byCommand.values()];
+  return { allowlist: entries.map((e) => e.command), entries, denied };
+}
 
 export interface AllowCheck {
   allowed: boolean;
@@ -90,7 +179,8 @@ export interface ExecResult {
 
 export interface CliExecutorOptions {
   projectDir: string;
-  allowlist?: readonly string[];
+  /** 許可リスト。文字列配列（従来どおり）か、出自つきの `resolveAllowlist()` の戻り値 */
+  allowlist?: readonly string[] | ResolvedAllowlist;
   /** 1 コマンドのタイムアウト（ms）。docs/06 §3.3 は 60 秒 */
   timeoutMs?: number;
   /** テスト用: spawn するコマンド列の先頭を差し替える */
@@ -100,6 +190,8 @@ export interface CliExecutorOptions {
 
 export class CliExecutor {
   readonly allowlist: readonly string[];
+  /** 出自つきの許可リスト（`GET /api/cli/allowlist` が返す） */
+  readonly allowlistDetail: ResolvedAllowlist;
   private readonly projectDir: string;
   private readonly timeoutMs: number;
   private readonly command: string[];
@@ -110,7 +202,8 @@ export class CliExecutor {
 
   constructor(opts: CliExecutorOptions) {
     this.projectDir = opts.projectDir;
-    this.allowlist = opts.allowlist ?? DEFAULT_ALLOWLIST;
+    this.allowlistDetail = toResolvedAllowlist(opts.allowlist);
+    this.allowlist = this.allowlistDetail.allowlist;
     this.timeoutMs = opts.timeoutMs ?? 60_000;
     this.command = opts.command ?? resolveCliCommand();
     this.env = opts.env ?? process.env;
@@ -199,6 +292,13 @@ export class CliExecutor {
       });
     }
   }
+}
+
+/** `allowlist` オプション（配列 / 解決済み / 未指定）を解決済みの形にそろえる */
+function toResolvedAllowlist(allowlist: CliExecutorOptions["allowlist"]): ResolvedAllowlist {
+  if (allowlist === undefined) return resolveAllowlist();
+  if (Array.isArray(allowlist)) return resolveAllowlist({ base: allowlist as readonly string[] });
+  return allowlist as ResolvedAllowlist;
 }
 
 function tail(s: string, n = 20): string[] {
