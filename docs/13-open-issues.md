@@ -31,10 +31,10 @@
 | B-4 | 中 | `xfade=offset`（秒指定）と 29.97fps のフレーム境界 | ゴールデンテスト（08 章 §6）で合成後フレーム数と各カット点を検証 | 30 / 29.97 / 59.94 で `duration_f` 厳密一致 | deferred（M1 のゴールデンテストで事実上検証） |
 | B-5 | 中 | libass の `BorderStyle=4`、`fontsdir=`、`original_size` の挙動とバージョン差 | Ubuntu 22.04 / 24.04 / brew の libass で背景ボックス・CJK フォールバック・プロキシ解像度での縮尺を目視＋PSNR | 3 環境で同じ位置・折り返し | open |
 | B-6 | 中 | chokidar 4 の Linux / WSL 挙動（検証は macOS のみ） | ext4 と `/mnt/c` で `tmp→rename` 保存と `ops.jsonl` 追記の検知、`usePolling` フォールバック | 500ms 以内に検知 | open |
-| B-7 | 中 | 単一 `-filter_complex` の入力数・グラフ長の上限 | 50 クリップ + 20 テキスト + 3 トラックでコマンド長・ffmpeg のメモリ・起動時間 | 起動 2 秒以内。超えるなら `split` 方式／セグメント分割へ | open |
-| B-8 | 中 | プレビューの cold cache 時間 | 10 分・10 クリップのタイムラインで初回 `preview build` の所要時間（N-4: 1 分以内） | 1 分以内。超えるなら並列度・プロキシ解像度を調整 | open |
+| B-7 | 中 | 単一 `-filter_complex` の入力数・グラフ長の上限 | 50 クリップ + 20 テキスト + 3 トラックでコマンド長・ffmpeg のメモリ・起動時間 | 起動 2 秒以内。超えるなら `split` 方式／セグメント分割へ | **done**（実測: 50 クリップ + リンク音声 50 + テキスト 20 / 3 トラック（入力 100、`-filter_complex` 28,485 文字、引数 243、コマンド全体 36,636 文字）で、グラフ生成 187〜249ms、`render` 全体 5.2 秒で正常終了。**起動 2 秒以内の基準を満たすので分割方式は不要**） |
+| B-8 | 中 | プレビューの cold cache 時間 | 10 分・10 クリップのタイムラインで初回 `preview build` の所要時間（N-4: 1 分以内） | 1 分以内。超えるなら並列度・プロキシ解像度を調整 | **done**（実測: 10 分 / 10 クリップ（1920x1080 30fps、各クリップが素材の別区間を参照＝キャッシュヒット 0）で初回 `preview build` が **42 秒**。基準の 1 分以内を満たす。なお同じ区間を使い回す構成だと 9/10 がキャッシュに当たり 7 秒だった） |
 | B-9 | 中 | HTML import 開発サーバと本番ビルドの差（HMR 時の zustand ストア保持、CSS 取り扱い） | `bun --hot` での状態保持、`bun build` 後の相対パス | 開発／本番で同じ表示 | open |
-| B-10 | 低 | `history` object の gzip と `checkout` 速度 | 1000 op・object 200KB で `checkout` 所要時間 | 50ms 以内 | open |
+| B-10 | 低 | `history` object の gzip と `checkout` 速度 | 1000 op・object 200KB で `checkout` 所要時間 | 50ms 以内 | **done**（実測: 74 op / object 1.5MB で **`checkout` 本体は 3〜8ms**（基準 50ms）。CLI 全体では 80ms 前後だが、その大半は bun の起動（`--version` だけで 61〜72ms）。gzip は現状不要と判断。1000 op での再測は必要になったときに） |
 | B-11 | 低 | yargs の負数引数（`--in -10`）と `-m` の他オプションとの衝突 | `--in=-10` 案内、`-m` を message 専用に固定（`--margin` は長形式のみ） | strict モードでエラーにならない | open |
 
 ## C. 進め方・体制
@@ -94,3 +94,4 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 - 2026-09-15: **Phase 1 / Phase 2 完了**（PR #41〜#47）。`effect` コマンド群、組み込みエフェクト 6 種、generator / transition のレジストリ化、プラグインホストと `plugin` コマンド群、Level C の `analyze` まで。プラグインは montash を import せずホストが `register(host)` で API を渡す形に決め（単一バイナリの実測に基づく）、B-2 と C-10 も解決した。残るは Phase 3（importer / exporter、Web の spec 駆動フォーム、`serve --allow/--deny`）。
 - 2026-09-15: **Phase 3 完了**（PR #49〜#52）。入出力レジストリ、Web の spec 駆動フォーム（`GET /api/specs`）、`serve --allow/--deny` とプラグインの `webAllow`、commands プラグイン（名前空間強制）。これで計画（`docs/plans/2026-09-15-plugin-architecture.md`）の Phase 0〜3 がすべて終わった。残る既知の課題は D-3 / D-8 / D-9 / D-10 / D-19 / D-20 と B 群・C 群。
 - 2026-09-15: C-5 / C-7 を解消。仕様と実装の乖離は `bun run check:spec` が機械的に検出するようにし（#31 で手作業の突き合わせを誤った反省）、spikes の再実行忘れは「検証済み Bun バージョンとの差」で気づける形にした。どちらも `bun run check`（= `verify` の前半）に載っている。
+- 2026-09-15: B-7 / B-8 / B-10 を実測して解消。B-8 は真の cold cache（10 セグメント全エンコード）で 42 秒。B-7 は 50 クリップ + テキスト 20 の単一 `-filter_complex`（28,485 文字）でもグラフ生成 0.2 秒・レンダー成功、B-10 は `checkout` 本体が 3〜8ms（CLI の 80ms は大半が bun の起動）。どちらも基準を満たすため、分割方式も gzip も導入しない。
