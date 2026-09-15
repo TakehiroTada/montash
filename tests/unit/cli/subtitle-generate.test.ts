@@ -215,10 +215,16 @@ test("--pause は句点が無い区間の切れ目になる（D-22）", async ()
     { text: "テックライブの33回目のお知らせです", startMs: 2830, endMs: 4530 },
   ];
   __setTranscribeHooks(hooks(noStop));
-  const split = (await call({ pause: 0.3, output: join(dir, "split.srt") })).result as Record<string, unknown>;
+  const splitPath = join(dir, "split.srt");
+  const split = (await call({ pause: 0.3, output: splitPath })).result as Record<string, unknown>;
   expect(split.cues).toBe(2);
-  const merged = (await call({ pause: 0, output: join(dir, "merged.srt") })).result as Record<string, unknown>;
-  expect(merged.cues).toBe(1);
+  // 間を見れば、字幕の切れ目が文の切れ目と一致する
+  expect(await Bun.file(splitPath).text()).toContain("テックライブの33回目のお知らせです");
+
+  // 間を見ないと文の切れ目では切れない（字数で割れるので cue 数が同じになることはある）
+  const mergedPath = join(dir, "merged.srt");
+  await call({ pause: 0, output: mergedPath });
+  expect(await Bun.file(mergedPath).text()).not.toContain("テックライブの33回目のお知らせです");
 });
 
 test("--pause に負の数は弾く", async () => {
