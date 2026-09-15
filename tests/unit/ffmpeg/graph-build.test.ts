@@ -198,20 +198,12 @@ test("serializeGraph emits one -filter_complex argument and pins the frame count
 });
 
 test("unsupported constructs still fail with E_NOT_IMPLEMENTED", () => {
-  const project = base();
-  project.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { loop: true }));
-  expect(() => graphOf(project)).toThrow(/looped clips/);
-  const ducking = base();
-  ducking.tracks[0]!.clips.push(clip("c1", 0, 0, 30));
-  ducking.audio.ducking.push({
-    id: "d1",
-    target: "A1",
-    sidechain: "A2",
-    threshold_db: -30,
-    ratio: 8,
-    attack_ms: 20,
-    release_ms: 500,
-    makeup_db: 0,
-  });
-  expect(() => graphOf(ducking)).toThrow(/ducking/);
+  const looped = base();
+  looped.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { loop: true }));
+  expect(() => graphOf(looped)).toThrow(/looped clips/);
+  const lut = base();
+  const c = clip("c1", 0, 0, 30);
+  c.video = { ...c.video, lut: "/tmp/x.cube" } as typeof c.video;
+  lut.tracks[0]!.clips.push(c);
+  expect(() => graphOf(lut)).toThrow(/LUT/);
 });

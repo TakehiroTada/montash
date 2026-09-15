@@ -13,6 +13,7 @@ import {
   type Clip,
   clipDurationF,
   clipEndF,
+  type Ducking,
   isMediaClip,
   isSubtitleClip,
   isTextClip,
@@ -20,7 +21,18 @@ import {
   type Track,
   type Transition,
 } from "../../core/schema.ts";
-import { type AudioStream, delayAudio, fitAudio, foldAcrossfade, mixAudio, normalizeAudioClip } from "./audio.ts";
+import {
+  type AudioStream,
+  delayAudio,
+  fitAudio,
+  foldAcrossfade,
+  loudnormFilters,
+  mixAudio,
+  normalizeAudioClip,
+  sidechainDuck,
+  simpleDuck,
+  splitAudio,
+} from "./audio.ts";
 import { overlayPosition, overlayStream, type Transform } from "./overlay.ts";
 import { textFilters } from "./text.ts";
 import {
@@ -46,7 +58,6 @@ import { blankVideo, concatVideo, normalizeVideoClip, sliceVideo, type VideoFade
 // ---------------------------------------------------------------------------
 
 function assertSupported(project: Project): void {
-  if (project.audio.ducking.length) unsupported("audio ducking");
   if (![1, 2].includes(project.settings.channels)) unsupported("more than two audio channels");
   for (const track of project.tracks) {
     if (!track.clips.length || track.muted) continue;
@@ -307,33 +318,96 @@ function audioGroupStream(ctx: GraphContext, group: ClipGroup<Clip>, index: Tran
   return delayAudio(ctx, folded, delay);
 }
 
+/**
+ * `--simple` ダッキングの下げ幅（dB）。
+ * コンプレッサの静的特性 `gain = (L - T) * (1 - 1/R)` を、サイドチェインの実測ピーク L で近似する。
+ */
+function simpleDuckDb(duck: Ducking, levelDb: number): number {
+  const reduction = Math.max(0, (levelDb - duck.threshold_db) * (1 - 1 / Math.max(1, duck.ratio)));
+  return duck.makeup_db - Math.min(reduction, 40);
+}
+
+/**
+ * トラック合成にダッキングを掛ける（docs/07 §8.3）。
+ * サイドチェイン側は `asplit` で複製し、片方を `sidechaincompress` の 2 入力目にする
+ * （サイドチェイン自身も最終ミックスに残るため）。
+ */
+function applyDucking(ctx: GraphContext, byTrack: Map<string, AudioStream>): void {
+  for (const duck of ctx.project.audio.ducking) {
+    const target = byTrack.get(duck.target);
+    if (!target) {
+      ctx.warn("W_DUCK_TRACK_EMPTY", `ducking "${duck.id}": target track "${duck.target}" has no audible clip`);
+      continue;
+    }
+    if (duck.target === duck.sidechain) {
+      ctx.warn("W_DUCK_NO_SIDECHAIN", `ducking "${duck.id}": target and sidechain are the same track`);
+      continue;
+    }
+    const analysis = ctx.opts.ducking?.[duck.id];
+    // `--simple`: sidechaincompress が使えない環境向けのフォールバック（事前解析した発話区間を volume で下げる）
+    if (duck.simple === true) {
+      if (!analysis) {
+        ctx.warn("W_DUCK_ANALYSIS_MISSING", `ducking "${duck.id}": no sidechain analysis; --simple ducking skipped`);
+        continue;
+      }
+      byTrack.set(duck.target, simpleDuck(ctx, target, analysis.windows, simpleDuckDb(duck, analysis.level_db)));
+      continue;
+    }
+    const sidechain = byTrack.get(duck.sidechain);
+    if (!sidechain) {
+      ctx.warn("W_DUCK_NO_SIDECHAIN", `ducking "${duck.id}": sidechain track "${duck.sidechain}" has no audible clip`);
+      continue;
+    }
+    const [kept, copy] = splitAudio(ctx, sidechain, 2);
+    byTrack.set(duck.sidechain, kept!);
+    byTrack.set(
+      duck.target,
+      sidechainDuck(ctx, target, copy!, {
+        thresholdDb: duck.threshold_db,
+        ratio: duck.ratio,
+        attackMs: duck.attack_ms,
+        releaseMs: duck.release_ms,
+        makeupDb: duck.makeup_db,
+      }),
+    );
+  }
+}
+
+/** 1 本の音声トラックを合成する（クリップ正規化 → acrossfade → adelay → amix → トラックゲイン・フェード） */
+function buildAudioTrack(ctx: GraphContext, track: Track, index: TransitionIndex, samples: number): AudioStream | null {
+  const clips = track.clips
+    .filter(isMediaClip)
+    .filter((c) => !c.audio?.muted)
+    .sort((a, b) => a.start_f - b.start_f);
+  if (!clips.length) return null;
+  const groups = groupByTransitions(clips, index).map((group) => audioGroupStream(ctx, group, index));
+  const gain = ctx.project.audio.track_gain_db[track.id] ?? 0;
+  let mixed = fitAudio(ctx, mixAudio(ctx, groups, samples), samples, gain ? [`volume=${gain}dB`] : []);
+  // トラックフェード（`montash fade --track A1` / `--with-audio`）
+  const fades: string[] = [];
+  if (track.fade.in_f > 0) fades.push(`afade=t=in:ss=0:ns=${ctx.samples(track.fade.in_f)}:curve=tri`);
+  if (track.fade.out_f > 0) {
+    const n = ctx.samples(track.fade.out_f);
+    fades.push(`afade=t=out:ss=${samples - n}:ns=${n}:curve=tri`);
+  }
+  if (fades.length) mixed = { label: ctx.chain(mixed.label, fades, "a"), samples };
+  return mixed;
+}
+
 function buildAudio(ctx: GraphContext, total: number): string {
   const samples = ctx.samples(total);
   const index = indexTransitions(audioTransitions(ctx.project));
-  const tracks: AudioStream[] = [];
+  // トラック ID → 合成済みストリーム（ダッキングで差し替えても合成順は変わらない）
+  const byTrack = new Map<string, AudioStream>();
   for (const track of ctx.project.tracks) {
     if (track.kind !== "audio" || track.muted || !track.clips.length) continue;
-    const clips = track.clips
-      .filter(isMediaClip)
-      .filter((c) => !c.audio?.muted)
-      .sort((a, b) => a.start_f - b.start_f);
-    if (!clips.length) continue;
-    const groups = groupByTransitions(clips, index).map((group) => audioGroupStream(ctx, group, index));
-    const gain = ctx.project.audio.track_gain_db[track.id] ?? 0;
-    let mixed = fitAudio(ctx, mixAudio(ctx, groups, samples), samples, gain ? [`volume=${gain}dB`] : []);
-    // トラックフェード（`montash fade --track A1` / `--with-audio`）
-    const fades: string[] = [];
-    if (track.fade.in_f > 0) fades.push(`afade=t=in:ss=0:ns=${ctx.samples(track.fade.in_f)}:curve=tri`);
-    if (track.fade.out_f > 0) {
-      const n = ctx.samples(track.fade.out_f);
-      fades.push(`afade=t=out:ss=${samples - n}:ns=${n}:curve=tri`);
-    }
-    if (fades.length) mixed = { label: ctx.chain(mixed.label, fades, "a"), samples };
-    tracks.push(mixed);
+    const stream = buildAudioTrack(ctx, track, index, samples);
+    if (stream) byTrack.set(track.id, stream);
   }
-  const master = fitAudio(ctx, mixAudio(ctx, tracks, samples), samples, [
-    `volume=${ctx.project.audio.master_gain_db}dB`,
-  ]);
+  applyDucking(ctx, byTrack);
+  const extra = [`volume=${ctx.project.audio.master_gain_db}dB`];
+  if (ctx.opts.loudnorm) extra.push(...loudnormFilters(ctx, ctx.opts.loudnorm));
+  const master = fitAudio(ctx, mixAudio(ctx, [...byTrack.values()], samples), samples, extra);
   return `[${master.label}]`;
 }
 

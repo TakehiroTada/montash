@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { atomicWrite, loadProject, parseResolution, projectPaths } from "../../core/project.ts";
 import { resolveAssetPath } from "../../core/validate.ts";
 import { locateBinaries } from "../../ffmpeg/locate.ts";
+import { describeLoudnorm, prepareAudio } from "../../ffmpeg/loudnorm.ts";
 import { buildRenderPlan, RENDER_PRESETS, type RenderPreset, verifyRender } from "../../ffmpeg/render.ts";
 import { runFfmpeg, shellQuote } from "../../ffmpeg/run.ts";
 import { defineCommand } from "../define-command.ts";
@@ -76,17 +77,25 @@ export const render = defineCommand({
       throw errors.usage("--crf must be between 0 and 51");
     if (args.threads !== undefined && (!Number.isSafeInteger(Number(args.threads)) || Number(args.threads) < 1))
       throw errors.usage("--threads must be a positive integer");
+    // 音声の事前パス（`--simple` ダッキングの解析 + loudnorm パス 1。docs/07 §8.3, §8.4）
+    const audio = await prepareAudio(bins, project, {
+      source: (asset) => resolveAssetPath(dir, asset.path),
+      measure: !ctx.globals.dryRun,
+    });
     const options = {
+      audio: audio.passes,
       preset: String(args.preset ?? "youtube-1080p") as RenderPreset,
       ...(args.resolution ? { resolution: parseResolution(String(args.resolution)) } : {}),
       ...(args.crf !== undefined ? { crf: Number(args.crf) } : {}),
       ...(args.presetSpeed ? { speed: String(args.presetSpeed) } : {}),
       ...(args.threads ? { threads: Number(args.threads) } : {}),
     };
-    const plan = await buildRenderPlan(project, dir, output, { ...options, bins });
+    const plan = await buildRenderPlan(project, dir, output, { ...options, bins, audio: audio.passes });
+    plan.warnings.push(...audio.warnings.map((w) => ({ code: w.code, message: w.message })));
+    const loudnorm = describeLoudnorm(audio.passes.loudnorm, project);
     const command = shellQuote([bins.ffmpeg, args.overwrite ? "-y" : "-n", ...plan.args]);
     if (ctx.globals.dryRun)
-      return { result: { dry_run: true, ...plan, command }, warnings: plan.warnings, human: command };
+      return { result: { dry_run: true, ...plan, loudnorm, command }, warnings: plan.warnings, human: command };
     await mkdir(dirname(output), { recursive: true });
     const tmp = join(dirname(output), `.montash-render-${crypto.randomUUID()}.mp4`);
     const controller = new AbortController();
@@ -121,7 +130,7 @@ export const render = defineCommand({
           throw e;
         }
       }
-      const result = { ...verified, output: { ...verified.output, path: output } };
+      const result = { ...verified, loudnorm, output: { ...verified.output, path: output } };
       await atomicWrite(
         join(projectPaths(dir).renderDir, "last.json"),
         JSON.stringify(

@@ -155,3 +155,134 @@ export function fitAudio(
     samples,
   };
 }
+
+// ---------------------------------------------------------------------------
+// トラック合成・ダッキング（docs/07 §8.3）
+// ---------------------------------------------------------------------------
+
+/** 小数を ffmpeg に渡す文字列にする（指数表記を避け、末尾の 0 を落とす） */
+function num(v: number): string {
+  return String(Number(v.toFixed(6)));
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/** dB → 線形振幅（`10^(dB/20)`）。`sidechaincompress` の threshold / makeup はこの単位（docs/07 §8.3） */
+export function dbToAmplitude(db: number): number {
+  return 10 ** (db / 20);
+}
+
+/** `sidechaincompress` のパラメータ（`project.audio.ducking` の 1 件ぶん） */
+export interface DuckSpec {
+  thresholdDb: number;
+  ratio: number;
+  attackMs: number;
+  releaseMs: number;
+  makeupDb: number;
+}
+
+/** ffmpeg の `sidechaincompress` が受け付ける範囲（範囲外は黙って拒否されるので事前に丸める） */
+const THRESHOLD_RANGE: [number, number] = [0.000976563, 1];
+const RATIO_RANGE: [number, number] = [1, 20];
+const ATTACK_RANGE: [number, number] = [0.01, 2000];
+const RELEASE_RANGE: [number, number] = [0.01, 9000];
+const MAKEUP_RANGE: [number, number] = [1, 64];
+
+/** 1 本の音声を N 本に複製する（サイドチェイン用のコピーを作る。docs/07 §8.3 `asplit`） */
+export function splitAudio(ctx: GraphContext, stream: AudioStream, count = 2): AudioStream[] {
+  if (count < 2) return [stream];
+  const labels = Array.from({ length: count }, () => ctx.label("a"));
+  ctx.push(`[${stream.label}]asplit=${count}${labels.map((l) => `[${l}]`).join("")}`);
+  return labels.map((label) => ({ label, samples: stream.samples }));
+}
+
+/**
+ * サイドチェインコンプレッサでターゲットを押し下げる（docs/07 §8.3）。
+ * `threshold` / `makeup` は dB ではなく線形振幅で渡す（`10^(dB/20)`）。
+ */
+export function sidechainDuck(
+  ctx: GraphContext,
+  target: AudioStream,
+  sidechain: AudioStream,
+  spec: DuckSpec,
+): AudioStream {
+  const threshold = clamp(dbToAmplitude(spec.thresholdDb), ...THRESHOLD_RANGE);
+  const makeup = clamp(dbToAmplitude(spec.makeupDb), ...MAKEUP_RANGE);
+  const filter =
+    `sidechaincompress=threshold=${num(threshold)}:ratio=${num(clamp(spec.ratio, ...RATIO_RANGE))}` +
+    `:attack=${num(clamp(spec.attackMs, ...ATTACK_RANGE))}:release=${num(clamp(spec.releaseMs, ...RELEASE_RANGE))}` +
+    `:makeup=${num(makeup)}`;
+  return {
+    label: ctx.chain([target.label, sidechain.label], [filter], "a"),
+    samples: target.samples,
+  };
+}
+
+/** 発話区間（秒）。`--simple` ダッキングの事前解析（`silencedetect`）の結果 */
+export interface DuckWindow {
+  from: number;
+  to: number;
+}
+
+/**
+ * `--simple` ダッキング（docs/07 §8.3 のフォールバック）。
+ * 事前解析で得た発話区間を `volume='if(between(t,s,e)+...,{ducked},1)':eval=frame` で下げる。
+ * 解析は I/O なのでグラフの外（ffmpeg/audio-analysis.ts）で行い、結果だけを受け取る。
+ */
+export function simpleDuck(
+  ctx: GraphContext,
+  target: AudioStream,
+  windows: readonly DuckWindow[],
+  duckDb: number,
+): AudioStream {
+  if (!windows.length) return target;
+  const cond = windows.map((w) => `between(t,${num(w.from)},${num(w.to)})`).join("+");
+  const filter = `volume='if(${cond},${num(dbToAmplitude(duckDb))},1)':eval=frame`;
+  return { label: ctx.chain(target.label, [filter], "a"), samples: target.samples };
+}
+
+// ---------------------------------------------------------------------------
+// ラウドネス正規化（docs/07 §8.4）
+// ---------------------------------------------------------------------------
+
+/** `loudnorm` のパス 1（測定）の結果。ffmpeg が `print_format=json` で出す値 */
+export interface LoudnormMeasured {
+  input_i: number;
+  input_tp: number;
+  input_lra: number;
+  input_thresh: number;
+  target_offset: number;
+}
+
+export interface LoudnormSpec {
+  /** 目標統合ラウドネス（LUFS） */
+  i: number;
+  /** 目標トゥルーピーク（dBTP） */
+  tp: number;
+  /** 目標ラウドネスレンジ（LU） */
+  lra: number;
+  /** パス 1 の測定値。あれば 2 パス目（`linear=true`）、無ければ 1 パス（動的） */
+  measured?: LoudnormMeasured | undefined;
+}
+
+/**
+ * `[Aout]` 末尾に付ける `loudnorm`（docs/07 §8.4）。
+ * `loudnorm` は内部で 192kHz に上げるので、後段で必ずプロジェクトの sample_rate / レイアウトへ戻す。
+ */
+export function loudnormFilters(ctx: GraphContext, spec: LoudnormSpec): string[] {
+  const parts = [`loudnorm=I=${num(spec.i)}:TP=${num(spec.tp)}:LRA=${num(spec.lra)}`];
+  const m = spec.measured;
+  if (m) {
+    parts.push(
+      `measured_I=${num(m.input_i)}`,
+      `measured_TP=${num(m.input_tp)}`,
+      `measured_LRA=${num(m.input_lra)}`,
+      `measured_thresh=${num(m.input_thresh)}`,
+      `offset=${num(m.target_offset)}`,
+      "linear=true",
+    );
+  }
+  return [parts.join(":"), `aresample=${ctx.sampleRate}`, `aformat=sample_fmts=fltp:channel_layouts=${ctx.layout}`];
+}
