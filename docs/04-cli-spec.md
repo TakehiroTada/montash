@@ -140,6 +140,10 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_NOTHING_TO_COMMIT` | pending op 無し | `--allow-empty` |
 | `E_PLUGIN_MISSING` | クリップが未知の種別を持ち、供給するプラグインが無い。**読み込み・保存は通り、レンダー時のみ**（docs/05 §6.1a） | 該当プラグインの導入、または `clip delete` |
 | `E_EFFECT_NOT_FOUND` | そのクリップに指定の効果が掛かっていない | 掛かっている効果の一覧 |
+| `E_PLUGIN_INVALID` | マニフェストや エントリの形が不正 | 必要なキー、エントリの置き場所 |
+| `E_PLUGIN_INCOMPATIBLE` | プラグインが要求する API バージョンをホストが支えない | 受理できるバージョン範囲 |
+| `E_PLUGIN_LOAD_FAILED` | プラグインの読み込み・登録中に例外 | どのプラグインか |
+| `E_PLUGIN_EXISTS` / `E_PLUGIN_NOT_FOUND` | 導入済み／未導入 | `--force`、`plugin list` |
 | `E_SCHEMA_TOO_OLD` | `project.json` の `schema_version` が古い。v1.0 前なので移行は提供しない | `montash init` で作り直す |
 | `E_HISTORY_REF_NOT_FOUND` | op/commit/tag が無い | 類似 ID 候補 |
 | `E_TAG_EXISTS` / `E_TAG_NOT_FOUND` | タグ名 | — |
@@ -518,6 +522,28 @@ montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) -
 プリセット（`title-center`, `lower-third`, `caption-bottom`, `corner-tag`）はサイズ・位置・背景・フェードの組。ユーザー定義は `project.json` の `text_presets` に追加。
 
 ---
+
+## プラグイン（W-19）
+
+拡張を導入・確認する。契約は docs/14。**`install` は人間が実行する操作**で、AI は自律実行しない（プラグインは任意コードを実行するため）。
+
+### `montash plugin list [--json]` — W-19
+
+読み込まれているプラグインと、それぞれが登録した拡張、探索したディレクトリを表示する。
+
+### `montash plugin install <path> [--force] [--yes]` — W-19
+
+プラグインディレクトリ（`montash-plugin.json` を含む）をユーザーの置き場（`~/.local/share/montash/plugins/<id>`）へコピーする。
+
+- 導入前に **capabilities を提示して確認**する。`--yes` が無い非対話実行（AI・スクリプト）は `E_CONFIRM_REQUIRED` で止まる。
+- 同じ ID が導入済みなら `E_PLUGIN_EXISTS`（`--force` で置き換え）。
+- **ネットワークから取得はしない。** 入手は利用者が行う。
+
+### `montash plugin remove <id>` — W-19
+
+### `montash plugin doctor [--json]` — W-19
+
+このプロジェクトが必要とするプラグイン（`project.plugins.requires[]`）と、解釈できない効果を照合して報告する。不足があれば終了コード 1。
 
 ## エフェクト（W-18）
 

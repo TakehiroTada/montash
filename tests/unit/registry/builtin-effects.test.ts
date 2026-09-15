@@ -10,7 +10,7 @@
  * `color` の出力は P0-3 から 1 文字も変えない（`effects.test.ts` が見張っている）。
  */
 import { describe, expect, test } from "bun:test";
-import { MontashError } from "../../../src/cli/errors.ts";
+import type { MontashError } from "../../../src/cli/errors.ts";
 import {
   blurEffect,
   buildEffectFilters,
