@@ -61,10 +61,26 @@ function readGlobals(argv: Record<string, unknown>, env: NodeJS.ProcessEnv): Glo
   };
 }
 
-/** コマンド固有の引数だけを残す（camelCase 側を採用） */
-function commandArgs(argv: Record<string, unknown>): Record<string, unknown> {
+/**
+ * コマンド固有の引数だけを残す（camelCase 側を採用）。
+ * コマンドが自分で宣言している名前（`assets set --color` など、グローバルと綴りが同じもの）は
+ * グローバル扱いせずハンドラに渡す。
+ */
+function commandArgs(
+  argv: Record<string, unknown>,
+  spec: CommandSpec<Record<string, unknown>>,
+): Record<string, unknown> {
+  const own = new Set<string>();
+  for (const key of Object.keys(spec.options ?? {})) {
+    own.add(key);
+    own.add(key.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()));
+  }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(argv)) {
+    if (own.has(k)) {
+      out[k] = v;
+      continue;
+    }
     if (GLOBAL_KEYS.has(k)) continue;
     if (k.includes("-")) continue; // kebab は camel 側に同じ値が入っている
     out[k] = v;
@@ -80,7 +96,7 @@ export async function runLeaf(
   const ctx = createContext(globals, { argv: hideBin(process.argv) });
   try {
     if (!spec.noProject) ctx.requireProjectDir();
-    const res = await spec.handler(ctx, commandArgs(argv));
+    const res = await spec.handler(ctx, commandArgs(argv, spec));
     printSuccess(ctx, spec, res);
     process.exitCode = res.exitCode ?? ExitCode.OK;
   } catch (e) {
@@ -164,10 +180,19 @@ export function buildCli(argv: string[]) {
       describe: "commit body (with -m)",
       global: true,
     })
-    .option("color", {
+    // グローバルは `--no-color`（docs/04 §1.2）。`color` を boolean で宣言すると
+    // `assets set --color <hex>` / `text add --color` などコマンド側の値オプションを食ってしまうため、
+    // boolean-negation が作る `color` キーは string として宣言だけしておく（strict() 対策）。
+    .option("no-color", {
       type: "boolean",
-      default: true,
-      describe: "colorize output (--no-color to disable)",
+      default: false,
+      describe: "disable colorized output",
+      global: true,
+    })
+    .option("color", {
+      type: "string",
+      describe: "(reserved) per-command color value; --no-color disables colorized output",
+      hidden: true,
       global: true,
     })
     .option("time-format", {
