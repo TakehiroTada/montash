@@ -14,6 +14,7 @@ import {
 } from "./assets.ts";
 import { checkout } from "./checkout.ts";
 import { clipAdd, clipList } from "./clip.ts";
+import { clipDelete, clipMove, clipSet, clipSplit, clipTrim } from "./clip-edit.ts";
 import { commit } from "./commit.ts";
 import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
@@ -32,7 +33,8 @@ import { serve } from "./serve.ts";
 import { show } from "./show.ts";
 import { status } from "./status.ts";
 import { tag, tagDelete, tagList } from "./tag.ts";
-import { timelineShow } from "./timeline.ts";
+import { timelineGaps, timelineShow } from "./timeline.ts";
+import { trackAdd, trackList, trackLock, trackMove, trackMute, trackRemove } from "./track.ts";
 import { undo } from "./undo.ts";
 import { validate } from "./validate.ts";
 
@@ -61,10 +63,24 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(proxyBuild),
   spec(proxyStatus),
   spec(fontsList),
+  // トラック（docs/04 §5）
+  spec(trackAdd),
+  spec(trackList),
+  spec(trackRemove),
+  spec(trackMute),
+  spec(trackLock),
+  spec(trackMove),
+  // クリップ（docs/04 §6）
   spec(clipAdd),
   spec(clipList),
+  spec(clipMove),
+  spec(clipTrim),
+  spec(clipSplit),
+  spec(clipDelete),
+  spec(clipSet),
+  // タイムライン（docs/04 §7）
   spec(timelineShow),
-  // 素材管理・トラック操作・クリップ移動/トリム → M2/M3
+  spec(timelineGaps),
   // トランジション / テキスト / オーバーレイ / 音声 / 字幕             → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
