@@ -21,7 +21,9 @@
     "spikes": "cd scripts/spikes && bun install && bun run all",
     "lint": "bunx --bun biome check .",
     "lint:fix": "bunx --bun biome check --write .",
-    "format": "bunx --bun biome format --write ."
+    "format": "bunx --bun biome format --write .",
+    "verify": "bun run check && bash tests/workflows/run-all.sh",
+    "licenses": "bun scripts/collect-licenses.ts"
   },
   "dependencies": {
     "chokidar": "^4.0.3",

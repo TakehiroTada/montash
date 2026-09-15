@@ -150,7 +150,9 @@ bun test                                    # 単体テスト
 bunx playwright install --with-deps chromium # ブラウザE2E用（初回）
 bash tests/workflows/run-all.sh              # 実装済み手順（W-01〜W-10, W-13〜W-17）を検証
 bun run lint                                # Biome（lint + format チェック）。bun run lint:fix で自動修正
-bun run check                               # typecheck + lint + test（CI と同じ）
+bun run check                               # typecheck + lint + test
+bun run verify                              # check + 手順の E2E（変更を入れたら最後にこれを通す）
+bun run licenses                            # 依存のライセンス一覧（THIRD-PARTY-NOTICES.md の更新に使う）
 bun run build:web                           # Web UI を web/dist に生成
 bun run compile                             # 現在の OS 向け CLI を dist/montash にコンパイル
 ```
@@ -174,3 +176,23 @@ bun run compile                             # 現在の OS 向け CLI を dist/m
 | コミット (commit) | 連続する op にメッセージを付けてまとめた作業単位。`k_0007`。git のコミットに相当 |
 | HEAD / checkout | 現在展開されている履歴上の位置／そこへ移動する操作。移動は即時 |
 | tag | 履歴上の位置に付ける名前（旧スナップショット） |
+
+## 検証はローカルで行う
+
+GitHub Actions は **自動実行しません**（Actions の費用を抑えるため）。`.github/workflows/ci.yml` は残してあり、トリガーを `workflow_dispatch` だけにしてあるので、必要なときに GitHub の Actions 画面から手動で実行できます。自動実行に戻すときは `on:` の `push` / `pull_request` のコメントを外してください。
+
+変更を入れたら、手元で次を通してから push します。
+
+```bash
+bun run verify     # = bun run check（typecheck + Biome + 単体テスト）+ tests/workflows/run-all.sh
+```
+
+ffmpeg を使うテスト（probe / render / preview / ゴールデン）と手順の E2E を含むため、`scripts/install-deps.sh` で ffmpeg を導入した環境で実行してください。テロップの日本語検証には CJK フォントが要ります（`--with-fonts`。無い環境では該当テストは自動で skip されます）。
+
+## ライセンス
+
+montash は [MIT License](./LICENSE) です。
+
+エンコード・デコードは **ffmpeg** に委ねますが、ffmpeg は同梱せず外部プロセスとして呼び出します。`scripts/install-deps.sh` が導入するビルド（macOS: Homebrew の `ffmpeg-full`、Linux/WSL: BtbN の static ビルド）は **GPL** の構成要素（libx264 など）を含むため、その ffmpeg バイナリを再配布する場合は GPL の条件が及びます。詳しくは [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) を参照してください。
+
+npm 依存は MIT / ISC / Apache-2.0 のみで、コピーレフトのものはありません。
