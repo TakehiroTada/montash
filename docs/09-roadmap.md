@@ -87,12 +87,19 @@
 - **結果**（PR #41〜#47）: 手順 W-18 / W-19 を先に確定 → `effect` コマンド群（パラメータ定義から CLI オプション・`schema`・`help` を導出）→ 組み込みエフェクト 6 種 → generator / transition のレジストリ化 → プラグインホスト（`register(host)` で API を渡す。**プラグインは montash を import しない**）→ `plugin` コマンド群 → Level C の `analyze`。
   単一バイナリからの外部プラグイン読み込みも実機確認（B-2 / P2-3 解決）
 
-### M7. 拡張の I/O と Web — 16〜17 週目
+### M7. 拡張の I/O と Web — 16〜17 週目 ✅ 完了
 
 - importer / exporter レジストリ（`import` の probe 分岐と `render` プリセット解決をレジストリ経由に）
 - Web の **spec 駆動フォーム**（`GET /api/specs`。Inspector の固定 `<dl>` を置き換え、opaque クリップに「プラグイン不足」バッジ）
 - `serve --allow/--deny` の配線、プラグインの `webAllow` 宣言との合成
 - 汎用 commands プラグイン
+
+- **結果**（PR #49〜#52）:
+  - **P3-1** 入出力レジストリ。`import` の分岐を組み込み importer 3 種（text / subtitle / media）へ移し、I/O はホストが渡す `ctx.read()` / `ctx.probe()` に限定。exporter はプラグインからの登録口を追加
+  - **P3-2** Web の spec 駆動フォーム。`GET /api/specs`（`schema` と同じコマンド定義 + エフェクトのパラメータ）を新設し、Inspector の固定フィールドと固定 CLI 例を置き換え。opaque クリップとプラグイン不足の効果に「プラグイン不足」バッジ
+  - **P3-3** `serve --allow/--deny` の配線とプラグインの `webAllow` 合成。優先順位は `--read-only` > `--deny` > `--allow` ≒ `webAllow` > 既定
+  - **P3-4** commands プラグイン。**プラグイン ID の末尾セグメントを名前空間として強制**し、組み込みの乗っ取りを原理的に防ぐ。状態変更は `runMutation()` でラップし、プロジェクトディレクトリも保存関数も渡さない
+
 
 ### 以降（Could）
 
