@@ -42,14 +42,29 @@
 | ID | 優先度 | 懸念 | 対応 | 状態 |
 |----|--------|------|------|------|
 | C-1 | **高** | スコープ規律: 仕様は約 80 コマンド・3,300 行。M0/M1 の縦一本（`doctor / init / import / clip add / timeline show / render(concat) / status / commit / undo / checkout`）から外れない | 09 章のマイルストーンを Issue 化し、S/C 項目は M3 以降のラベルで凍結 | open |
-| C-2 | **高** | `cli-video-editor/` が git 管理外 | 実装前に `git init`。仕様の変更も履歴に乗せる | open |
-| C-3 | **高** | 開発機に ffmpeg 未導入 | `bash scripts/install-deps.sh` を実行（brew） | open |
+| C-2 | **高** | `cli-video-editor/` が git 管理外 | 実装前に `git init`。仕様の変更も履歴に乗せる | done（GitHub: TakehiroTada/montash。仕様も履歴に載っている） |
+| C-3 | **高** | 開発機に ffmpeg 未導入 | `bash scripts/install-deps.sh` を実行（brew） | done（ffmpeg-full 9.0.1 = libass 入りを `~/.local/share/montash/ffmpeg` に導入。ADR-15） |
 | C-4 | 中 | WSL2 実機テスターがいない | 早期に 1 名確保、または CI の `windows-latest` + WSL で代替 | open |
 | C-5 | 中 | 仕様と実装の乖離: `montash schema` ↔ 04 章の CI 差分チェックが M5 予定 | M1 で `defineCommand` → 04 章の表を生成する簡易スクリプトを先に作る | open |
 | C-6 | 中 | AI に渡すコンテキスト量: 仕様全体は大きすぎる | AI 運用は **10 章 + `montash schema` 出力** だけで完結する設計を維持。10 章を独立して読める状態に保つ | open |
 | C-7 | 低 | `scripts/spikes/` の再実行を忘れる | Bun 更新 PR で `bun run all` を CI に含める | open |
 
+## D. 実装の不具合・改善（実機確認で判明）
+
+M1〜M3 の実装が動くようになってから、実際に触って見つかったもの。優先度: **高** = 体験を明確に損なう、**中** = 気づく人は気づく、**低** = 好みの範囲。
+
+| ID | 優先度 | 症状 / 食い違い | あるべき姿 | 状態 |
+|----|--------|------------------|------------|------|
+| D-1 | 中 | **編集タイムラインでテキストクリップが幅を持って描かれない**。`text add --duration 2.5`（75 フレーム）のクリップが T1 トラック上で細い縦線にしか見えず、区間の長さも掴めない（2026-09-15 にブラウザで確認） | 映像・音声クリップと同じく `start_f`〜`end_f` の矩形で描き、本文の先頭を重ねて表示する（docs/06 §2.4「テキストは矩形」） | open |
+| D-2 | 低 | **タイムラインの時間軸がプロジェクト尺より長い**。6 秒のプロジェクトで目盛りが 10s まで伸び、右 4 割が空白になる | 既定のスケールを尺に合わせる（末尾に 1 秒程度の余白）。ズーム操作でそれ以上に広げられるのは維持 | open |
+| D-3 | 低 | **`style.line_spacing` が ASS に反映されない**。ASS の Style に行間の項目が無く（`Spacing` は字間）、保存はされるが描画に効かない | `\fsp` ではなく行間を変える手段（複数 Dialogue に分割して `\pos` をずらす等）を実装するか、仕様から落として docs/05 §6.2 から削る。**現状は「保存されるが無視される」ことを docs に明記するのが最低ライン** | open |
+| D-4 | 中 | **`audio duck --attack/--release` の単位が docs 内で食い違う**。docs/04 §11 は ms、docs/03 W-07 は秒。実装は `500` / `500ms` / `0.5s` を受け、単位なしで 10 未満なら秒と推測して `W_TIME_UNIT_GUESSED` を返す | **ms に統一**して docs/03 を直す。推測は互換のため残してよいが、docs には ms だけを書く | open |
+| D-5 | 中 | **`clip add` のロジックが CLI ハンドラにインライン**で、`core/timeline.ts` に `addClip` が無い。`overlay add` は同じ処理を別実装で組み直しており（#23）、今後 `subtitle add` 等でも重複する | クリップ生成・配置・リンク音声・重なり解消を `core/` の関数に括り出し、`clip add` / `overlay add` / `text add` / `subtitle add` が共有する | open |
+| D-6 | 中 | **CI の matrix から macOS が外れている**（`macOS runners are temporarily paused to limit Actions spending.`）。3 OS 対応を掲げているのに検証は ubuntu のみ | コストと相談のうえ、少なくとも **main への push 時だけ macOS を走らせる**（PR は ubuntu のみ）などの折衷にする | open（要判断） |
+| D-7 | 低 | **`render --dry-run` の `result.command` が文字列**。docs/04 §14 は配列（AI がパースしやすく、シェルのクォート事故がない） | 配列にする | PR #24 で対応中 |
+
 ## 決定ログ
 
 - 2026-09-14: A-1〜A-4 を推奨案で決定（ADR-13〜16）。B-1〜B-4 は事前 spike を行わず、該当モジュールの実装時に検証する方針（deferred）。残る `open` は A-5, A-7, A-8, A-12（中・低）、B-5〜B-11、C 群。
 - 2026-09-14: B-1 を `ffmpeg/run.ts` 実装時に検証（spiked）。進捗 0.5 秒間隔・キャンセル 15ms 以内で判定基準を満たす。サーバ異常終了時の子プロセス残留のみ M2 へ持ち越し。
+- 2026-09-15: M1〜M3 が動く状態になったので、実機で触って見つかった課題を **D 群**として追加（UI のテキストクリップ描画・タイムラインの尺、docs の単位食い違い、clip 生成の重複実装、CI の macOS）。C-2 / C-3 は解決済みに更新。
