@@ -11,8 +11,8 @@
  *
  * project.json は透過し、履歴は HEAD / コミット所属 / pending / 分岐状態を解決して返す。
  */
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import pkg from "../../package.json";
 import {
   assetsSnapshot,
@@ -27,6 +27,7 @@ import {
   saveUpload,
 } from "./assets.ts";
 import { CliExecutor, type CliExecutorOptions, type ExecResult, resolveCliCommand } from "./cli-exec.ts";
+import { computeProject, type SubtitleReader } from "./computed.ts";
 import { readHistoryView } from "./history.ts";
 import { PreviewCoordinator, servePreview } from "./preview.ts";
 import { createWatcher, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
@@ -184,6 +185,33 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 
   const assetsDeps = { projectDir, json, jsonError };
 
+  // 字幕クリップの尺は素材ファイルにしか無い。mtime をキーに読み取りを覚えておく（docs/13 D-1）
+  const subtitleCache = new Map<string, { mtimeMs: number; source: string }>();
+  /** `project` の `assets` に載っている素材だけを読む（`/api/assets/:id/file` と同じ範囲） */
+  const subtitleReader =
+    (project: unknown): SubtitleReader =>
+    (assetId) => {
+      const assets = (project as { assets?: Record<string, { path?: unknown }> } | null)?.assets;
+      const path = assets?.[assetId]?.path;
+      if (typeof path !== "string" || path === "") return null;
+      const full = isAbsolute(path) ? path : resolve(projectDir, path);
+      let mtimeMs: number;
+      try {
+        mtimeMs = statSync(full).mtimeMs;
+      } catch {
+        return null;
+      }
+      const hit = subtitleCache.get(full);
+      if (hit && hit.mtimeMs === mtimeMs) return hit.source;
+      try {
+        const source = readFileSync(full, "utf8");
+        subtitleCache.set(full, { mtimeMs, source });
+        return source;
+      } catch {
+        return null;
+      }
+    };
+
   /** CLI を実行し、ログ・ジョブ・素材差分の push までを行う（`/api/cli` と `/api/upload` が共有する） */
   const runCli = async (
     payload: { args: string[]; confirm?: boolean },
@@ -236,7 +264,13 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       GET: () => {
         const p = readJsonFile(targets.project);
         if (p === undefined) return notFound("project.json");
-        return json(p, 200, { etag: hashProjectFile(targets.project) ?? "" });
+        // project.json は透過しつつ、描画に要る派生値（start_f / end_f / duration_f）を添える。
+        // クリップ種別ごとに長さの持ち方が違うので、算出はここ 1 箇所に寄せる（docs/13 D-1）
+        const body =
+          typeof p === "object" && p !== null && !Array.isArray(p)
+            ? { ...p, computed: computeProject(p, subtitleReader(p)) }
+            : p;
+        return json(body, 200, { etag: hashProjectFile(targets.project) ?? "" });
       },
     },
     "/api/status": { GET: async () => json(await status()) },
