@@ -14,14 +14,14 @@
     "doctor": "bun src/cli/index.ts doctor",
     "test": "bun test",
     "e2e:preview": "bun scripts/e2e-preview.ts",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "bunx --bun tsc --noEmit",
     "check": "bun run typecheck && bun run lint && bun test",
     "build:web": "bun build web/index.html --outdir web/dist --minify",
     "compile": "bun build --compile src/cli/index.ts --outfile dist/montash",
     "spikes": "cd scripts/spikes && bun install && bun run all",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "lint": "bunx --bun biome check .",
+    "lint:fix": "bunx --bun biome check --write .",
+    "format": "bunx --bun biome format --write ."
   },
   "dependencies": {
     "chokidar": "^4.0.3",

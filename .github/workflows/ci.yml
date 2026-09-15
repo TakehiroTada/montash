@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# 同じブランチへの push が続いたら古い実行は打ち切る
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   check:
     name: typecheck + lint + unit + e2e (${{ matrix.os }})
@@ -15,30 +23,43 @@ jobs:
         # macOS runners are temporarily paused to limit Actions spending.
         os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
       - name: install deps
         run: bun install --frozen-lockfile
-      - name: typecheck
-        run: bun run typecheck
-      - name: lint (biome)
-        run: bun run lint
-      # ffmpeg はユニットテスト（probe / run / render）にも必要なので、テストより前に導入する
-      - name: install ffmpeg (scripts/install-deps.sh)
+
+      # ランタイムは Bun に統一する（docs/12 ADR-02）。node_modules/.bin の shim は
+      # `#!/usr/bin/env node` なので、node を潰した PATH で typecheck と lint が通ることを確かめ、
+      # Node が混ざったら CI で落ちるようにする。
+      - name: assert Bun runtime (no Node)
         run: |
-          # テロップの日本語検証（ass-burn）に CJK フォントが要るので --with-fonts で入れる
+          mkdir -p "$RUNNER_TEMP/nonode"
+          printf '#!/bin/sh\necho "::error::node was invoked: $*"\nexit 127\n' > "$RUNNER_TEMP/nonode/node"
+          chmod +x "$RUNNER_TEMP/nonode/node"
+          PATH="$RUNNER_TEMP/nonode:$PATH" bun run typecheck
+          PATH="$RUNNER_TEMP/nonode:$PATH" bun run lint
+
+      # ffmpeg はユニットテスト（probe / run / render / preview）にも必要なので、テストより前に導入する。
+      # テロップの日本語検証（ass-burn）に CJK フォントが要るので --with-fonts で入れる。
+      - name: install ffmpeg and fonts (scripts/install-deps.sh)
+        run: |
           bash scripts/install-deps.sh --check --with-fonts || bash scripts/install-deps.sh --yes --with-fonts
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/share/montash/ffmpeg/bin" >> "$GITHUB_PATH"
+
       - name: doctor
         run: |
           bun run dev doctor --json | tee doctor.json
           bun -e 'const j = await Bun.file("doctor.json").json(); if (!j.ok) { console.error(JSON.stringify(j.error)); process.exit(1) }'
+
       - name: unit tests
         run: bun test
+
       - name: install browser
-        run: bunx playwright install --with-deps chromium
+        run: bunx --bun playwright install --with-deps chromium
+
       - name: workflow e2e
         run: bash tests/workflows/run-all.sh
