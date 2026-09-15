@@ -3,12 +3,21 @@
  * 各コマンドは defineCommand() で定義し、1 ファイル 1〜数コマンド。
  */
 import type { CommandSpec } from "../define-command.ts";
-import { assetsList, assetsShow } from "./assets.ts";
+import {
+  assetsList,
+  assetsNewText,
+  assetsRelink,
+  assetsRemove,
+  assetsSet,
+  assetsSetText,
+  assetsShow,
+} from "./assets.ts";
 import { checkout } from "./checkout.ts";
 import { clipAdd, clipList } from "./clip.ts";
 import { commit } from "./commit.ts";
 import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
+import { fontsList } from "./fonts.ts";
 import { historyExport, historyImport, historyPrune, historyVerify } from "./history.ts";
 import { idsRebuild } from "./ids.ts";
 import { importAssets } from "./import.ts";
@@ -44,8 +53,14 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(importAssets),
   spec(assetsList),
   spec(assetsShow),
+  spec(assetsSet),
+  spec(assetsNewText),
+  spec(assetsSetText),
+  spec(assetsRemove),
+  spec(assetsRelink),
   spec(proxyBuild),
   spec(proxyStatus),
+  spec(fontsList),
   spec(clipAdd),
   spec(clipList),
   spec(timelineShow),
