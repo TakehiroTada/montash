@@ -3,8 +3,9 @@
  *
  * `Bun.serve({ hostname, port, routes, fetch, websocket })` を組み立てる。
  *   - `/`            開発: web/index.html の HTML import（HMR）／本番: web/dist/index.html を Bun.file で配信
- *   - `/api/*`       読み取り API（project / status / history / cli/allowlist）
+ *   - `/api/*`       読み取り API（project / status / history / assets / cli/allowlist）
  *   - `POST /api/cli` 許可リスト制の CLI 実行（cli-exec.ts）
+ *   - `POST /api/upload` multipart 保存 → `import <path> --proxy`（assets.ts）
  *   - `/ws`          WebSocket push（server.publish("events", ...)）
  *   - その他         本番は web/dist の静的ファイル、無ければ 404 JSON
  *
@@ -13,7 +14,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import pkg from "../../package.json";
-import { CliExecutor, type CliExecutorOptions, resolveCliCommand } from "./cli-exec.ts";
+import {
+  assetsSnapshot,
+  diffAssets,
+  handleAssetFile,
+  handleAssetList,
+  handleAssetProxy,
+  handleAssetShow,
+  hasAssetChanges,
+  MAX_UPLOAD_BYTES,
+  saveUpload,
+} from "./assets.ts";
+import { CliExecutor, type CliExecutorOptions, type ExecResult, resolveCliCommand } from "./cli-exec.ts";
 import { readHistoryView } from "./history.ts";
 import { PreviewCoordinator, servePreview } from "./preview.ts";
 import { createWatcher, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
@@ -34,6 +46,8 @@ export interface StartServerOptions {
   log?: (line: string) => void;
   /** テスト用に CliExecutor の設定を上書きする */
   cliExec?: Partial<CliExecutorOptions>;
+  /** `POST /api/upload` の上限バイト数（既定 2GB。docs/13 A-5） */
+  maxUploadBytes?: number;
 }
 
 export interface RunningServer {
@@ -125,6 +139,75 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   }
 
   const executor = new CliExecutor({ projectDir, ...opts.cliExec });
+  const maxUploadBytes = opts.maxUploadBytes ?? MAX_UPLOAD_BYTES;
+
+  const send = (msg: Record<string, unknown>) => server.publish("events", JSON.stringify(msg));
+
+  // --- assets.changed（docs/06 §3.4）: project.json の assets キーの差分で判定する ---
+  let assetsSnap = assetsSnapshot(readJsonFile(targets.project) as { assets?: Record<string, unknown> } | undefined);
+  const publishAssetsChanged = () => {
+    const next = assetsSnapshot(readJsonFile(targets.project) as { assets?: Record<string, unknown> } | undefined);
+    const diff = diffAssets(assetsSnap, next);
+    assetsSnap = next;
+    if (hasAssetChanges(diff)) send({ type: "assets.changed", ...diff });
+  };
+
+  // --- 長時間コマンドはジョブとして進捗を push する（docs/06 §3.3, §3.4） ---
+  const LONG_RUNNING: Record<string, "import" | "proxy"> = { import: "import", "proxy build": "proxy" };
+  let jobSeq = 0;
+  const jobKind = (args: readonly string[]): "import" | "proxy" | null =>
+    LONG_RUNNING[`${args[0]} ${args[1]}`] ?? LONG_RUNNING[String(args[0])] ?? null;
+
+  /** 書き込み系（`POST /api/cli` / `POST /api/upload`）は --read-only で 405（docs/06 §3.1） */
+  const requireWritable = (): Response | null =>
+    readOnly
+      ? jsonError(
+          405,
+          "E_READ_ONLY",
+          "server is running with --read-only",
+          "Restart `montash serve` without --read-only (and on a loopback host).",
+        )
+      : null;
+
+  /** 履歴に残すクライアント識別子（UA + 乱数。docs/06 §3.3） */
+  const clientDetail = (req: Request): string =>
+    `${(req.headers.get("user-agent") ?? "unknown").slice(0, 60)}#${Math.random().toString(36).slice(2, 8)}`;
+
+  const tooLarge = (bytes: number): Response =>
+    jsonError(
+      413,
+      "E_UPLOAD_TOO_LARGE",
+      `upload is ${bytes} bytes; the limit is ${maxUploadBytes} bytes`,
+      "Import the file by path instead: `montash import <path> --proxy` (the web UI's 「+ 取り込み」 accepts a path).",
+    );
+
+  const assetsDeps = { projectDir, json, jsonError };
+
+  /** CLI を実行し、ログ・ジョブ・素材差分の push までを行う（`/api/cli` と `/api/upload` が共有する） */
+  const runCli = async (
+    payload: { args: string[]; confirm?: boolean },
+    detail: string,
+    job?: { id: string; kind: "import" | "proxy" | "upload" },
+  ): Promise<ExecResult> => {
+    const kind = job?.kind ?? jobKind(payload.args);
+    const jobId = job?.id ?? (kind ? `j_${++jobSeq}` : null);
+    if (kind && jobId && !job)
+      send({ type: "job.progress", job_id: jobId, kind, percent: 0, message: payload.args.join(" ") });
+    const res = await executor.handle(payload, detail);
+    send({
+      type: "log",
+      level: res.body.ok ? "info" : "error",
+      actor: "web",
+      message: `${payload.args.join(" ")} → ${res.body.ok ? "ok" : String((res.body.error as { code?: string } | undefined)?.code ?? "error")}`,
+    });
+    if (kind && jobId)
+      send({ type: "job.done", job_id: jobId, kind, ok: res.body.ok === true, result: res.body.result ?? null });
+    if (res.body.ok) {
+      preview.changed();
+      publishAssetsChanged();
+    }
+    return res;
+  };
 
   const preview = new PreviewCoordinator(
     projectDir,
@@ -163,35 +246,66 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     },
     "/api/cli/allowlist": { GET: () => json({ allowlist: executor.allowlist, read_only: readOnly }) },
     "/api/cli": {
-      POST: async (req, server) => {
-        if (readOnly)
-          return jsonError(
-            405,
-            "E_READ_ONLY",
-            "server is running with --read-only",
-            "Restart `montash serve` without --read-only (and on a loopback host).",
-          );
+      POST: async (req) => {
+        const denied = requireWritable();
+        if (denied) return denied;
         let payload: unknown;
         try {
           payload = await req.json();
         } catch {
           return jsonError(400, "E_USAGE", "request body must be JSON");
         }
-        const ua = req.headers.get("user-agent") ?? "unknown";
-        const detail = `${ua.slice(0, 60)}#${Math.random().toString(36).slice(2, 8)}`;
-        const res = await executor.handle(payload, detail);
-        const args = (payload as { args?: unknown }).args;
-        server.publish(
-          "events",
-          JSON.stringify({
-            type: "log",
-            level: res.body.ok ? "info" : "error",
-            actor: "web",
-            message: `${Array.isArray(args) ? args.join(" ") : "?"} → ${res.body.ok ? "ok" : String((res.body.error as { code?: string } | undefined)?.code ?? "error")}`,
-          }),
-        );
-        if (res.body.ok) preview.changed();
+        const body = (payload ?? {}) as { args?: unknown; confirm?: unknown };
+        // 検証（args が string[] か）は CliExecutor に任せる。ここでは push 用に取り出すだけ。
+        const args = Array.isArray(body.args) && body.args.every((a) => typeof a === "string") ? body.args : null;
+        if (args === null) return json((await executor.handle(payload, clientDetail(req))).body, 400);
+        const res = await runCli({ args, confirm: body.confirm === true }, clientDetail(req));
         return json(res.body, res.status);
+      },
+    },
+    "/api/assets": { GET: () => handleAssetList(assetsDeps) },
+    "/api/assets/:id": { GET: (req) => handleAssetShow(assetsDeps, String(req.params.id ?? "")) },
+    "/api/assets/:id/file": { GET: (req) => handleAssetFile(assetsDeps, String(req.params.id ?? ""), req) },
+    "/api/assets/:id/proxy.mp4": { GET: (req) => handleAssetProxy(assetsDeps, String(req.params.id ?? ""), req) },
+    "/api/upload": {
+      POST: async (req) => {
+        const denied = requireWritable();
+        if (denied) return denied;
+        const declared = Number(req.headers.get("content-length") ?? "");
+        if (Number.isFinite(declared) && declared > maxUploadBytes) return tooLarge(declared);
+        let form: FormData;
+        try {
+          form = await req.formData();
+        } catch (e) {
+          return jsonError(400, "E_USAGE", `multipart/form-data expected: ${String(e)}`);
+        }
+        const file = form.get("file");
+        if (!(file instanceof File) || file.name === "")
+          return jsonError(400, "E_USAGE", 'multipart field "file" (with a filename) is required');
+        if (file.size > maxUploadBytes) return tooLarge(file.size);
+
+        const jobId = `j_${++jobSeq}`;
+        send({ type: "job.progress", job_id: jobId, kind: "upload", percent: 0, message: file.name });
+        let saved: Awaited<ReturnType<typeof saveUpload>>;
+        try {
+          saved = await saveUpload(projectDir, file);
+        } catch (e) {
+          send({ type: "job.done", job_id: jobId, kind: "upload", ok: false, result: null });
+          return jsonError(500, "E_IO", `cannot save the upload: ${String(e)}`);
+        }
+        send({
+          type: "job.progress",
+          job_id: jobId,
+          kind: "upload",
+          percent: 50,
+          message: `importing ${saved.relative}`,
+        });
+        // 保存したら登録は CLI に任せる（docs/06 §1.1: Web の状態変更は必ずコマンド発行）
+        const res = await runCli({ args: ["import", saved.path, "--proxy"] }, clientDetail(req), {
+          id: jobId,
+          kind: "upload",
+        });
+        return json({ ...res.body, upload: saved }, res.status);
       },
     },
     "/ws": (req, server) => {
@@ -262,6 +376,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       onEvent(ev) {
         if (ev.target === "project") {
           preview.changed();
+          publishAssetsChanged();
           publish({
             type: "project.changed",
             hash: hashProjectFile(targets.project),

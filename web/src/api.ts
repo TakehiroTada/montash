@@ -1,6 +1,7 @@
 /**
  * 読み取り API クライアント（docs/06 §3.2）。取得結果はストアに入れる。
  */
+import type { AssetView } from "./lib/assets.ts";
 import { type HistoryLike, type ProjectLike, type StatusLike, useStore } from "./store.ts";
 
 const versions = new Map<string, number>();
@@ -48,6 +49,15 @@ export async function refreshAllowlist(): Promise<void> {
   if (r?.ok) useStore.getState().setAllowlist(r.data.allowlist);
 }
 
+/** 素材一覧（usage / missing / derived 付き。docs/06 §3.2） */
+export async function refreshAssets(): Promise<void> {
+  const r = await getJson<{ assets: AssetView[] }>("/api/assets");
+  if (!r) return;
+  const st = useStore.getState();
+  if (r.ok) st.setAssets(r.data.assets);
+  else if (r.status === 404) st.setAssets([]);
+}
+
 export async function refreshAll(): Promise<void> {
-  await Promise.all([refreshProject(), refreshStatus(), refreshHistory(), refreshAllowlist()]);
+  await Promise.all([refreshProject(), refreshStatus(), refreshHistory(), refreshAllowlist(), refreshAssets()]);
 }

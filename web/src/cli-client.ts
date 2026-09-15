@@ -3,7 +3,7 @@
  * Web の状態変更はすべてここを通り、CLI コマンドの発行として実行される。
  * 409 `E_CONFIRM_REQUIRED` を受けたら確認ダイアログを出し、`confirm: true` で再送する。
  */
-import { refreshHistory, refreshProject, refreshStatus } from "./api.ts";
+import { refreshAssets, refreshHistory, refreshProject, refreshStatus } from "./api.ts";
 import { useStore } from "./store.ts";
 
 export interface CliError {
@@ -62,10 +62,44 @@ export async function execCli(args: string[], opts: ExecOptions = {}): Promise<C
       st.log("error", `${cmd} → ${e?.code ?? "error"}: ${e?.message ?? ""}`, "web");
     }
   }
-  if (body.ok) await Promise.all([refreshProject(), refreshHistory(), refreshStatus()]);
+  if (body.ok) await Promise.all([refreshProject(), refreshHistory(), refreshStatus(), refreshAssets()]);
   return body;
 }
 
 export const undo = (): Promise<CliResponse> => execCli(["undo"]);
 export const redo = (): Promise<CliResponse> => execCli(["redo"]);
 export const checkout = (ref: string): Promise<CliResponse> => execCli(["checkout", ref]);
+
+/** `POST /api/upload` の戻り（CLI の import 結果 + 保存情報） */
+export interface UploadResponse extends CliResponse {
+  upload?: { path: string; relative: string; size: number; original_name: string };
+}
+
+/**
+ * ファイルをアップロードして `import <保存パス> --proxy` まで走らせる（docs/06 §3.3）。
+ * 進捗は WS の `job.progress` / `job.done` で届く。
+ */
+export async function uploadAsset(file: File, opts: { silent?: boolean } = {}): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  let body: UploadResponse;
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    body = (await res.json()) as UploadResponse;
+  } catch (error) {
+    body = { ok: false, error: { code: "E_BAD_RESPONSE", message: String(error) } };
+  }
+  if (!opts.silent) {
+    const st = useStore.getState();
+    if (body.ok) {
+      st.toast("info", `${file.name} を取り込みました`);
+      st.log("info", `upload ${file.name} → import ok`, "web");
+    } else {
+      const e = body.error;
+      st.toast("error", `${file.name} — ${e?.code ?? "error"}: ${e?.message ?? ""}${e?.hint ? `\n${e.hint}` : ""}`);
+      st.log("error", `upload ${file.name} → ${e?.code ?? "error"}: ${e?.message ?? ""}`, "web");
+    }
+  }
+  if (body.ok) await Promise.all([refreshProject(), refreshHistory(), refreshStatus(), refreshAssets()]);
+  return body;
+}

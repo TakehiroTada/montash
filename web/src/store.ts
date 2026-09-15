@@ -6,6 +6,7 @@
  * 緩い型で扱う（unknown を許容）。
  */
 import { create } from "zustand";
+import type { AssetSort, AssetTypeFilter, AssetView } from "./lib/assets.ts";
 
 export interface Fps {
   num: number;
@@ -97,6 +98,26 @@ export interface Selection {
   trackId: string;
 }
 
+/** 実行中のジョブ（WS の job.progress / job.done。docs/06 §3.4） */
+export interface Job {
+  id: string;
+  kind: string;
+  percent: number;
+  message?: string;
+  done?: boolean;
+  ok?: boolean;
+}
+
+/** Assets タブの表示状態（docs/06 §2.6） */
+export interface AssetsUi {
+  view: "grid" | "list";
+  type: AssetTypeFilter;
+  query: string;
+  sort: AssetSort;
+}
+
+export const DEFAULT_ASSETS_UI: AssetsUi = { view: "list", type: "all", query: "", sort: "name" };
+
 export interface State {
   project: ProjectLike | null;
   projectHash: string | null;
@@ -111,8 +132,16 @@ export interface State {
   logs: LogLine[];
   toasts: Toast[];
   allowlist: string[];
+  assets: AssetView[] | null;
+  selectedAssetId: string | null;
+  assetsUi: AssetsUi;
+  jobs: Job[];
 
   setProject(p: ProjectLike | null, hash?: string | null): void;
+  setAssets(a: AssetView[] | null): void;
+  selectAsset(id: string | null): void;
+  patchAssetsUi(patch: Partial<AssetsUi>): void;
+  upsertJob(job: Job): void;
   setStatus(s: StatusLike | null): void;
   setHistory(h: HistoryLike | null): void;
   setConnection(c: Connection): void;
@@ -143,8 +172,29 @@ export const useStore = create<State>()((set) => ({
   logs: [],
   toasts: [],
   allowlist: [],
+  assets: null,
+  selectedAssetId: null,
+  assetsUi: DEFAULT_ASSETS_UI,
+  jobs: [],
 
   setProject: (project, hash = null) => set({ project, projectHash: hash }),
+  setAssets: (assets) =>
+    set((s) => ({
+      assets,
+      // 消えた素材を選択したままにしない
+      selectedAssetId:
+        s.selectedAssetId && assets && !assets.some((a) => a.id === s.selectedAssetId) ? null : s.selectedAssetId,
+    })),
+  selectAsset: (selectedAssetId) => set({ selectedAssetId }),
+  patchAssetsUi: (patch) => set((s) => ({ assetsUi: { ...s.assetsUi, ...patch } })),
+  upsertJob: (job) =>
+    set((s) => {
+      const jobs = s.jobs.some((j) => j.id === job.id)
+        ? s.jobs.map((j) => (j.id === job.id ? { ...j, ...job } : j))
+        : [...s.jobs, job];
+      // 完了したジョブは 1 件だけ残して畳む（ログには別途出ている）
+      return { jobs: jobs.filter((j) => !j.done).concat(jobs.filter((j) => j.done).slice(-1)) };
+    }),
   setStatus: (status) => set({ status }),
   setHistory: (history) => set({ history }),
   setConnection: (connection) => set({ connection }),
