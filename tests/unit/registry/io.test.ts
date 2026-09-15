@@ -125,16 +125,33 @@ describe("プラグインからの登録", () => {
     expect(resolved["my-variant"]?.source).toBe("project");
   });
 
-  test("project 側から base にして派生できる（登録済みを継承元にできる）", () => {
-    const derived = resolvePresets({
-      render_presets: { "my-variant": { base: "test-exporter", note: "derived" } },
+  test("プラグイン由来も同名指定で差し替わる（base 省略 = 登録済みの自分自身を継承。docs/13 D-20）", () => {
+    const resolved = resolvePresets({
+      render_presets: { "test-exporter": { crf: 33, note: "tuned by the project" } },
     } as never);
-    expect(derived["my-variant"]?.note).toBe("derived");
-    expect(derived["my-variant"]?.source).toBe("project");
+    expect(resolved["test-exporter"]?.source).toBe("project");
+    expect(resolved["test-exporter"]?.note).toBe("tuned by the project");
+    // 指定していないキーはプラグインの値がそのまま残る
+    expect(resolved["test-exporter"]?.video?.crf).toBe(33);
+    expect(resolved["test-exporter"]?.video?.codec).toBe("libx264");
+    expect(resolved["test-exporter"]?.audio?.bitrate).toBe("128k");
+    // 登録済みの表そのものは汚れない（次の resolve は元の値から始まる）
+    expect(resolvePresets(null)["test-exporter"]?.video?.crf).toBe(20);
+    expect(resolvePresets(null)["test-exporter"]?.source).toBe("plugin");
   });
 
-  test("base 省略時の既定 base は youtube-1080p 固定なので、その名前自身は上書きできない（docs/13 D-20）", () => {
-    expect(() => resolvePresets({ render_presets: { "youtube-1080p": { note: "mine" } } } as never)).toThrow(
+  test("プラグイン由来でも base 明示の上書きができる", () => {
+    const resolved = resolvePresets({
+      render_presets: { "test-exporter": { base: "web-preview", note: "replaced" } },
+    } as never);
+    expect(resolved["test-exporter"]?.base).toBe("web-preview");
+    expect(resolved["test-exporter"]?.note).toBe("replaced");
+    expect(resolved["test-exporter"]?.video?.crf).toBe(28);
+    expect(resolved["test-exporter"]?.source).toBe("project");
+  });
+
+  test("プラグイン由来を自分自身の base にしたら循環（E_USAGE）", () => {
+    expect(() => resolvePresets({ render_presets: { "test-exporter": { base: "test-exporter" } } } as never)).toThrow(
       /inherits from itself/,
     );
   });

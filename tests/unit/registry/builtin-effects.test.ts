@@ -14,6 +14,7 @@ import type { MontashError } from "../../../src/cli/errors.ts";
 import {
   blurEffect,
   buildEffectFilters,
+  collectExternalFiles,
   type EffectBuildContext,
   type EffectSpec,
   flipEffect,
@@ -148,6 +149,50 @@ describe("lut3d（F-FX-4）", () => {
     expect(() => apply("lut3d", { file: "   " })).toThrow(/lut3d': file must not be empty/);
     // 存在しないパスはここでは通る（レンダー時に ffmpeg が失敗する）
     expect(apply("lut3d", { file: "/nope/missing.cube" })).toEqual(["lut3d=file='/nope/missing.cube'"]);
+  });
+
+  // docs/13 D-19: LUT は filterComplex にパスしか出ないので、指紋に混ぜる材料を申告する
+  test("externalFiles() で LUT ファイルを申告する（純関数・存在確認なし）", () => {
+    expect(lut3dEffect.externalFiles?.({ file: "/luts/film.cube" })).toEqual(["/luts/film.cube"]);
+    expect(lut3dEffect.externalFiles?.({ file: "  a.cube  " })).toEqual(["a.cube"]);
+    expect(lut3dEffect.externalFiles?.({ file: "   " })).toEqual([]);
+    expect(lut3dEffect.externalFiles?.({})).toEqual([]);
+  });
+});
+
+describe("外部ファイルの申告（docs/13 D-19）", () => {
+  test("lut3d は申告し、重複は 1 度だけ／配列順に集まる", () => {
+    expect(
+      collectExternalFiles("video", [
+        { type: "lut3d", params: { file: "b.cube" } },
+        { type: "blur", params: { sigma: 3 } },
+        { type: "lut3d", params: { file: "a.cube", interp: "tetrahedral" } },
+        { type: "lut3d", params: { file: "b.cube" } },
+      ]),
+    ).toEqual(["b.cube", "a.cube"]);
+  });
+
+  test("申告しないエフェクトだけなら空（＝指紋には何も混ざらない）", () => {
+    expect(collectExternalFiles("video", undefined)).toEqual([]);
+    expect(collectExternalFiles("video", [])).toEqual([]);
+    expect(
+      collectExternalFiles("video", [
+        { type: "color", params: { saturation: 1.2 } },
+        { type: "blur", params: { sigma: 6 } },
+        { type: "mosaic", params: {} },
+        { type: "flip", params: {} },
+        { type: "rotate", params: { angle: "90" } },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("未登録の種別・不正な params でも投げない（指紋の材料集めなので、値の検査は build の仕事）", () => {
+    expect(collectExternalFiles("video", [{ type: "no-such-effect", params: { file: "x.cube" } }])).toEqual([]);
+    // file 必須違反（resolveEffectParams が落ちる）でも申告されたパスは拾う
+    expect(collectExternalFiles("video", [{ type: "lut3d", params: {} }])).toEqual([]);
+    expect(collectExternalFiles("video", [{ type: "lut3d", params: { file: "x.cube", interp: "nope" } }])).toEqual([
+      "x.cube",
+    ]);
   });
 });
 
