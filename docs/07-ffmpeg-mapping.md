@@ -238,6 +238,7 @@ Dialogue: 0,0:00:00.00,0:00:03.00,x1,,0,0,0,,{\pos(960,540)\fad(500,500)}Summer 
 - 色: `#RRGGBB[AA]` → ASS の `&HAABBGGRR`（ASS のアルファは `00` が不透明なので `AA' = 255 - AA`）。
 - **位置**: プリセットは §5 の overlay と**同じレジストリ**（`src/registry/positions.ts`。13 章 D-16）。プリセット → `\an`（テンキー配置: 7 8 9 / 4 5 6 / 1 2 3）+ `Margin*`。`center` → `\an5` + `\pos(W/2,H/2)`、`bottom-center` → `\an2` + `MarginV`、`top-right` → `\an9` + `MarginR/MarginV`。`{x,y}` 指定 → `\an7`（左上基準。`align` が center/right なら `\an8`/`\an9` に切替）+ `\pos(x,y)`。`%` は W/H から px に解決。
 - **背景ボックス**（`bg`）: `BorderStyle=4`（libass 拡張: 行ブロック全体を `BackColour` で塗る。padding は `Outline` 値）。`bg_padding` → `Outline`、縁取りが同時に必要な場合は `\bord` を行内オーバーライドで分離。libass が古く `BorderStyle=4` 非対応なら `3`（行ごとのボックス）にフォールバック。
+  - **3 と 4 の実測**（ffmpeg 9.0.1 / libass、`AssBuildOptions.borderStyle` を振って白背景に焼いた 1 フレーム）: どちらも箱は出るが、**2 行のとき `3` は行ごとに箱が付いて幅が段違いになり、`4` は 2 行を覆う 1 枚の矩形**になる。字幕は 2 行が普通なので既定は `4`。生成側は**箱の色を `OutlineColour` と `BackColour` の両方に書く**ので、`4` を解さない古い libass でも「箱の色の太い縁取り」として読める形に落ちる（`3` へのフォールバックは `borderStyle: 3` で選べる。13 章 B-5 の環境差検証はまだ macOS の 1 環境のみ）。
 - **縁取り／影**: `Outline`/`OutlineColour`、`Shadow`/`BackColour`（BorderStyle=1 のとき Shadow 色は `BackColour`）。影の x/y 個別指定は `\xshad`/`\yshad`。
 - **フェード**: `\fad({round(sec(in_f)*1000)},{round(sec(out_f)*1000)})`（ミリ秒）。
 - **複数行**: 入力の `\n` → `\N`。先頭スペースは `\h`。`align` は `\an` の列で表現。
@@ -258,6 +259,23 @@ libass 無しの環境のみ。テキストクリップごとに `drawtext=fontf
 | burn（ASS 素材） | 素材のスタイルを尊重するため **別の `subtitles=filename=<asset.ass>:fontsdir=...`** を追加で通す（`offset_f` があれば時刻をシフトした一時コピー） |
 | soft (MP4) | `-i subs.srt -c:s mov_text -metadata:s:s:0 language=ja -disposition:s:0 default` |
 | soft (MKV) | `-c:s srt` または `-c:s ass` |
+
+### 7.1 字幕クリップの `style` → ASS
+
+`subtitle` クリップの `style` は **テキストクリップと同じ語彙**（`SubtitleStyleSchema` は `TextStyleSchema` からの `pick` + `margin_bottom`）で、`ass.ts` の純関数 `subtitleTextStyle()` が `TextStyle` に写してから §6.2 と同じ経路で Style 行を作る。字幕専用の解釈は持たない。
+
+| `style` | ASS | 備考 |
+|---------|-----|------|
+| `font` / `size` / `color` | `Fontname` / `Fontsize` / `PrimaryColour` | 従来どおり |
+| `outline: {width, color}` | `Outline` / `OutlineColour` | `BorderStyle=1` |
+| `bg` / `bg_padding` | `BorderStyle=4` + `BackColour`（と `OutlineColour`）/ `Outline` | `bg` があるときは `outline` / `shadow` は描かない（同じ `Outline` の値を奪い合うため） |
+| `shadow: {x, y, color}` | `Shadow` / `BackColour` | `x === y` のときだけ Style の `Shadow`。違えば `\xshad`/`\yshad` |
+| `bold` | `Bold`（`-1` / `0`） | |
+| `position` | `\an` + `Margin*`（+ `\pos`） | 既定は `bottom-center`（`\an2`）。列は `align` が決め、`align` の既定は `position` から導く |
+| `align` | `\an` の列 | 既定は `position` 由来（`*-left` → left、`*-right` → right、他は center） |
+| `margin_bottom` | Style の `MarginV` | 省略時は解像度の 5% |
+
+`style` を 1 つも書かなければ Style 行は `BorderStyle=1, Outline=0, Shadow=0, Alignment=2` になり、この機能が入る前とバイト単位で同じ ASS が出る（`tests/unit/ffmpeg/ass.test.ts` のスナップショットで固定）。
 
 ## 8. 音声
 

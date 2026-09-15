@@ -638,10 +638,28 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ## 12. 字幕
 
-### `montash subtitle add --asset <srt|ass id> --mode burn|soft [--track <t>] [--at <t>] [--font] [--size] [--color] [--margin-bottom] [--lang ja] [--offset <±t>] [--id <id>]` — W-14
+### `montash subtitle add --asset <srt|ass id> --mode burn|soft [--track <t>] [--at <t>] [スタイル] [--lang ja] [--offset <±t>] [--id <id>]` — W-14
 ### `montash subtitle set <id> [同上]` / `remove <id>` / `list [--track <t>] [--json]`
 
 `burn` は SRT/VTT をテキストトラックの ASS に統合して 1 回で焼く（ASS 素材はそのスタイルを尊重して別の `subtitles` フィルタで焼く）。`soft` は `-c:s mov_text`（MP4）または `srt`/`ass`（MKV）で多重化。`--offset` はフレームに丸めて `offset_f` に保存。
+
+**スタイル**（`add` と `set` に共通。指定しなければ何も書き込まないので、既定の見た目は従来のまま）:
+
+```
+[--font <family>] [--size <px>] [--color <#RRGGBB[AA]>]
+[--outline <px|px,#RRGGBB[AA]|none>] [--outline-color <#RRGGBB[AA]>]
+[--bg <#RRGGBB[AA]|none>] [--bg-padding <px>] [--shadow <px|x,y,#RRGGBB[AA]|none>]
+[--position <preset|x,y|x%,y%>] [--bold] [--margin-bottom <px>]
+```
+
+**名前も意味も `text add` §10 と同じ**（`project.json` に入る形も同じで、`style` は `TextStyleSchema` から取った部分集合 + `margin_bottom`）。字幕側の違いは 2 つだけ:
+
+- `--position` の既定は `bottom-center`（テキストは `center`）。列（左・中・右）は `--position` の名前から決まるので、`--position bottom-left` は位置レジストリの `\an1` になる
+- `--outline` と `--shadow` は px だけの略記も受ける。`--outline 3` = `--outline 3,#000000`、`--shadow 2` = `--shadow 2,2,#000000`。色だけ変えるなら `--outline-color`（幅が無いと `E_USAGE`）
+
+白背景のスライドに焼くときは `--outline 3 --outline-color "#000000"`（細い縁取り。文字の形が残る）か `--bg "#000000B3" --bg-padding 10`（背景ボックス。最も確実）を使う。**`--bg` は縁取り・影より強く、指定すると `--outline` / `--shadow` は描かれない**（ASS の Style は箱と縁取りで同じ `Outline` の値を使うため。07 章 §6.2）。`--margin-bottom` は下端からの距離で、Style の `MarginV` に入る。
+
+ASS 素材（`.ass` / `.ssa`）を `burn` するときは素材自身の Style が勝つので、スタイル指定は `W_SUBTITLE_STYLE_IGNORED` で無視を知らせる。
 
 ---
 

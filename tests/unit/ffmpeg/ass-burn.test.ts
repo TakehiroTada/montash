@@ -10,11 +10,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Fps, Resolution } from "../../../src/core/schema.ts";
+import { type Fps, type Resolution, SubtitleStyleSchema } from "../../../src/core/schema.ts";
 import {
   buildAssDocument,
   prepareFontsDir,
+  subtitleMarginV,
   subtitlesFilter,
+  subtitleTextStyle,
   type TextClipLike,
   writeAssFile,
 } from "../../../src/ffmpeg/ass.ts";
@@ -44,8 +46,8 @@ afterAll(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
 });
 
-/** 灰色の 2 秒（30fps）に ASS を焼き、指定フレームを PNG で 1 枚取り出す */
-async function burnFrame(assPath: string, frame: number, out: string, fonts = fontsDir): Promise<number> {
+/** 単色（既定は灰色）の 2 秒（30fps）に ASS を焼き、指定フレームを PNG で 1 枚取り出す */
+async function burnFrame(assPath: string, frame: number, out: string, fonts = fontsDir, bg = "gray"): Promise<number> {
   const filter = [
     subtitlesFilter({ assPath, fontsDir: fonts, originalSize: RES }),
     `trim=start_frame=${frame}:end_frame=${frame + 1}`,
@@ -58,7 +60,7 @@ async function burnFrame(assPath: string, frame: number, out: string, fonts = fo
       "-f",
       "lavfi",
       "-i",
-      `color=c=gray:s=${RES.width}x${RES.height}:r=30:d=2`,
+      `color=c=${bg}:s=${RES.width}x${RES.height}:r=30:d=2`,
       "-vf",
       filter,
       "-frames:v",
@@ -74,22 +76,25 @@ async function burnFrame(assPath: string, frame: number, out: string, fonts = fo
   return result.exitCode;
 }
 
-/** 1 フレーム PNG の平均輝度（signalstats の YAVG） */
-async function averageLuma(png: string): Promise<number> {
+/** 1 フレーム PNG の signalstats を 1 つ読む（YAVG / YMIN） */
+async function lumaStat(png: string, key: "YAVG" | "YMIN"): Promise<number> {
   let value = Number.NaN;
   await runFfmpeg(
     bins,
-    ["-i", png, "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-f", "null", "-"],
+    ["-i", png, "-vf", `signalstats,metadata=print:key=lavfi.signalstats.${key}`, "-f", "null", "-"],
     {
       timeoutMs: 30000,
       onStderrLine: (line) => {
-        const m = /lavfi\.signalstats\.YAVG=([0-9.]+)/.exec(line);
+        const m = new RegExp(`lavfi\\.signalstats\\.${key}=([0-9.]+)`).exec(line);
         if (m?.[1]) value = Number(m[1]);
       },
     },
   );
   return value;
 }
+
+/** 1 フレーム PNG の平均輝度（signalstats の YAVG） */
+const averageLuma = (png: string): Promise<number> => lumaStat(png, "YAVG");
 
 const clip = (text: string, style: TextClipLike["style"] = {}): TextClipLike => ({
   id: "x1",
@@ -163,4 +168,55 @@ test.skipIf(!hasLibass)(
     expect(await averageLuma(out)).toBeLessThan(126);
   },
   60000,
+);
+
+// ---------------------------------------------------------------------------
+// 白背景のスライドに字幕を焼く（docs/04 §12: 縁取り・背景ボックス）
+// ---------------------------------------------------------------------------
+
+/** 字幕クリップ 1 件を CLI と同じ経路（`subtitleTextStyle`）で ASS にする */
+function subtitleAss(style: Record<string, unknown>): string {
+  const parsed = SubtitleStyleSchema.parse({ size: 40, color: "#FFFFFF", ...style });
+  const marginV = subtitleMarginV(parsed);
+  return buildAssDocument(
+    [
+      {
+        id: "s1_0",
+        start_f: 0,
+        duration_f: 30,
+        text: "Hello montash",
+        markup: "plain",
+        style: subtitleTextStyle(parsed, cjkFamily),
+        ...(marginV !== undefined ? { marginV } : {}),
+      },
+    ],
+    { resolution: RES, fps: FPS, ...(cjkFamily !== undefined ? { defaultFont: cjkFamily } : {}) },
+  );
+}
+
+test.skipIf(!hasLibass)(
+  "白背景では白字だけだと読めず、--outline / --bg を足すと読めるようになる",
+  async () => {
+    const plain = join(dir, "white-plain.png");
+    const outlined = join(dir, "white-outline.png");
+    const boxed = join(dir, "white-bg.png");
+
+    // 白背景 + 白字（縁取りも箱も無い）= スライドの白に溶ける
+    expect(await burnFrame(await writeAssFile(subtitleAss({}), dir), 15, plain, fontsDir, "white")).toBe(0);
+    // 同じ白字に 3px の黒縁を足す
+    const outline = subtitleAss({ outline: { width: 3, color: "#000000" } });
+    expect(await burnFrame(await writeAssFile(outline, dir), 15, outlined, fontsDir, "white")).toBe(0);
+    // 背景ボックス（不透明の黒）
+    const bg = subtitleAss({ bg: "#000000", bg_padding: 8 });
+    expect(await burnFrame(await writeAssFile(bg, dir), 15, boxed, fontsDir, "white")).toBe(0);
+
+    // 縁取りも箱も無いと、最も暗い画素すら白のまま = 文字の輪郭がどこにも無い
+    expect(await lumaStat(plain, "YMIN")).toBeGreaterThan(200);
+    // 縁取り・箱があれば暗い画素が現れる（= 白背景でも文字が分離できている）
+    expect(await lumaStat(outlined, "YMIN")).toBeLessThan(80);
+    expect(await lumaStat(boxed, "YMIN")).toBeLessThan(80);
+    // 箱のほうが面積が広いぶん、画全体は暗くなる
+    expect(await averageLuma(boxed)).toBeLessThan(await averageLuma(outlined));
+  },
+  90000,
 );

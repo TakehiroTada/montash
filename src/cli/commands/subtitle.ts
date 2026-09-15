@@ -16,19 +16,22 @@ import {
   type Project,
   type SubtitleClip,
   SubtitleClipSchema,
+  type SubtitleStyle,
   type Track,
   TrackSchema,
 } from "../../core/schema.ts";
 import { framesToSeconds } from "../../core/time.ts";
 import { nextTrackId, requireTrack } from "../../core/timeline.ts";
-import { assColor, findFontEntry, pickCjkFallback, suggestFamilies } from "../../ffmpeg/ass.ts";
+import { assColor, DEFAULT_BG_PADDING, findFontEntry, pickCjkFallback, suggestFamilies } from "../../ffmpeg/ass.ts";
 import { type FontEntry, listFonts } from "../../ffmpeg/fonts.ts";
+import { POSITION_NAMES } from "../../registry/positions.ts";
 import type { CommandContext } from "../context.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError, type Warning } from "../errors.ts";
 import { currentHead, runMutation } from "../mutate.ts";
 import { parseTimeInput } from "../time-input.ts";
 import { requireAsset } from "./assets.ts";
+import { parseOutline, parsePosition, parseShadow } from "./text.ts";
 
 type Args = Record<string, unknown>;
 
@@ -42,23 +45,31 @@ function has(args: Args, name: string): boolean {
   return option(args, name) !== undefined;
 }
 
-/** 字幕クリップの `style`（schema は looseObject なので `color` も保持される） */
-interface SubtitleStyle {
-  [key: string]: unknown;
-  font?: string;
-  size?: number;
-  color?: string;
-  margin_bottom?: number;
-}
-
 // ---------------------------------------------------------------------------
 // オプション定義（add と set で共有する）
 // ---------------------------------------------------------------------------
 
+/**
+ * `subtitle add` と `subtitle set` が共有するスタイル指定。
+ *
+ * 名前も書式も **`text add` と同じ**（`--bg` / `--bg-padding` / `--shadow` / `--outline` / `--position` /
+ * `--bold`）。字幕でよく使う「太さだけ」「深さだけ」を短く書けるよう、`--outline` と `--shadow` は
+ * px だけの略記も受ける（`--outline 3` = `--outline 3,#000000`）。
+ */
 const STYLE_OPTIONS = {
   font: { type: "string" as const, describe: "font family (default: settings.default_font, then a CJK font)" },
   size: { type: "number" as const, describe: "font size in px (project resolution basis)" },
   color: { type: "string" as const, describe: "text color #RRGGBB[AA]" },
+  outline: { type: "string" as const, describe: 'outline width in px, "px,#RRGGBB[AA]", or none' },
+  "outline-color": { type: "string" as const, describe: "outline color #RRGGBB[AA] (needs --outline)" },
+  bg: { type: "string" as const, describe: "background box color #RRGGBB[AA], or none (wins over outline/shadow)" },
+  "bg-padding": { type: "number" as const, describe: `background box padding in px (default ${DEFAULT_BG_PADDING})` },
+  shadow: { type: "string" as const, describe: 'drop shadow depth in px, "x,y,#RRGGBB[AA]", or none' },
+  position: {
+    type: "string" as const,
+    describe: `position preset (${POSITION_NAMES.join(", ")}), "x,y" or "x%,y%" (default bottom-center)`,
+  },
+  bold: { type: "boolean" as const, describe: "bold (helps small subtitles stay readable)" },
   "margin-bottom": { type: "number" as const, describe: "distance from the bottom edge in px" },
   lang: { type: "string" as const, describe: "language tag stored on the clip (soft subtitles: ISO 639)" },
   offset: { type: "string" as const, describe: "shift every cue by ±t", time: true },
@@ -116,6 +127,38 @@ function parseOffsetFrames(raw: string, fps: { num: number; den: number }, warni
   throw errors.usage(`--offset does not accept ${JSON.stringify(raw)}`, "Use ±t (+1.5, -f:30) or an absolute time.");
 }
 
+/** 縁取り・影の色を省いたときの既定（ASS 生成側の既定と同じ） */
+const DEFAULT_EDGE_COLOR = "#000000";
+
+/**
+ * `--outline 3`（px だけ）/ `--outline 3,#000000`（`text add` と同じ書式）/ `--outline none`。
+ * px だけのときは既存の色を残す（`--outline-color` で指定済みなら、それを保つ）。
+ */
+function parseOutlineValue(raw: string, current: SubtitleStyle["outline"]): SubtitleStyle["outline"] {
+  const text = raw.trim();
+  if (text === "" || text.toLowerCase() === "none") return null;
+  if (!text.includes(",")) {
+    const width = Number(text);
+    if (!Number.isFinite(width) || width < 0)
+      throw errors.usage(`invalid --outline "${raw}"`, 'Use a width in px ("3"), "px,#RRGGBB[AA]" or "none".');
+    return { width, color: current?.color ?? DEFAULT_EDGE_COLOR };
+  }
+  return parseOutline(text);
+}
+
+/** `--shadow 3`（深さだけ = x と y が同じ）/ `--shadow 2,2,#000000AA` / `--shadow none` */
+function parseShadowValue(raw: string, current: SubtitleStyle["shadow"]): SubtitleStyle["shadow"] {
+  const text = raw.trim();
+  if (text === "" || text.toLowerCase() === "none") return null;
+  if (!text.includes(",")) {
+    const depth = Number(text);
+    if (!Number.isFinite(depth) || depth < 0)
+      throw errors.usage(`invalid --shadow "${raw}"`, 'Use a depth in px ("3"), "x,y,#RRGGBB[AA]" or "none".');
+    return { x: depth, y: depth, color: current?.color ?? DEFAULT_EDGE_COLOR };
+  }
+  return parseShadow(text);
+}
+
 /** プリセット土台なしでスタイルを組み立てる（`base` は `subtitle set` のときの現在値） */
 function buildStyle(args: Args, base: SubtitleStyle): SubtitleStyle {
   const style: SubtitleStyle = { ...base };
@@ -130,6 +173,33 @@ function buildStyle(args: Args, base: SubtitleStyle): SubtitleStyle {
     assColor(color);
     style.color = color;
   }
+  if (has(args, "outline")) style.outline = parseOutlineValue(String(option(args, "outline")), style.outline);
+  if (has(args, "outline-color")) {
+    const color = String(option(args, "outline-color"));
+    assColor(color);
+    if (!style.outline || style.outline.width <= 0)
+      throw errors.usage(
+        "--outline-color needs an outline width",
+        'Pass --outline too (e.g. --outline 3 --outline-color "#000000").',
+      );
+    style.outline = { ...style.outline, color };
+  }
+  if (has(args, "bg")) {
+    const bg = String(option(args, "bg")).trim();
+    if (bg === "" || bg.toLowerCase() === "none") style.bg = null;
+    else {
+      assColor(bg);
+      style.bg = bg;
+    }
+  }
+  if (has(args, "bg-padding")) {
+    const padding = Number(option(args, "bg-padding"));
+    if (!Number.isFinite(padding) || padding < 0) throw errors.usage("--bg-padding must be >= 0");
+    style.bg_padding = padding;
+  }
+  if (has(args, "shadow")) style.shadow = parseShadowValue(String(option(args, "shadow")), style.shadow);
+  if (has(args, "position")) style.position = parsePosition(String(option(args, "position")));
+  if (has(args, "bold")) style.bold = Boolean(option(args, "bold"));
   if (has(args, "margin-bottom")) {
     const margin = Number(option(args, "margin-bottom"));
     if (!Number.isFinite(margin) || margin < 0) throw errors.usage("--margin-bottom must be >= 0");
@@ -235,6 +305,8 @@ export const subtitleAdd = defineCommand({
   },
   examples: [
     { cmd: 'montash subtitle add --asset ja_srt --mode burn --font "Noto Sans CJK JP" --size 40 --margin-bottom 60' },
+    { cmd: 'montash subtitle add --asset ja_srt --outline 3 --outline-color "#000000" --bold' },
+    { cmd: 'montash subtitle add --asset ja_srt --bg "#000000B3" --bg-padding 10' },
     { cmd: "montash subtitle add --asset ja_srt --mode soft --lang ja" },
   ],
   async handler(ctx, args: Args) {
@@ -286,14 +358,11 @@ export const subtitleAdd = defineCommand({
       track.clips.push(clip);
       track.clips.sort((a, b) => a.start_f - b.start_f);
 
-      if (
-        mode === "burn" &&
-        formatOf(project, assetId) === "ass" &&
-        (style.size !== undefined || style.font !== undefined)
-      )
+      // ASS 素材は素材自身の Style で焼くので、ここで指定したスタイルはどれも効かない
+      if (mode === "burn" && formatOf(project, assetId) === "ass" && Object.keys(style).length > 0)
         warnings.push({
           code: "W_SUBTITLE_STYLE_IGNORED",
-          message: `asset "${asset.id}" is an ASS file; its own styles win over --font/--size (docs/07 §7)`,
+          message: `asset "${asset.id}" is an ASS file; its own styles win over the style options (docs/07 §7)`,
         });
 
       return {
@@ -322,7 +391,10 @@ export const subtitleSet = defineCommand({
     mode: { type: "string", describe: "burn or soft", choices: ["burn", "soft"] as const },
     ...STYLE_OPTIONS,
   },
-  examples: [{ cmd: "montash subtitle set s1 --mode soft --lang ja" }],
+  examples: [
+    { cmd: "montash subtitle set s1 --mode soft --lang ja" },
+    { cmd: 'montash subtitle set s1 --bg "#000000B3" --position bottom-center --margin-bottom 80' },
+  ],
   async handler(ctx, args: Args) {
     const id = String(args.id);
     return runMutation(ctx, async ({ project, fps }) => {
@@ -339,7 +411,7 @@ export const subtitleSet = defineCommand({
       if (has(args, "lang")) clip.lang = String(option(args, "lang"));
       if (has(args, "offset")) clip.offset_f = parseOffsetFrames(String(option(args, "offset")), fps, warnings);
 
-      const style = buildStyle(args, clip.style as SubtitleStyle);
+      const style = buildStyle(args, clip.style);
       if (has(args, "font")) {
         const font = await resolveFontFamily(ctx, project, style.font);
         if (font !== undefined) style.font = font;
