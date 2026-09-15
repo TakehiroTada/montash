@@ -67,14 +67,33 @@
 
 ### M5. v1.0 — 11〜12 週目
 
+- **Phase 0: カーネル整備**（プラグイン以前の宿題。D-13〜D-18。詳細は `docs/plans/2026-09-15-plugin-architecture.md`）
+  - D-13 マイグレーション機構（`schema_version` 2→3 の土台）／ D-14 クリップ種別の開放（`type` 必須 + 未知種別は保持）／ D-15 エフェクトレジストリと挿入スロット
+  - D-16 プリセット統合（`createRegistry<T>()`）／ D-17 ID プレフィックス開放／ D-18 コマンド・機能宣言の合成
+  - **クリップ種別の開放は `schema_version` を上げる破壊的変更なので v1.0 より前に済ませる**
 - ドキュメント（本仕様と実装の差分ゼロ確認、`schema` から 04 章の表を自動生成）
 - パフォーマンス（N-3〜N-5）計測と改善
 - npm 公開（`bunx montash`）、`bun build --compile` による OS 別単一バイナリ（linux-x64 / linux-arm64 / darwin-arm64 / darwin-x64。WSL は linux バイナリ）のリリース、`install-deps.sh` からのバイナリ取得オプション
 - 10 章の AI 操作ガイドを実運用で検証（実際に LLM に指示して W-01〜W-14 を通す）
 
+### M6. プラグイン — 13〜15 週目
+
+拡張点をレジストリ化し、外部から機能を足せるようにする（F-EXT-1〜4）。計画: `docs/plans/2026-09-15-plugin-architecture.md`。
+
+- **Phase 1（宣言プラグイン）**: **W-18** を先に書き、`effect add|set|remove|list|presets` → `project.effects`（テンプレート宣言。コード実行なし）→ 組み込みエフェクト拡充（**F-FX-4 の LUT / F-FX-7 のぼかし・モザイク / F-FX-3 の回転・反転**を前倒し）→ generator / transition の開放
+- **Phase 2（外部プラグイン）**: **W-19**、`src/plugins/` ホスト（マニフェスト・探索順・`apiVersion`・host API）、`plugin list|install|remove|doctor`、`project.plugins.requires[]`、単一バイナリとの両立検証（B-2 と統合）、Level C（解析・プロセス）の `capabilities`
+- 完了条件: `W-18.sh` / `W-19.sh` が通る。プラグインを外した環境で同じ project.json が開け、レンダー時にだけ `E_PLUGIN_MISSING` が出る
+
+### M7. 拡張の I/O と Web — 16〜17 週目
+
+- importer / exporter レジストリ（`import` の probe 分岐と `render` プリセット解決をレジストリ経由に）
+- Web の **spec 駆動フォーム**（`GET /api/specs`。Inspector の固定 `<dl>` を置き換え、opaque クリップに「プラグイン不足」バッジ）
+- `serve --allow/--deny` の配線、プラグインの `webAllow` 宣言との合成
+- 汎用 commands プラグイン
+
 ### 以降（Could）
 
-- キーフレームアニメーション（F-FX-8）、ぼかし／モザイク（F-FX-7）、ネスト（F-TL-9）
+- キーフレームアニメーション（F-FX-8）、ネスト（F-TL-9）
 - レンダーキャッシュ（F-RD-10）
 - `suggest`（F-AI-6）
 - MCP サーバとしての公開（CLI と同じコマンド定義から自動生成）
