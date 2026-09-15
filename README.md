@@ -149,6 +149,9 @@ bun run doctor                              # = montash doctor
 bun run dev                                 # CLI を bun で直接実行（bun src/cli/index.ts ...）
 bun run dev -C ./my-edit serve --dev         # 作成済みプロジェクトで Web UI を開発（HMR）
 bun test                                    # 単体テスト
+bun run check                               # typecheck / lint / 仕様差分 / spikes の検証状況 / 単体テスト
+bun run verify                              # check + 手順の E2E（W-01〜W-19）。CI は動かさない運用なのでこれが正
+bun run spikes                              # Bun を上げたときに ADR の前提を再確認する（2 秒）
 bunx playwright install --with-deps chromium # ブラウザE2E用（初回）
 bash tests/workflows/run-all.sh              # 実装済み手順（W-01〜W-10, W-13〜W-17）を検証
 bun run lint                                # Biome（lint + format チェック）。bun run lint:fix で自動修正

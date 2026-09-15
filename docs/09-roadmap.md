@@ -72,7 +72,7 @@
   - D-15 エフェクトレジストリと挿入スロット（組み込みの色補正を builtin エフェクトへ載せ替え）
   - D-16 プリセット統合（`createRegistry<T>()`）／ D-17 ID プレフィックス開放／ D-18 コマンド・機能宣言の合成
   - D-13 マイグレーション機構は **deferred**。リリース前なので移行は提供せず、旧 `schema_version` は `E_SCHEMA_TOO_OLD` で拒否して作り直す
-- ドキュメント（本仕様と実装の差分ゼロ確認、`schema` から 04 章の表を自動生成）
+- ドキュメント（本仕様と実装の差分は `bun run check:spec` が検出する。C-5 で実装済み。04 章の表の自動生成までは行わない）
 - パフォーマンス（N-3〜N-5）計測と改善
 - npm 公開（`bunx montash`）、`bun build --compile` による OS 別単一バイナリ（linux-x64 / linux-arm64 / darwin-arm64 / darwin-x64。WSL は linux バイナリ）のリリース、`install-deps.sh` からのバイナリ取得オプション
 - 10 章の AI 操作ガイドを実運用で検証（実際に LLM に指示して W-01〜W-14 を通す）
