@@ -111,7 +111,7 @@ function describeEffect(ref: EffectRef, index: number, spec: EffectSpec | undefi
  */
 function recordPluginRequirement(project: Project, target: EffectTarget, effectName: string): void {
   const entry = effectRegistry(target).entry(effectName);
-  if (!entry || entry.source !== "plugin") return;
+  if (entry?.source !== "plugin") return;
   const owner = pluginOwnerOf(target, effectName);
   if (!owner) return;
 

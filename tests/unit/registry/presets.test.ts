@@ -58,7 +58,9 @@ describe("render_presets", () => {
     const p = project();
     p.render_presets = { mine: { base: "twitter", crf: 30 } };
     const table = resolvePresets(p);
-    expect(Object.keys(table)).toEqual([...Object.keys(BUILTIN_PRESETS), "mine"]);
+    // レジストリはプロセス内で 1 つなので、他のテストが登録したプラグイン由来は除いて比べる
+    const ownNames = Object.keys(table).filter((n) => table[n]?.source !== "plugin");
+    expect(ownNames).toEqual([...Object.keys(BUILTIN_PRESETS), "mine"]);
     expect(table["youtube-1080p"]?.source).toBe("builtin");
     expect(table.mine?.source).toBe("project");
     expect(table.mine?.base).toBe("twitter");
@@ -71,7 +73,8 @@ describe("render_presets", () => {
     p.render_presets = { "web-preview": { base: "twitter", crf: 30 } };
     const table = resolvePresets(p);
     // 並びは組み込みのまま（末尾に移動しない）
-    expect(Object.keys(table)).toEqual([...Object.keys(BUILTIN_PRESETS)]);
+    const ownNames2 = Object.keys(table).filter((n) => table[n]?.source !== "plugin");
+    expect(ownNames2).toEqual([...Object.keys(BUILTIN_PRESETS)]);
     expect(table["web-preview"]?.source).toBe("project");
     expect(table["web-preview"]?.base).toBe("twitter");
     expect(table["web-preview"]?.video?.crf).toBe(30);

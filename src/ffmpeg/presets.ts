@@ -245,6 +245,22 @@ const registry = createRegistry<PresetSpec>({
  * ユーザー定義は `base`（省略時 `youtube-1080p`）を継承し、指定したキーだけ上書きする。
  * `base` の循環は `E_USAGE`。
  */
+/**
+ * 出力プリセット（exporter）をプラグインから登録する（docs/14、計画 P3-1）。
+ *
+ * AviUtl2 の出力プラグイン（.auo2）に相当する拡張点。組み込みプリセットと同じ表に入り、
+ * `render --preset` / `render presets` から区別なく使える（`source` で出自が分かる）。
+ * **プロジェクト側の `render_presets` は従来どおり後勝ちで上書きできる。**
+ */
+export function registerExporter(name: string, spec: PresetSpec, source: RegistrySource = "plugin"): void {
+  registry.register(name, { ...spec, source }, source);
+}
+
+/** 登録済み（組み込み + プラグイン）の出力プリセット名 */
+export function exporterNames(): string[] {
+  return registry.names();
+}
+
 export function resolvePresets(project?: Pick<Project, "render_presets"> | null): Record<string, PresetSpec> {
   const out: Record<string, PresetSpec> = {};
   for (const entry of registry.resolve(project?.render_presets ?? {}).entries())

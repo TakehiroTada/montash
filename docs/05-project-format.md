@@ -359,6 +359,8 @@
 
 ## 10. `render_presets`（ユーザー定義）
 
+
+同名のキーによる上書きには癖がある（docs/13 D-20）。`base` 省略時の既定は `youtube-1080p` 固定で、その名前自身は上書きできない。確実なのは `base` に継承元を指定した**別名**として定義すること。
 ```jsonc
 {
   "client-review": { "base": "web-preview", "crf": 30, "resolution": "1280x720", "abitrate": "96k" }

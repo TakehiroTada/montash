@@ -7,6 +7,7 @@ import { type Asset, AssetSchema } from "../../core/schema.ts";
 import { locateBinaries } from "../../ffmpeg/locate.ts";
 import { durationFrames, probeFile } from "../../ffmpeg/probe.ts";
 import { assetCacheDir, buildProxy, proxyEligible } from "../../ffmpeg/proxy.ts";
+import { DEFAULT_IMPORTER, importerFor, importers } from "../../registry/io.ts";
 import { defineCommand } from "../define-command.ts";
 import { ExitCode, errors, MontashError, toMontashError, warning } from "../errors.ts";
 import { runMutation } from "../mutate.ts";
@@ -89,35 +90,23 @@ export const importAssets = defineCommand({
             hash_head: `sha256:${new Bun.CryptoHasher("sha256").update(head).digest("hex")}`,
             tags: [],
           };
+          // 拡張子 → importer（docs/14）。名乗り出るものが無ければ ffprobe に任せる既定へ落とす
           const ext = extension(source);
-          let asset: Asset;
           let raw: unknown;
-          if (ext === "txt" || ext === "md") {
-            const text = new TextDecoder("utf-8", { fatal: true }).decode(await Bun.file(source).arrayBuffer());
-            asset = AssetSchema.parse({
-              ...base,
-              type: "text",
-              duration_s: null,
-              duration_f: null,
-              text_preview: text.slice(0, 200),
-              line_count: text.split(/\r?\n/).length,
-            });
-          } else if (["srt", "ass", "vtt"].includes(ext)) {
-            asset = AssetSchema.parse({ ...base, type: "subtitle", format: ext });
-          } else {
-            const probe = await probeFile(bins, source);
-            raw = probe.raw;
-            const { container, ...summary } = probe.summary;
-            asset = AssetSchema.parse({
-              ...base,
-              ...summary,
-              container: {
-                format: container.format,
-                ...(container.bit_rate === null ? {} : { bit_rate: container.bit_rate }),
-              },
-              duration_f: summary.duration_s === null ? null : durationFrames(summary.duration_s, fps),
-            });
-          }
+          const importer = importerFor(ext) ?? importers.require(DEFAULT_IMPORTER);
+          const fields = await importer.build({
+            path: source,
+            extension: ext,
+            fps,
+            toFrames: (seconds) => durationFrames(seconds, fps),
+            read: async () => new TextDecoder("utf-8", { fatal: true }).decode(await Bun.file(source).arrayBuffer()),
+            probe: async () => {
+              const probe = await probeFile(bins, source);
+              raw = probe.raw;
+              return { summary: probe.summary as unknown as Record<string, unknown>, raw: probe.raw };
+            },
+          });
+          const asset: Asset = AssetSchema.parse({ ...base, ...fields });
           if (args.copy) asset.path = join("assets", `${id}-${crypto.randomUUID()}${extname(basename(source))}`);
           staged.push({ asset, source, raw });
           used.add(id);

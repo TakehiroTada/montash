@@ -91,6 +91,8 @@ export default {
 | `host.effects.define(spec)` | エフェクトを登録（`source: "plugin"`） |
 | `host.generators.define(spec)` | ジェネレータを登録 |
 | `host.transitions.define(spec)` | トランジションを登録 |
+| `host.importers.define(spec)` | 取り込み形式を登録（AviUtl2 の `.aui2` 相当）※ 配線は後続 |
+| `host.exporters.define(name, preset)` | 出力プリセットを登録（`.auo2` 相当）※ 配線は後続 |
 | `host.requireFeatures(requires)` | 追加の ffmpeg 機能要求 |
 | `host.capabilities` | 宣言した能力（未宣言は `false`） |
 | `host.manifest` / `host.apiVersion` | 自分のマニフェスト／ホストの API バージョン |
@@ -137,6 +139,24 @@ host.effects.define({
 ### 4.2 `process`（未実装）
 
 外部プロセスの起動。importer / exporter（Phase 3）で使う予定で、現状は宣言だけを受け付ける。
+
+## 4.3 入出力（importer / exporter）
+
+`src/registry/io.ts`（importer）と `src/ffmpeg/presets.ts`（exporter）。
+
+**importer** は「拡張子 → アセットの作り方」。ホストが渡す `ctx` 経由でしか I/O できない。
+
+| `ctx` のメンバ | できること |
+|----------------|-----------|
+| `ctx.read()` | **取り込もうとしているファイルだけ**を読む（任意のパスは読めない） |
+| `ctx.probe()` | そのファイルに ffprobe をかける |
+| `ctx.toFrames(sec)` | プロジェクト fps でフレーム化 |
+
+組み込みは `text`（.txt / .md）/ `subtitle`（.srt / .ass / .vtt）/ `media`（ffprobe に任せる既定）の 3 つで、**どれも同じ契約で書かれている**。拡張子を主張する importer が無ければ `media` に落ちる。
+
+**exporter** は出力プリセットの供給元で、`render_presets` の一般化。`registerExporter()` で登録すると `render --preset` / `render presets` から組み込みと区別なく使える（`source` で出自が分かる）。
+
+> 既知の制約: `project.render_presets` からの同名上書きには癖がある（docs/13 D-20）。プラグインのプリセットを調整したいときは、`base` に指定した**別名**として定義するのが確実。
 
 ## 5. 探索と読み込み
 
