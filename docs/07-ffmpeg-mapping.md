@@ -89,6 +89,9 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
 | `lut3d` | video | `file`（**必須**）、`interp`（`nearest` / `trilinear` / `tetrahedral` / `pyramid` / `prism`） | `lut3d=file='{file}'[:interp={interp}]` | `lut3d` | F-FX-4 |
 | `flip` | video | `direction`（`horizontal` / `vertical` / `both`） | `hflip` / `vflip` / `hflip,vflip` | `hflip`, `vflip` | F-FX-3 |
 | `rotate` | video | `angle`（**必須**。`"90"` / `"180"` / `"270"` の文字列）、`fit`（true） | 下記 | `transpose`, `hflip`, `vflip` | F-FX-3 |
+| `denoise` | audio | `amount`（12、0.01〜97 dB）、`floor`（-50、-80〜-20 dB）、`highpass`（80、0〜300 Hz。0 で無効） | `[highpass=f={highpass},]afftdn=nr={amount}:nf={floor}:nt=w` | `afftdn`, `highpass` | F-FX-7 |
+| `eq` | audio | `highpass`、`lowpass`、`frequency` + `gain`（対）、`width`（1、Q 値） | `highpass=f=…` / `lowpass=f=…` / `equalizer=f=…:t=q:w=…:g=…` | `highpass`, `lowpass`, `equalizer` | F-FX-7 |
+| `compress` | audio | `threshold`（-18、-60〜0 dB）、`ratio`（3、1〜20）、`attack`（20ms）、`release`（250ms）、`makeup`（0、0〜36 dB） | `acompressor=threshold={10^(th/20)}:ratio=…:attack=…:release=…:makeup={10^(mk/20)}` | `acompressor` | F-FX-7 |
 
 - `color` は `clip.video.color` の実体。指定されたキーだけを固定順に並べる（何も指定が無ければフィルタを足さない）。
 - `blur` は `sigma=0` のときフィルタを足さない。`steps` は 1 以外のときだけ出す。
@@ -103,6 +106,11 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
   ```
 
   180 は大きさが変わらないので `hflip,vflip` だけ（`transpose` 2 回より安い）。overlay の `native` クリップは戻す先がタイムライン解像度ではないので `fit: false` を指定して回転だけを掛ける。余白の色は `pad` の既定（黒）で、`settings.background` を変えている場合だけ色が食い違う。
+- **音声の 3 種**（`denoise` / `eq` / `compress`）は `normalizeAudioClip` の `volume=…dB` のあと・`afade` の前に入る（§8a）。映像とはレジストリが別なので、音声の `eq`（トーン調整）と映像の `color` が使う ffmpeg の `eq` フィルタは別物。
+- `denoise` が `arnndn` ではなく `afftdn` なのは、**`arnndn` が学習済みモデルファイル（`.rnnn`）を必須にする**から。ffmpeg にも montash にも同梱されず、既定値を決められない必須パラメータを持つ組み込みは「追加した瞬間に動く」という前提を壊す（モデルを持っている人はプラグインで足せる）。`anlmdn` はモデル不要だが桁違いに重く、`s` / `p` / `r` に物理単位が無くて実用的な既定を決めにくい。`afftdn` は **nr / nf が dB という測れる単位**で、実測でも無音部のノイズフロアが **-64.9dB → -74.3dB（9.4dB 低減）**（`amount` 10 / `floor` -50 / `highpass` 80）。`nt=w`（白色雑音）は固定 — `vinyl` / `shellac` はレコード修復用、`custom` は帯域テーブルが別に要る。
+- `eq` は `color` と同じ「**指定されたものだけを出す**」規則（既定値を持たず、何も指定が無ければフィルタを 1 つも足さない）。トーン調整に万人向けの既定カーブは無いため。`frequency` と `gain` は**対**で意味を持つので、片方だけの指定は黙って無視せず `E_USAGE`。`lowpass` の上限はサンプルレート次第でナイキスト周波数を超え得るが、超過分は ffmpeg 側でクリップされるだけなので弾かない（弾くと「48k では通るが 44.1k では落ちる」プロジェクトができてしまう）。
+- `compress` の `threshold` / `makeup` は **dB で受けて線形振幅（`10^(dB/20)`）に直して渡す**（ffmpeg の `acompressor` がその単位。§8.3 の `sidechaincompress` と同じ事情）。montash の音量表現は全て dB なので単位を揃える。パラメータの範囲は**そのまま ffmpeg の受け付ける範囲に収まる**ように決めてあるので丸めは要らない（-60dB → 0.001 ≧ 0.000976563、0dB → 1、makeup 36dB → 63.1 ≦ 64）。
+- **`deesser`（歯擦音の抑制）は入れない。** ffmpeg にフィルタ自体はあるが、`i` / `m` / `f` がいずれも 0〜1 の無次元量で、`f` は「元の周波数成分をどれだけ残すか」であって**カットする帯域（Hz）を指定できない** — 歯擦音の 5〜8kHz を狙うという de-esser の本質が表現できない。`i` の既定は 0（= 何もしない）で、耳で合わせる以外に再現可能な既定の決め方が無い。帯域を決め打ちで下げるなら `eq` の狭い負ゲイン（例 `--frequency 7000 --gain -6 --width 4`）で足りる。本物の分割帯域 de-esser は `asplit` + 側鎖が要るが、**`build()` が返すのは 1 本の線形チェーン**なので分岐するグラフは表現できない（作るならレジストリ契約の拡張が先）。
 - `clip.video.lut`（クリップ直下の LUT フィールド）は**引き続き未対応**（`E_NOT_IMPLEMENTED`）。LUT は `effects[]` の `lut3d` を使う。
 - エフェクトが宣言した `requires`（必要な ffmpeg フィルタ）は `registry/requirements.ts` 経由で `doctor` の検査対象に合成される。
 - 未登録の種別は `E_PLUGIN_MISSING`（「未実装」ではなく**プラグイン不足**として扱う）。
@@ -297,7 +305,17 @@ libass 無しの環境のみ。テキストクリップごとに `drawtext=fontf
 
 `normalizeAudioClip` のチェーンで `volume=…dB` の直後、`afade` の前に `effects[]` を配列順で差し込む。対象は `target: "audio"` のエフェクトのみで、映像とはレジストリが別（同名でも混ざらない）。
 
-**組み込みの音声エフェクトはまだ無い**（計画 P1-3 は映像だけ）。スロットと契約は用意してあるので、宣言エフェクト（Phase 1）とプラグイン（Phase 2）はそのまま載る。
+組み込みは **`denoise` / `eq` / `compress`** の 3 種（§3a の表。映像と同じ `defineEffect` + 純関数の `build()` で書いてある）。典型的な喋りの下ごしらえは、この順に重ねる:
+
+```
+volume={gain_db}dB
+  → highpass=f=80, afftdn=nr=10:nf=-50:nt=w        # denoise（環境ノイズと低域のゴロつき）
+  → equalizer=f=3000:t=q:w=1:g=3                   # eq（子音を立てて明瞭度を上げる）
+  → acompressor=threshold=0.1:ratio=4:...          # compress（声のばらつきを均す）
+  → afade=…
+```
+
+エフェクトを 1 つも持たないクリップのフィルタは**従来と 1 文字も変わらない**（`buildEffectFilters()` が空配列を返す）。マスタの `loudnorm`（§8.4）はこの後段のトラック合成で掛かるので、クリップ単位の `compress` とは役割が別（前者は全体の平均音量合わせ、後者はクリップ内の山谷の圧縮）。
 
 ## 9. 出力段（レンダー）
 

@@ -132,8 +132,22 @@ describe("buildCli()", () => {
 describe("ffmpeg 機能要求の合成", () => {
   // 組み込みエフェクト（`registry/effects.ts`）が宣言したフィルタは、拡張の登録が空でも常に足される
   // （docs/13 D-15、計画 P1-3）。組み込み由来なので `clearRegisteredRequirements()` では消えない。
-  // 並びは BUILTIN_VIDEO_EFFECTS の宣言順（color / blur / mosaic / lut3d / flip / rotate）の重複除去。
-  const BUILTIN_EFFECT_FILTERS = ["eq", "gblur", "pixelize", "lut3d", "hflip", "vflip", "transpose"];
+  // 並びは BUILTIN_VIDEO_EFFECTS の宣言順（color / blur / mosaic / lut3d / flip / rotate）に
+  // BUILTIN_AUDIO_EFFECTS の宣言順（denoise / eq / compress）を継いだものの重複除去。
+  const BUILTIN_EFFECT_FILTERS = [
+    "eq",
+    "gblur",
+    "pixelize",
+    "lut3d",
+    "hflip",
+    "vflip",
+    "transpose",
+    "afftdn",
+    "highpass",
+    "lowpass",
+    "equalizer",
+    "acompressor",
+  ];
   const baseFilters = [...REQUIRED_FILTERS, ...BUILTIN_EFFECT_FILTERS];
 
   test("拡張の登録が空なら、組み込み由来のぶんだけが足された集合", () => {
