@@ -108,7 +108,7 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
 - 未登録の種別は `E_PLUGIN_MISSING`（「未実装」ではなく**プラグイン不足**として扱う）。
 - キーフレーム（`keyframes`）は `E_NOT_IMPLEMENTED`（F-FX-8）。
 - **解析つきエフェクト（Level C）** は、レンダー前に `ffmpeg/effect-analysis.ts` が測定パスを走らせ、結果を `GraphOptions.effectAnalyses` として注入する（ducking / loudnorm と同じ形）。`graph/` は純関数のまま。
-- **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）を参照するエフェクトはここが穴で、**パスが同じまま中身を差し替えても無効化されない**（`lut3d` が唯一の該当。§11、docs/13 D-19）。当面の回避策は `preview build --force`、またはファイル名を変えること。
+- **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）は `filterComplex` に**パスしか出ない**ので、`EffectSpec.externalFiles(params)` で参照先を申告する（純関数。組み込みでは `lut3d` が唯一の該当）。申告されたファイルは `ffmpeg/effect-files.ts` が stat し、mtime / size を指紋に混ぜる（§11.1、docs/13 D-19）。**申告しないエフェクトの指紋は従来どおり。**
 
 ## 3b. ジェネレータ（レジストリ）
 
@@ -342,7 +342,11 @@ ffmpeg -i A -vf "fps={num}/{den},scale=-2:{height},format=yuv420p" -c:v libx264 
 3. 無いセグメントだけ §2〜§7 の映像グラフを `--from_f/--to_f` で生成する（入力はプロキシ、`-an`、出力は `libx264 -preset ultrafast -crf 30 -g 30 -pix_fmt yuv420p -r {num}/{den}`、全セグメント同一パラメータ）。`--parallel N` で並列。テキストは **セグメント開始を 0 とした時刻にシフトした ASS** を生成して焼く。
 4. `ffmpeg -f concat -safe 0 -i list.txt -c copy video.mp4`（無再エンコード。全セグメントがフレーム数で切れているため継ぎ目は正確）。
 
-> **指紋の穴（docs/13 D-19）**: 2 のハッシュは `filterComplex` 由来なので、エフェクトの増減・パラメータ変更には自動で追随する。ただし **外部ファイルを参照するエフェクト（`lut3d`）は、パスが同じまま中身を差し替えても無効化されない**。当面は `preview build --force`（またはファイル名を変える）で回避する。
+> **外部ファイルを参照するエフェクト（docs/13 D-19）**: 2 のハッシュは `filterComplex` 由来なので、エフェクトの増減・パラメータ変更には自動で追随する。`lut3d` のように外部ファイルを**パス**で参照するエフェクトは、パスが同じまま中身が差し替わっても `filterComplex` が変わらないため、`EffectSpec.externalFiles(params)` で参照先を申告する。ホストはそのパスを stat し、`{ path, size, mtime }` をセグメント指紋・音声指紋・`previewFingerprint()`（ready / stale の判定）に混ぜる。
+>
+> - I/O は `ffmpeg/effect-files.ts` だけで行い、`graph/` と `registry/` は純関数のまま（loudnorm / ducking / effect-analysis と同じ「外で測って値で渡す」パターン）。
+> - 相対パスはアセットと同じくプロジェクトディレクトリ基準。存在しないファイルは size / mtime なしで通す（レンダー時に ffmpeg のエラーになる）。
+> - **申告が 1 件も無ければ指紋の材料に何も足さない**ので、ハッシュは従来と一致する（既存のセグメントキャッシュは無効化されない）。
 
 ### 11.2 音声（全体 1 パス）
 

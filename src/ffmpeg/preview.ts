@@ -18,6 +18,12 @@ import { canonicalHash } from "../core/history/hash.ts";
 import { atomicWrite, hashProject, projectPaths } from "../core/project.ts";
 import { type Asset, clipEndF, type Fps, type Project, type Resolution } from "../core/schema.ts";
 import { resolveAssetPath, validateProject } from "../core/validate.ts";
+import {
+  audioExternalFiles,
+  fingerprintExternalFiles,
+  projectExternalFiles,
+  segmentExternalFiles,
+} from "./effect-files.ts";
 import { buildGraph } from "./graph/builder.ts";
 import { serializeGraph } from "./graph/serialize.ts";
 import { type Binaries, locateBinaries } from "./locate.ts";
@@ -98,14 +104,21 @@ async function fileFingerprint(path: string) {
   return { path, size: info?.size, mtime: info?.mtimeMs, ctime: info?.ctimeMs };
 }
 
-/** project.json の内容 + 参照する素材ファイルの指紋 + 出力解像度 */
+/**
+ * project.json の内容 + 参照する素材ファイルの指紋 + 出力解像度。
+ *
+ * エフェクトが申告した外部ファイル（`lut3d` の LUT など。docs/13 D-19）も、**申告があるときだけ**
+ * mtime / size を混ぜる。申告するエフェクトが 1 つも無ければ `external` は `undefined` で
+ * `canonicalJson` から落ちるので、**従来と同じハッシュ**になる（既存のキャッシュは無効化されない）。
+ */
 export async function previewFingerprint(project: Project, dir: string, height?: number): Promise<string> {
   const sources = await Promise.all(
     Object.entries(project.assets)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(async ([id, asset]) => ({ id, ...(await fileFingerprint(resolveAssetPath(dir, asset.path))) })),
   );
-  return canonicalHash({ version: 2, project, sources, resolution: previewResolution(project, height) });
+  const external = await fingerprintExternalFiles(dir, projectExternalFiles(project));
+  return canonicalHash({ version: 2, project, sources, resolution: previewResolution(project, height), external });
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +341,9 @@ export async function buildPreviewPlan(
       ...(text.burn !== undefined ? { text: text.burn } : {}),
     });
     for (const w of text.warnings) if (!warnings.some((x) => x.code === w.code)) warnings.push(w);
+    // エフェクトが申告した外部ファイル（LUT など）は filterComplex にパスしか出ないので、
+    // mtime / size を別に混ぜる（docs/13 D-19）。申告が無ければ undefined → 従来と同じハッシュ。
+    const external = await fingerprintExternalFiles(dir, segmentExternalFiles(project, range));
     // 位置が動いただけの同一内容はキャッシュを共有できるよう、区間ローカルのグラフだけをハッシュする
     const hash = canonicalHash({
       version: 3,
@@ -336,6 +352,7 @@ export async function buildPreviewPlan(
       resolution: res,
       filter: graph.filterComplex,
       inputs: fingerprintInputs(graph.inputs, sources),
+      external,
     });
     const clips: string[] = [];
     for (const track of project.tracks) {
@@ -384,6 +401,8 @@ export async function buildPreviewPlan(
     channels: project.settings.channels,
     filter: audioGraph.filterComplex,
     inputs: fingerprintInputs(audioGraph.inputs, sources),
+    // 音声エフェクトが外部ファイル（IR ファイルなど）を申告したときだけ混ざる（docs/13 D-19）
+    external: await fingerprintExternalFiles(dir, audioExternalFiles(project)),
   });
   const audioArgs = (output: string): string[] =>
     serializeGraph(audioGraph, {

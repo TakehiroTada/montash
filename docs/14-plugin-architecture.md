@@ -219,7 +219,7 @@ host.effects.define({
 
 **exporter** は出力プリセットの供給元で、`render_presets` の一般化。`registerExporter()` で登録すると `render --preset` / `render presets` から組み込みと区別なく使える（`source` で出自が分かる）。
 
-> 既知の制約: `project.render_presets` からの同名上書きには癖がある（docs/13 D-20）。プラグインのプリセットを調整したいときは、`base` に指定した**別名**として定義するのが確実。
+プロジェクト側の `project.render_presets` は、**供給元が組み込みでもプラグインでも同じ規則**で同名上書きできる（docs/05 §10、docs/13 D-20）。`base` を省略した同名エントリは「登録済みの同名エントリ自身」を継承元にするので、プラグインのプリセットから `crf` だけ差し替える、といった調整がそのまま書ける。
 
 ## 5. 探索と読み込み
 

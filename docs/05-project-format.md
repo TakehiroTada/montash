@@ -360,10 +360,19 @@
 ## 10. `render_presets`（ユーザー定義）
 
 
-同名のキーによる上書きには癖がある（docs/13 D-20）。`base` 省略時の既定は `youtube-1080p` 固定で、その名前自身は上書きできない。確実なのは `base` に継承元を指定した**別名**として定義すること。
+`base` に継承元のプリセット名を書き、上書きしたいキーだけを並べる。`base` を**省略したときの既定**は:
+
+- **同名の登録済みプリセットがあれば、それ自身**（＝そのプリセットをキー単位で上書きする）。供給元が組み込みでもプラグイン（exporter）でも同じ規則なので、`youtube-1080p` を含めどの名前でも上書きできる
+- 同名が無ければ新規定義なので `youtube-1080p`
+
+`base` の連鎖が循環したら `E_USAGE`（`... inherits from itself (base loop)`）。自分自身を `base` に明示した場合も同じ。
+
 ```jsonc
 {
-  "client-review": { "base": "web-preview", "crf": 30, "resolution": "1280x720", "abitrate": "96k" }
+  // 別名として派生させる
+  "client-review": { "base": "web-preview", "crf": 30, "resolution": "1280x720", "abitrate": "96k" },
+  // 同名の上書き（base 省略 = 元の youtube-1080p を継承して crf だけ差し替える）
+  "youtube-1080p": { "crf": 20 }
 }
 ```
 

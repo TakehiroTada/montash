@@ -112,3 +112,75 @@ describe("render_presets", () => {
     expect(() => resolvePresets(p)).toThrow(/base loop/);
   });
 });
+
+/**
+ * docs/13 D-20: `base` 省略時の既定を「登録済みの同名エントリ自身」にした。
+ * 供給元（builtin / plugin）によらず同じ規則で上書きでき、`youtube-1080p` 自身も上書きできる。
+ */
+describe("render_presets の同名上書き（D-20）", () => {
+  test("base 省略で組み込みを上書きできる（指定キーだけ差し替え）", () => {
+    const p = project();
+    p.render_presets = { "web-preview": { crf: 33, note: "mine" } };
+    const table = resolvePresets(p);
+    expect(table["web-preview"]?.source).toBe("project");
+    expect(table["web-preview"]?.note).toBe("mine");
+    expect(table["web-preview"]?.video?.crf).toBe(33);
+    // 指定していないキーは組み込みのまま
+    expect(table["web-preview"]?.video?.codec).toBe("libx264");
+    expect(table["web-preview"]?.video?.speed).toBe("veryfast");
+    expect(table["web-preview"]?.resolution).toEqual({ width: 1280, height: 720 });
+    // 同名の上書きでは base を名乗らない（自分自身を継承しているだけ）
+    expect(table["web-preview"]?.base).toBeUndefined();
+    // 組み込みの表そのものは汚れない
+    expect(BUILTIN_PRESETS["web-preview"]?.video?.crf).toBe(28);
+  });
+
+  test("既定 base の名前（youtube-1080p）自身も base 省略で上書きできる", () => {
+    const p = project();
+    p.render_presets = { "youtube-1080p": { crf: 12, note: "archival" } };
+    const table = resolvePresets(p);
+    expect(table["youtube-1080p"]?.source).toBe("project");
+    expect(table["youtube-1080p"]?.video?.crf).toBe(12);
+    expect(table["youtube-1080p"]?.note).toBe("archival");
+    expect(table["youtube-1080p"]?.resolution).toEqual({ width: 1920, height: 1080 });
+    // 他のプリセットは巻き込まれない
+    expect(table["web-preview"]?.video?.crf).toBe(28);
+  });
+
+  test("youtube-1080p を上書きしても、base 省略の新規定義は上書き後の値を継承する", () => {
+    const p = project();
+    p.render_presets = { "youtube-1080p": { crf: 12 }, mine: { note: "new" } };
+    const table = resolvePresets(p);
+    expect(table.mine?.base).toBe("youtube-1080p");
+    expect(table.mine?.video?.crf).toBe(12);
+  });
+
+  test("新規定義は従来どおり youtube-1080p を既定 base にする", () => {
+    const p = project();
+    p.render_presets = { mine: { note: "new" } };
+    const table = resolvePresets(p);
+    expect(table.mine?.base).toBe("youtube-1080p");
+    expect(table.mine?.resolution).toEqual({ width: 1920, height: 1080 });
+    expect(table.mine?.video?.crf).toBe(18);
+  });
+
+  test("base 明示による派生は従来どおり", () => {
+    const p = project();
+    p.render_presets = { "client-review": { base: "web-preview", crf: 30, abitrate: "96k" } };
+    const table = resolvePresets(p);
+    expect(table["client-review"]?.base).toBe("web-preview");
+    expect(table["client-review"]?.video?.crf).toBe(30);
+    expect(table["client-review"]?.audio?.bitrate).toBe("96k");
+    expect(table["client-review"]?.source).toBe("project");
+  });
+
+  test("base を明示した自己参照・相互参照はこれまでどおり E_USAGE", () => {
+    const p = project();
+    p.render_presets = { "youtube-1080p": { base: "youtube-1080p" } };
+    expect(() => resolvePresets(p)).toThrow(/base loop/);
+    p.render_presets = { gif: { base: "gif", fps: 24 } };
+    expect(() => resolvePresets(p)).toThrow(/base loop/);
+    p.render_presets = { a: { base: "b" }, b: { base: "a" } };
+    expect(() => resolvePresets(p)).toThrow(/base loop/);
+  });
+});

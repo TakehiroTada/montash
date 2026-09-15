@@ -213,19 +213,34 @@ const USER_KEYS = [
   "faststart",
 ] as const;
 
+/** 既定の継承元（同名の登録済みエントリが無いときだけ使う） */
+const DEFAULT_BASE = "youtube-1080p";
+
 /**
  * 組み込み + 外部由来のマージは `registry/` の共通基盤に載せてある（docs/13 D-16）。
- * ユーザー定義は `base`（省略時 `youtube-1080p`）を継承するので、`merge()` の中で
- * `ctx.resolve()` を使って解決中の表を引く（循環は `E_USAGE`）。
+ * ユーザー定義は `base` を継承するので、`merge()` の中で `ctx.resolve()` を使って
+ * 解決中の表を引く（循環は `E_USAGE`）。
+ *
+ * `base` 省略時の既定（docs/13 D-20）:
+ *   - **同名の登録済みエントリがあれば、それ自身**（＝上書き。供給元が `builtin` でも `plugin` でも同じ規則）
+ *   - 無ければ新規定義なので `youtube-1080p`
+ *
+ * 以前は無条件に `youtube-1080p` だったため、`youtube-1080p` 自身を上書きしようとすると
+ * `base` が自分を指し `E_USAGE`（`inherits from itself`）で落ちていた。
  */
 const registry = createRegistry<PresetSpec>({
   label: "render preset",
   builtin: BUILTIN_PRESETS,
   allowedKeys: USER_KEYS,
-  merge: (_base, raw, ctx) => {
+  merge: (base, raw, ctx) => {
     const spec = raw as Record<string, unknown>;
-    const baseName = typeof spec.base === "string" ? spec.base : "youtube-1080p";
-    return { ...applyUserOverrides(ctx.name, ctx.resolve(baseName), spec), base: baseName };
+    // `base` 明示 → その名前を解決（自分自身を指せば従来どおり base loop）
+    if (typeof spec.base === "string")
+      return { ...applyUserOverrides(ctx.name, ctx.resolve(spec.base), spec), base: spec.base };
+    // `base` 省略 + 同名が登録済み → それ自身を継承元にする（＝キー単位の上書き）
+    if (base !== undefined) return applyUserOverrides(ctx.name, base, spec);
+    // `base` 省略 + 新規定義 → 既定の継承元
+    return { ...applyUserOverrides(ctx.name, ctx.resolve(DEFAULT_BASE), spec), base: DEFAULT_BASE };
   },
   notFound: (name, known) => unknownPreset(name, known),
   loop: (name) =>
@@ -242,8 +257,8 @@ const registry = createRegistry<PresetSpec>({
 
 /**
  * 組み込み + `project.render_presets` を解決した表を返す。
- * ユーザー定義は `base`（省略時 `youtube-1080p`）を継承し、指定したキーだけ上書きする。
- * `base` の循環は `E_USAGE`。
+ * ユーザー定義は `base`（省略時は**同名の登録済みエントリ自身**、無ければ `youtube-1080p`）を
+ * 継承し、指定したキーだけ上書きする。`base` の循環は `E_USAGE`。
  */
 /**
  * 出力プリセット（exporter）をプラグインから登録する（docs/14、計画 P3-1）。

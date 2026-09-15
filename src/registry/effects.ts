@@ -79,6 +79,19 @@ export interface EffectSpec {
    * 宣言していないエフェクトの `analyze` はホストが呼ばない。
    */
   analyze?(params: Readonly<Record<string, unknown>>, ctx: EffectAnalyzeContext): Promise<unknown>;
+  /**
+   * このエフェクトが `params` から参照する**外部ファイル**のパスを申告する（docs/13 D-19）。
+   *
+   * `preview` のセグメントキャッシュ指紋は `filterComplex` 由来なので、ファイル**パス**が変われば
+   * 無効化されるが、同じパスのまま**中身**を差し替えても無効化されない。そこで申告されたファイルの
+   * mtime / size を指紋へ混ぜる（`ffmpeg/effect-files.ts` が stat し、`ffmpeg/preview.ts` が混ぜる）。
+   *
+   * - **純関数であること。** ここで `node:fs` を触ってはいけない（`registry/` に I/O は持ち込まない）。
+   *   存在確認もしない — 返すのは「パスとして宣言されている文字列」だけ。
+   * - 相対パスはプロジェクトディレクトリ基準として解決される（アセットのパスと同じ規則）。
+   * - **申告しないエフェクトの指紋は従来どおり**（何も混ざらない）。
+   */
+  externalFiles?(params: Readonly<Record<string, unknown>>): readonly string[];
 }
 
 /** `analyze()` に渡る文脈。ffmpeg の実行はホストが仲介する（プラグインは直接起動しない） */
@@ -217,12 +230,11 @@ function escapeFilterPath(value: string): string {
  * 3D LUT の適用（F-FX-4）。`lut3d` は FFmpeg 2.4 以降。
  *
  * **注意: 外部ファイルを参照する唯一の組み込みエフェクト。**
- * `preview` のセグメントキャッシュ指紋は `filterComplex` 由来（docs/07 §11）なので、**LUT ファイルの
- * パスが変われば無効化されるが、同じパスのまま中身を差し替えても無効化されない**（古いプレビューが残る）。
- * 指紋に外部入力を混ぜる対応は本 PR では行わず、課題として docs/13 D-19 に起票してある。
- * 回避策は `preview build --force`（またはファイル名を変える）。
+ * `preview` のセグメントキャッシュ指紋は `filterComplex` 由来（docs/07 §11）なので、LUT ファイルの
+ * パスが変われば無効化されるが、**同じパスのまま中身を差し替えたときは指紋に出ない**。
+ * そのため `externalFiles()` で LUT ファイルを申告し、その mtime / size を指紋へ混ぜてもらう（docs/13 D-19）。
  *
- * `build()` は純関数なので**ファイルの存在確認はしない**（`registry/` に I/O は持ち込まない）。
+ * `build()` も `externalFiles()` も純関数なので**ファイルの存在確認はしない**（`registry/` に I/O は持ち込まない）。
  * 存在しない LUT はレンダー時に ffmpeg 側のエラーになる。
  */
 export const lut3dEffect: EffectSpec = defineEffect({
@@ -247,6 +259,10 @@ export const lut3dEffect: EffectSpec = defineEffect({
     const parts = [`file='${escapeFilterPath(file)}'`];
     if (typeof params.interp === "string") parts.push(`interp=${params.interp}`);
     return [`lut3d=${parts.join(":")}`];
+  },
+  externalFiles(params) {
+    const file = typeof params.file === "string" ? params.file.trim() : "";
+    return file === "" ? [] : [file];
   },
 });
 
@@ -445,6 +461,41 @@ export function buildEffectFilters(
 /** 解析結果を引くためのキー（クリップ内で同じ効果を 2 度掛けたら同じ解析を共有する） */
 export function analysisKey(target: EffectTarget, effectName: string): string {
   return `${target}:${effectName}`;
+}
+
+/**
+ * `effects[]` が申告した外部ファイルのパスを重複なく集める（純関数。docs/13 D-19）。
+ *
+ * - 申告していない（`externalFiles` を持たない）エフェクトは何も出さない → 指紋は従来どおり
+ * - 未登録の種別・壊れた `params` では**投げずに黙って飛ばす**。ここは指紋の材料を集めるだけで、
+ *   値の検査は `buildEffectFilters()`（レンダー経路）の仕事だから
+ */
+export function collectExternalFiles(
+  target: EffectTarget,
+  effects: readonly EffectRef[] | undefined,
+): readonly string[] {
+  if (!effects || effects.length === 0) return [];
+  const registry = effectRegistry(target);
+  const out: string[] = [];
+  for (const ref of effects) {
+    const spec = registry.get(ref.type);
+    if (!spec?.externalFiles) continue;
+    const raw = ref.params ?? {};
+    let params: Readonly<Record<string, unknown>> = raw;
+    try {
+      params = resolveEffectParams(spec, raw);
+    } catch {
+      /* 既定値・範囲の検査で落ちる値でも、宣言されたパスは指紋に載せたい */
+    }
+    let files: readonly string[];
+    try {
+      files = spec.externalFiles(params);
+    } catch {
+      continue;
+    }
+    for (const file of files) if (typeof file === "string" && file !== "" && !out.includes(file)) out.push(file);
+  }
+  return out;
 }
 
 /** そのクリップに、解析が要るエフェクトが含まれているか */

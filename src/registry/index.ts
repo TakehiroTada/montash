@@ -156,12 +156,20 @@ export function createRegistry<T>(options: RegistryOptions<T>): Registry<T> {
     const user = external ?? {};
     const map = new Map(registered);
     const resolving = new Set<string>();
+    /**
+     * この解決パスで外部由来をすでにマージし終えた名前（docs/13 D-20）。
+     *
+     * 以前はここを `existing.source !== "builtin"` で判定していた。そのため
+     * **`register()` で入った `plugin` 由来のエントリが外部由来のマージ対象から丸ごと外れ**、
+     * 同名の `render_presets` を書いても差し替わらなかった（D-20 の (2)）。
+     * 「解決済みか」は供給元ではなく、このパスの進行状況で決める。
+     */
+    const resolved = new Set<string>();
 
     const resolveOne = (name: string): RegistryEntry<T> => {
       const existing = map.get(name);
-      // 外部由来に同名が無ければ登録済みのまま／すでに外部由来で解決済みならそれを返す
-      if (existing && !Object.hasOwn(user, name)) return existing;
-      if (existing && existing.source !== "builtin") return existing;
+      // 外部由来に同名が無ければ登録済みのまま／すでにこのパスで解決済みならそれを返す
+      if (existing && (!Object.hasOwn(user, name) || resolved.has(name))) return existing;
       const raw = user[name];
       if (raw === undefined) {
         if (existing) return existing;
@@ -182,6 +190,7 @@ export function createRegistry<T>(options: RegistryOptions<T>): Registry<T> {
       }
       const entry: RegistryEntry<T> = { name, value, source: "project", overridden: existing !== undefined };
       map.set(name, entry);
+      resolved.add(name);
       return entry;
     };
 
