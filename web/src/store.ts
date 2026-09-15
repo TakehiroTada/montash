@@ -44,7 +44,14 @@ export interface StatusLike {
   watching: boolean;
   watch_mode?: string | null;
   head: { op: string | null; commit?: string | null; pending?: number; detached?: boolean } | null;
-  preview: { state: "missing" | "building" | "ready" | "stale"; progress?: number };
+  preview: {
+    state: "missing" | "building" | "ready" | "stale";
+    url?: string;
+    duration_f?: number;
+    fps?: Fps;
+    progress?: number;
+    error?: string;
+  };
   server: { version: string; read_only: boolean; dev?: boolean };
 }
 
@@ -97,6 +104,7 @@ export interface State {
   history: HistoryLike | null;
   connection: Connection;
   playhead_f: number;
+  isPlaying: boolean;
   selection: Selection | null;
   hoverClipId: string | null;
   tab: SideTab;
@@ -109,6 +117,7 @@ export interface State {
   setHistory(h: HistoryLike | null): void;
   setConnection(c: Connection): void;
   setPlayhead(f: number): void;
+  setPlaying(playing: boolean): void;
   setSelection(s: Selection | null): void;
   setHover(id: string | null): void;
   setTab(t: SideTab): void;
@@ -127,6 +136,7 @@ export const useStore = create<State>()((set) => ({
   history: null,
   connection: "connecting",
   playhead_f: 0,
+  isPlaying: false,
   selection: null,
   hoverClipId: null,
   tab: "inspector",
@@ -139,6 +149,7 @@ export const useStore = create<State>()((set) => ({
   setHistory: (history) => set({ history }),
   setConnection: (connection) => set({ connection }),
   setPlayhead: (playhead_f) => set({ playhead_f: Math.max(0, Math.floor(playhead_f)) }),
+  setPlaying: (isPlaying) => set({ isPlaying }),
   setSelection: (selection) => set({ selection }),
   setHover: (hoverClipId) => set({ hoverClipId }),
   setTab: (tab) => set({ tab }),
