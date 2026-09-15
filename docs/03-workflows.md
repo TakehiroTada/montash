@@ -198,7 +198,7 @@ M2実装: `tests/workflows/W-04.sh` で、映像セグメントキャッシュ +
 | 1 | AI | BGM 用トラック追加 | `montash track add --kind audio --name A2` |
 | 2 | AI | BGM をタイムライン全長に配置（足りなければループ） | `montash clip add --asset bgm --track A2 --at 0 --duration timeline --loop` |
 | 3 | AI | BGM 音量を下げる | `montash audio gain --clip c_bgm --db -12` |
-| 4 | AI | 会話トラックを基準にダッキング | `montash audio duck --target A2 --sidechain A1 --threshold -30dB --ratio 8 --release 0.5` |
+| 4 | AI | 会話トラックを基準にダッキング | `montash audio duck --target A2 --sidechain A1 --threshold -30dB --ratio 8 --release 500` |
 | 5 | AI | 末尾フェードアウト | `montash audio fade --clip c_bgm --out 2.0` |
 | 6 | AI | ラウドネス正規化をレンダー設定に | `montash audio normalize --loudness -14 --true-peak -1` |
 | 7 | AI | 音声だけのプレビューを促す | `montash preview build --audio-only` |
@@ -274,7 +274,7 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 | 4 | AI | 「テロップ入れる前」= 該当コミットの親へ移動 | `montash log --grep テロップ --json` → `montash checkout k_0006~1` |
 | 5 | AI | 取り消しをやり直す（進む） | `montash redo` / `montash checkout tip` |
 | 6 | AI | 節目に名前を付ける | `montash tag "テロップ前"` / `montash checkout "テロップ前"` |
-| 7 | AI | 特定コミットだけ取り消して他は残す | `montash revert k_0006 -m "タイトル追加を取り消し"` |
+| 7 | AI | 特定コミットだけ取り消して他は残す | `montash revert k_0006 -m "タイトル追加を取り消し"`（未実装。M4。04 章 §1.9） |
 
 - **完了条件**: `timeline show` が意図した過去の状態と一致する。`status` が HEAD 位置を示す。
 - **失敗と対処**:

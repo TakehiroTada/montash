@@ -31,7 +31,7 @@ AI（LLM）が人間のプロンプト指示を受けて **CLI コマンドだ�
 |----|----------|------|--------------------------|
 | 1 | [docs/01-concept.md](docs/01-concept.md) | 設計思想と「作業手順開発」の進め方 | 考え方の共有 |
 | 2 | [docs/02-requirements.md](docs/02-requirements.md) | 前提条件・機能要件・非機能要件・スコープ外 | 制約の確定 |
-| 3 | [docs/03-workflows.md](docs/03-workflows.md) | **作業手順カタログ（W-01〜W-12）** | ★ 出発点。ここから全機能を導出 |
+| 3 | [docs/03-workflows.md](docs/03-workflows.md) | **作業手順カタログ（W-01〜W-17）** | ★ 出発点。ここから全機能を導出 |
 | 4 | [docs/04-cli-spec.md](docs/04-cli-spec.md) | CLI コマンド仕様（引数・出力・終了コード） | 手順のステップ → コマンド |
 | 5 | [docs/05-project-format.md](docs/05-project-format.md) | `project.json` スキーマ・時間表記・履歴 | コマンドが操作する状態 |
 | 6 | [docs/06-web-preview.md](docs/06-web-preview.md) | Web プレビューアプリ仕様（画面・API・WS） | 「確認する」ステップの実装 |
@@ -43,9 +43,9 @@ AI（LLM）が人間のプロンプト指示を受けて **CLI コマンドだ�
 | 12 | [docs/12-tech-decisions.md](docs/12-tech-decisions.md) | 技術選定の決定記録（Bun / yargs / chokidar / React+canvas / 整数フレーム / libass）と実機検証結果 | 実装の前提 |
 | 13 | [docs/13-open-issues.md](docs/13-open-issues.md) | 未解決の懸念一覧（要決定事項・技術リスク・進め方）と推奨対応 | 着手前の合意 |
 
-## 現在実行できる編集（M1）
+## 現在実行できる編集（M3 完了）
 
-プロジェクト作成・履歴管理に加え、素材取り込み、プロキシ生成、カット範囲の指定と映像／音声のリンク配置、MP4 書き出しまで実装済みです。
+プロジェクト作成・履歴管理、素材取り込みとプロキシ／サムネイル／波形の生成、カット範囲の指定と映像／音声のリンク配置、クリップ編集、トランジション・フェード、テロップ（ASS + libass）、字幕の焼き込み／多重化、音量調整・ダッキング・ラウドネス正規化、ロゴ／PiP のオーバーレイ、Web プレビューと履歴操作、MP4 書き出しまで実装済みです。
 
 ```bash
 bun install
@@ -63,7 +63,7 @@ bun run dev -C ./my-edit render verify ./my-edit/out/edit.mp4 --json
 
 `--in/--out/--duration` は秒・タイムコード・`f:17` 形式を受け付けます。`--in=-2` は素材末尾から2秒。`--dry-run` はプロジェクト・履歴・ID・出力を書き換えません。パスはコマンド実行時のカレントディレクトリ基準です。
 
-現在のレンダーは1本の映像トラックのカット結合、画像、空白区間、複数音声トラックに対応します。プリセットは `youtube-1080p` と `web-preview`。30／29.97／59.94fpsでカット位置・フレーム数をテストし、書き出し時にも映像フレーム数と音声尺を自動検証します。
+現在のレンダーは映像トラックのカット結合とオーバーレイ合成、画像、空白区間、複数音声トラックのミックスに対応します。プリセットは `youtube-1080p` と `web-preview` の2つ。30／29.97／59.94fpsでカット位置・フレーム数をテストし、書き出し時にも映像フレーム数と音声尺を自動検証します。
 
 クリップ編集は `clip move|trim|split|delete|set` とトラック操作（`track add|list|remove|mute|lock|move`）、ギャップ操作（`timeline gaps [--fill close|black]`）に対応します。`--ripple`（既定で全トラック、`--ripple=track` で当該トラックのみ、`locked` トラックは対象外）で編集点以降を詰め／押し出し、`clip split` は前半が元の ID を維持します。`clip move` は `--on-overlap error|overwrite|push` を受け付けます。
 
@@ -71,7 +71,15 @@ bun run dev -C ./my-edit render verify ./my-edit/out/edit.mp4 --json
 
 `serve` は `project.json` の変更を1.5秒デバウンスしてから `preview build` を自動実行し、WebSocketで `preview.state` を通知します。ビルド中にさらに編集があればキャンセルして作り直します。自動生成を止めるには `serve --no-auto-preview`。`GET /preview/timeline.mp4` はRange対応・`ETag` はproject_hashで、ブラウザは再生成後も再生位置を保ったまま新しい版に差し替えます。Webの履歴表示はHEAD・pending・コミット・タグに追従し、ノードのクリックと `[` / `]` で移動できます。
 
-トランジション、テキスト合成、ループ、サムネイル・波形は今後の実装です。音量正規化もM3予定で、現在は警告を出して素材の音量を保持します。
+トランジションは `transition add|set|remove|list`（`--between` / `--track --all-cuts` / `--at-cut`、`handle` / `overlap` モード、リンク音声の `acrossfade`）と `fade`（トラック／クリップ、`--with-audio`）に対応します。
+
+テロップは `text add|set|remove|list|presets` と `fonts list`。ASS を生成して libass（`subtitles` フィルタ）で焼き込み、libass の無い環境では `drawtext` にフォールバックします（`W_TEXT_ENGINE_LIMITED`）。字幕ファイルは `subtitle add --mode burn|soft` で焼き込みまたは多重化。
+
+音声は `audio gain|fade|duck|normalize|analyze|show|offset`。`duck` は `sidechaincompress`、`normalize` は 2 パス `loudnorm`、`offset` はサンプル単位の同期補正です。オーバーレイ（ロゴ・PiP）は `overlay add|set|remove|list`、速度変更は `clip set --speed`（`setpts` + `atempo`）。
+
+`proxy build --thumbs --waveform` でサムネイル（スプライト JPEG + JSON）と波形（100 点/秒）を生成し、Web の編集タイムラインに表示します。
+
+今後の実装（M4 以降）: `render` のコーデック個別指定・部分レンダー（`--from/--to`）・`--last`・`--hwaccel`・`--reframe`・`render batch`、`revert` / `blame` / `reset --hard` / `commit --amend`、`clip add --loop`、`clip show` / `clip link|unlink`、`batch` / `explain`、LUT、キーフレームアニメーション。コマンドごとの実装状況は [docs/04-cli-spec.md](docs/04-cli-spec.md) §1.9 と `montash schema --json` が正です。
 
 ## クイックスタート（想定される利用イメージ）
 
@@ -115,7 +123,7 @@ bun run dev                                 # CLI を bun で直接実行（bun 
 bun run dev -C ./my-edit serve --dev         # 作成済みプロジェクトで Web UI を開発（HMR）
 bun test                                    # 単体テスト
 bunx playwright install --with-deps chromium # ブラウザE2E用（初回）
-bash tests/workflows/run-all.sh              # W-01〜W-16の実装済み手順を検証
+bash tests/workflows/run-all.sh              # 実装済み手順（W-01〜W-10, W-13〜W-17）を検証
 bun run lint                                # Biome（lint + format チェック）。bun run lint:fix で自動修正
 bun run check                               # typecheck + lint + test（CI と同じ）
 bun run build:web                           # Web UI を web/dist に生成

@@ -241,7 +241,7 @@
     "bg_padding": 16,
     "position": "center",           // プリセット名 or {x, y}（px または "50%"）
     "align": "center",              // left | center | right（複数行の揃え）
-    "line_spacing": 0,
+    "line_spacing": 0,           // 保存のみ。現状 ASS には反映されない（下記の注記）
     "wrap": true,                   // 自動折り返し（libass WrapStyle）
     "shadow": { "x": 2, "y": 2, "color": "#000000AA" },
     "outline": { "width": 0, "color": "#000000" },
@@ -250,6 +250,8 @@
   "fade": { "in_f": 15, "out_f": 15 }
 }
 ```
+
+`style.line_spacing` は保存されるだけで、**現状 ASS には反映されない**（ASS の Style には行間の指定が無く、`Spacing` は字間を表すため。libass の制約）。将来、行ごとに Dialogue を分割して `\\pos` を積む方式で対応する可能性がある（docs/13 D-3）。
 
 ### 6.3 字幕クリップ
 

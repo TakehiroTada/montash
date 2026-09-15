@@ -1,6 +1,6 @@
 # 04. CLI コマンド仕様
 
-> この章は最終仕様です。2026-09-15時点の実装済み引数は `montash schema`、動作例は README「現在実行できる編集（M1）」を参照してください。M1の `clip add` は重なりエラー方式のみ、`render` は全区間のMP4（2プリセット）のみです。`import --strict` は入力検査に失敗した際に登録を中止します。一部成功の場合はJSONの `result.imported` / `result.failed` と終了コード4を確認してください。
+> この章は最終仕様です。**実装済みの引数は常に `montash schema --json` が正**で、2026-09-15 時点の実装状況は §1.9 の表にまとめてあります。動作例は README「現在実行できる編集」を参照してください。`import --strict` は入力検査に失敗した際に登録を中止します。一部成功の場合はJSONの `result.imported` / `result.failed` と終了コード4を確認してください。
 
 コマンド名は `montash`。すべてのサブコマンドは 03 章の作業手順（W-xx）から導出されたものです。各コマンドの見出しに由来手順を付記します。
 
@@ -156,6 +156,38 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 
 状態を変更するコマンドは、実行前後のスナップショット（内容ハッシュ）・コマンド引数・actor・差分・影響範囲を **op** として `.montash/history/ops.jsonl` に追記する（11 章）。`--dry-run` と読み取り系コマンドは記録しない。`checkout`/`undo`/`redo` は op を作らず `moves.jsonl` に移動を記録する。
 
+### 1.9 実装状況（2026-09-15 / M3 完了時点）
+
+本章は最終仕様なので、まだ実装されていないコマンド・オプションを含む。`montash schema --json` の出力との差分は以下のとおり。
+
+**未実装のコマンド**
+
+| コマンド | 章 | 予定 |
+|----------|----|------|
+| `help <command>` | §2 | yargs の `--help` / `schema` で代替（実装予定なし） |
+| `clip show` | §6 | `clip list --json` で代替中。M4 |
+| `clip unlink` / `clip link` | §11 | M4（`clip move/trim/split/set --unlink` は実装済み） |
+| `render batch` / `render still` / `render gif` / `render audio` | §14 | M4（W-12） |
+| `blame` / `revert` / `reset --hard` | §15 | M4（W-11） |
+| `snapshot save\|restore\|list\|delete` | §15 | `tag` / `checkout` を使う。互換別名は M4 以降 |
+| `batch` / `explain` | §16 | M4 |
+| `serve stop` / `serve status`（`--daemon` の制御） | §13 | M4 |
+
+**未実装のオプション**
+
+| コマンド | 未実装のオプション | 備考 |
+|----------|--------------------|------|
+| `import` | `--thumbs`, `--waveform` | `proxy build --thumbs/--waveform` は実装済み |
+| `assets show` | `--keyframes` | `--probe` は実装済み |
+| `clip add` | `--loop`, `--ripple` | `--on-overlap error\|overwrite\|push` は実装済み |
+| `render` | `--from`, `--to`, `--last`, `--vcodec`, `--acodec`, `--vbitrate`, `--abitrate`, `--pix-fmt`, `--fps`, `--two-pass`, `--hwaccel`, `--reframe`, `--skip-validate` | 実装済みは `-o/--output`, `--preset`, `--crf`, `--preset-speed`, `--resolution`, `--threads`, `--progress`, `--overwrite`。部分レンダーとコーデック個別指定は M4 |
+| `serve` | `--allow`, `--deny`, `--max-upload`, `--daemon` の制御コマンド | 許可リストは 06 章 §3.3 の固定リスト。`--read-only` は実装済み |
+| `log` | `--since` | |
+| `commit` | `--body-file`, `--amend`, `--from-worktree` | `-m` / `--body` / `--last` / `--ops` / `--tag` / `--author` / `--allow-empty` / `--auto-message` は実装済み |
+| `project set` | `fps` / `resolution` キー | それ以外のキーは実装済み |
+
+未実装の機能を呼ぶと `E_NOT_IMPLEMENTED`（終了コード 6）またはオプション未知のエラーになる。
+
 ---
 
 ## 2. 環境・メタ
@@ -182,7 +214,9 @@ montash schema [<command>] [--format json|openai-tools|anthropic-tools]
 
 全コマンド（または指定コマンド）の引数定義・型・説明・例を JSON で出力。`--format *-tools` は LLM の関数呼び出し定義形式で出力。
 
-### `montash help [<command>] [--json]`
+### `montash help [<command>] [--json]` — 未実装（§1.9）
+
+現状は yargs の `--help` と `montash schema [<command>] --json` を使う。
 
 ---
 
@@ -191,7 +225,7 @@ montash schema [<command>] [--format json|openai-tools|anthropic-tools]
 ### `montash init <name|.>` — W-01
 
 ```
-montash init <dir> [--fps 30] [--resolution 1920x1080] [--sample-rate 48000] [--channels 2]
+montash init <dir> [--name <str>] [--fps 30] [--resolution 1920x1080] [--sample-rate 48000] [--channels 2]
                  [--template <name>] [--force]
 ```
 
@@ -231,7 +265,7 @@ montash init <dir> [--fps 30] [--resolution 1920x1080] [--sample-rate 48000] [--
 
 出力は `{ ok, errors: [...], warnings: [...] }`。error があれば終了コード 5。
 
-### `montash diff [--snapshot <name>|--history <id>] [--json]` — W-11
+### `montash diff [<a>] [<b>] [--json]` — W-11
 
 現在の `project.json` と指定時点の差分を JSON Patch 形式と人間向け要約で表示。
 
@@ -243,11 +277,12 @@ montash init <dir> [--fps 30] [--resolution 1920x1080] [--sample-rate 48000] [--
 
 ```
 montash import <path...> [--id <id>] [--proxy] [--thumbs] [--waveform] [--copy] [--strict]
+# 実装済み: --id / --proxy / --copy / --strict（--thumbs / --waveform は未実装。proxy build を使う）
 ```
 
 - glob 展開は bash に任せる。ディレクトリ指定時は再帰で対応拡張子（mp4 mov mkv webm avi mts m2ts mp3 wav aac flac m4a png jpg jpeg webp srt ass vtt txt md）を取り込む。
 - ffprobe（`-show_streams -show_format -of json`）を実行し `probe` に保存。種別を判定（video / audio / image / subtitle / **text**）。`.txt`/`.md` は UTF-8 として読み、`type: text` で登録（ffprobe は実行しない）。
-- `--proxy --thumbs --waveform` で派生物をその場で生成（無ければ `proxy build` で後から）。
+- `--proxy` で派生物をその場で生成（無ければ `proxy build` で後から）。`--thumbs` / `--waveform` は未実装で、`proxy build --thumbs --waveform` を使う（§1.9）。
 - `--copy` でプロジェクト内 `assets/` にコピー（既定は絶対パス参照）。
 - 複数指定時は 1 件失敗しても続行し、結果に `failed: [...]` を含める（終了コードは 4）。
 - ID は拡張子を除いたファイル名の slug（`clip_a`）。衝突時は `_2`, `_3`。
@@ -258,7 +293,7 @@ ID、種別、ラベル、タグ、パス、尺、解像度、fps、音声 ch、
 
 ### `montash assets show <id> [--json]` — W-02, W-17
 
-要約メタデータ、`--probe` で生 JSON（`.montash/cache/<id>/probe.json` から。無ければ ffprobe を再実行して再生成）、キーフレーム間隔（`--keyframes` でスキャン）、使用箇所一覧（クリップ ID・トラック・区間）、テキスト素材は本文、最後に変更した op（`blame`）。
+要約メタデータ、`--probe` で生 JSON（`.montash/cache/<id>/probe.json` から。無ければ ffprobe を再実行して再生成）、キーフレーム間隔（`--keyframes` でスキャン。未実装）、使用箇所一覧（クリップ ID・トラック・区間）、テキスト素材は本文、最後に変更した op（`blame`）。
 
 ### `montash assets set <id> [--label <s>] [--tags a,b] [--add-tag <t>] [--remove-tag <t>] [--color <hex>] [--note <s>]` — W-17
 
@@ -280,7 +315,7 @@ ID、種別、ラベル、タグ、パス、尺、解像度、fps、音声 ch、
 
 `--search` はファイル名一致→サイズ一致→（`--match hash`）先頭 1MB ハッシュ一致で照合し、一括更新。結果に `relinked`/`unresolved` を返す。
 
-### `montash proxy build [--all | <id...>] [--force] [--height 360] [--parallel 2]` — W-02
+### `montash proxy build [--all | <id...>] [--force] [--height 360] [--parallel 2] [--thumbs] [--waveform]` — W-02
 
 プロキシ（H.264 baseline、指定高さ、CRF 28、AAC 96k、キーフレーム 1 秒）、サムネイル（`--thumbs`、既定 1 枚/秒、160px 幅、スプライト JPEG + JSON インデックス）、波形（`--waveform`、`astats`/`ebur128` ではなく PCM ダウンサンプルからピーク配列、100 点/秒）を `.montash/cache/<asset_id>/` に生成。
 
@@ -339,6 +374,8 @@ montash clip add --asset <id> [--track V1] [--in <t>] [--out <t>] [--duration <t
                [--loop] [--id <id>] [--label <str>]
 ```
 
+`--loop` と `--ripple` は未実装（§1.9）。
+
 - `--in/--out` 省略時はアセット全体（`out_f = asset.duration_f`）。負値は末尾基準（`--in=-10` = 末尾 10 秒、`--in=-f:300` = 末尾 300 フレーム）。`--duration` は `--out` の代替。画像アセットは `--duration` 必須（省略時 `settings.default_image_duration_f`）。
 - in/out はアセットの native fps ではなく **プロジェクト fps のフレーム**で指定する（アセットが 29.97fps でプロジェクトが 30fps なら、`f:30` は 1.0 秒地点）。
 - 既定では映像アセットの映像を `--track`、音声を対応する音声トラック（`V1`→`A1`）に **リンククリップ** として同時配置する。`--video-only` / `--audio-only` で片方のみ。
@@ -352,7 +389,7 @@ montash clip add --asset <id> [--track V1] [--in <t>] [--out <t>] [--duration <t
 
 トラック順・時間順に `index`, `id`, `asset`, `start`, `end`, `in`, `out`, `duration`, `linked`, `label` を返す。
 
-### `montash clip show <id> [--json]`
+### `montash clip show <id> [--json]` — 未実装（§1.9）
 
 クリップの全属性と適用エフェクト、前後のクリップ、隣接トランジション。
 
@@ -385,7 +422,7 @@ montash clip add --asset <id> [--track V1] [--in <t>] [--out <t>] [--duration <t
 
 `--ripple` で削除区間以降を全トラックで詰める（§6a。BGM など区間を跨ぐクリップは尺が縮む）。跨っているトランジションは削除し `W_TRANSITION_REMOVED`。
 
-### `montash clip set <id> [--speed 1.5] [--pitch-keep] [--label <s>] [--volume <db>] [--opacity 0..1]`
+### `montash clip set <id> [--speed 1.5] [--pitch-keep] [--label <s>] [--volume <db>] [--opacity 0..1] [--ripple[=all|track]] [--unlink]`
 
 速度変更（`setpts`/`atempo`）ほか単純プロパティ。速度変更で尺が変わる場合は `--ripple` に従う。
 
@@ -406,7 +443,7 @@ A2    |~~bgm~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\|
 T1         [title]                 [lower3rd]
 ```
 
-### `montash timeline gaps [--fill black|hold|close]`
+### `montash timeline gaps [--track <t>] [--fill black|hold|close]`
 
 ギャップを列挙。`--fill close` で詰める、`black` で黒クリップ挿入、`hold` で直前フレーム保持クリップ挿入。
 
@@ -427,7 +464,7 @@ montash transition add (--between <clipA> <clipB> | --track <t> --all-cuts | --a
 - `--mode overlap`: B を duration ぶん前へずらして重ねる。全長が縮む（後続はリップル）。
 - `--audio crossfade`（既定）: リンク音声に `acrossfade` を適用。
 
-### `montash transition set <id> [--type] [--duration] [--mode]` / `remove <id>` / `list [--json]`
+### `montash transition set <id> [--type] [--duration] [--mode] [--audio]` / `remove <id>` / `list [--track <t>] [--json]`
 
 ### `montash fade [--track <t>|--clip <id>] [--in <t>] [--out <t>] [--color black|white] [--with-audio]` — W-05
 
@@ -451,11 +488,12 @@ montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) -
 - `--position` プリセット: `center`, `top-center`, `bottom-center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`（ASS の `\an` に対応）。座標は px（プロジェクト解像度基準）または %。
 - `--size` 等の px はプロジェクト解像度（`PlayResY`）基準。解像度変更時は比率で再計算される（`project set resolution`）。
 - `--markup ass` で本文中の ASS オーバーライドタグ（`{\b1}強調{\b0}`、`{\c&H00FFFF&}` 等）をそのまま通す。既定 `plain` は `{ } \` をエスケープ。
+- `--line-spacing` は `style.line_spacing` に保存されるが、**現状 ASS には反映されない**（ASS の Style に行間の指定が無く、`Spacing` は字間のため。libass の制約）。将来、行ごとの Dialogue 分割で対応する可能性がある。
 - `--fade-in/--fade-out` はフレームに丸めて保存（`fade.in_f`）。
 - 複数行は `\n` を受理。`--text-file <path>` でファイルから読む。`--asset <id>` は `type: text` の素材を参照（テキストクリップに `text` ではなく `asset` を保持し、レンダー時に本文を読む。W-17）。
 - 既定フォントは `doctor` が検出した CJK 対応フォント（Noto Sans CJK JP → Hiragino → Yu Gothic → DejaVu の順）。
 
-### `montash text set <id> [同上のオプション]` / `remove <id>` / `list [--json]` / `presets [--json]`
+### `montash text set <id> [同上のオプション]` / `remove <id>` / `list [--track <t>] [--json]` / `presets [--json]`
 
 プリセット（`title-center`, `lower-third`, `caption-bottom`, `corner-tag`）はサイズ・位置・背景・フェードの組。ユーザー定義は `project.json` の `text_presets` に追加。
 
@@ -468,18 +506,20 @@ montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) -
 ```
 montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <t>)
                   [--position <preset|x,y|%>] [--margin <px>] [--scale <0..1|WxH>] [--opacity 0..1]
-                  [--fade-in <t>] [--fade-out <t>] [--keep-alpha] [--in <t>] [--id <id>]
+                  [--fade-in <t>] [--fade-out <t>] [--keep-alpha] [--in <t>] [--id <id>] [--label <str>]
 ```
 
-内部的には「配置属性付きクリップ」。`overlay set|remove|list` は `clip` 系と同じ。
+内部的には「配置属性付きクリップ」。`overlay set <id> [--position] [--margin] [--scale] [--opacity] [--fade-in] [--fade-out] [--keep-alpha]` / `overlay remove <id>` / `overlay list [--track <t>] [--json]`。位置・尺の変更は `clip move|trim` を使う。
 
 ---
 
 ## 11. 音声
 
-### `montash audio gain (--clip <id>|--track <t>) --db <±n>` — W-07
+### `montash audio gain (--clip <id>|--track <t>|--master) --db <±n>` — W-07
 ### `montash audio fade --clip <id> [--in <t>] [--out <t>] [--curve tri|exp|log]` — W-07
 ### `montash audio duck --target <track> --sidechain <track> [--threshold -30dB] [--ratio 8] [--attack 20] [--release 500] [--makeup 0]` — W-07
+
+`--attack` / `--release` の単位は **ms**（`20` = 20ms）。`500ms` / `0.5s` のように単位を明示しても受け付ける。単位なしで 10 未満の値は秒と解釈して `W_TIME_UNIT_GUESSED` を返す（`--release 0.5` → 500ms）。
 
 `sidechaincompress` を用いる。`--simple` 指定時は音声レベル解析（`silencedetect`）で会話区間を検出し、`volume` のキーフレームで下げる方式にフォールバック（sidechaincompress が使えない環境向け）。
 
@@ -487,9 +527,13 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 レンダー時に 2 パス `loudnorm` を適用する設定。`project.json` の `audio.normalize` に保存。
 
-### `montash audio analyze (<track>|<clip>|--asset <id>) [--json]`
+### `montash audio analyze (<track>|<clip>|--asset <id>) [--min-silence <t>] [--noise-db <db>] [--json]`
 
-`ebur128` / `volumedetect` で統合ラウドネス、ピーク、無音区間を返す。
+`ebur128` / `volumedetect` で統合ラウドネス、ピーク、無音区間を返す。無音判定のしきい値は `--noise-db`（既定 -50dB）、最短の長さは `--min-silence`（既定 0.5 秒）。
+
+### `montash audio duck remove <id>`
+
+ダッキング設定を ID で削除する（`audio duck --target <track> --off` と同じ結果）。
 
 ### `montash audio show [--json]`
 
@@ -497,14 +541,16 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ### `montash audio offset --clip <id> (--by <±t|s:±N> | --set <s:N>)` / `montash clip unlink <id>` / `montash clip link <video> <audio>`
 
+`clip unlink` / `clip link` は未実装（§1.9）。1 回の編集に閉じたリンク解除は `clip move|trim|split|set --unlink` で行う。
+
 `offset` はサブフレームの同期補正で、**サンプル単位**（`offset_smp`）に保存する。`--by 0.02` はサンプルに変換（`round(0.02 * SR)`）。リンク中のクリップには適用不可（`E_CLIP_LINKED`。先に `clip unlink`）。フレーム単位以上のずらしは `clip move` を使う。
 
 ---
 
 ## 12. 字幕
 
-### `montash subtitle add --asset <srt|ass id> --mode burn|soft [--font] [--size] [--color] [--margin-bottom] [--lang ja] [--offset <±t>]` — W-14
-### `montash subtitle set|remove|list`
+### `montash subtitle add --asset <srt|ass id> --mode burn|soft [--track <t>] [--at <t>] [--font] [--size] [--color] [--margin-bottom] [--lang ja] [--offset <±t>] [--id <id>]` — W-14
+### `montash subtitle set <id> [同上]` / `remove <id>` / `list [--track <t>] [--json]`
 
 `burn` は SRT/VTT をテキストトラックの ASS に統合して 1 回で焼く（ASS 素材はそのスタイルを尊重して別の `subtitles` フィルタで焼く）。`soft` は `-c:s mov_text`（MP4）または `srt`/`ass`（MKV）で多重化。`--offset` はフレームに丸めて `offset_f` に保存。
 
@@ -516,8 +562,10 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ```
 montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-preview]
-            [--read-only] [--allow <cmd,...>] [--deny <cmd,...>] [--max-upload 8G] [--daemon]
+            [--read-only] [--allow <cmd,...>] [--deny <cmd,...>] [--max-upload 8G] [--daemon] [--dev]
 ```
+
+`--allow` / `--deny` / `--max-upload` と `--daemon` の制御コマンド（`serve stop|status`）は未実装（§1.9）。`--dev` は Web UI を HMR 付きで配信する開発用。
 
 - Web プレビューサーバを起動（06 章）。フォアグラウンドで実行し Ctrl-C で終了。`--daemon` でバックグラウンド化し `montash serve stop|status` で制御。
 - `project.json` と `.montash/history/` を監視し、変更があれば WebSocket でブラウザに通知。`--no-auto-preview` 以外では変更後にデバウンス（1.5 秒）して `preview build` を自動実行。
@@ -549,7 +597,9 @@ montash render -o <path> [--preset <name>] [--from <t>] [--to <t>]
              [--two-pass] [--overwrite] [--progress text|jsonl|none] [--dry-run] [--last]
 ```
 
-- `--preset` 一覧は `render presets`（`youtube-1080p`, `youtube-4k`, `instagram-reel`(1080x1920), `twitter`, `web-preview`(720p CRF 28), `prores-422`, `archive-h265`, `audio-only-mp3`, `gif`, `thumbnail`）。個別オプションはプリセットを上書き。
+実装済みは `-o/--output`, `--preset`, `--crf`, `--preset-speed`, `--resolution`, `--threads`, `--progress`, `--overwrite`, `--dry-run`。それ以外は未実装（§1.9）。
+
+- `--preset` 一覧は `render presets`（`youtube-1080p`, `youtube-4k`, `instagram-reel`(1080x1920), `twitter`, `web-preview`(720p CRF 28), `prores-422`, `archive-h265`, `audio-only-mp3`, `gif`, `thumbnail`）。個別オプションはプリセットを上書き。**実装済みのプリセットは `youtube-1080p` / `web-preview` の 2 つのみ**（§1.9）。
 - `--reframe`: 出力アスペクトがタイムラインと異なるときのクロップ基準。省略時はレターボックス（パディング）。
 - `--progress jsonl`: 1 行 1 JSON（`{"frame":1234,"fps":98.2,"time":41.2,"percent":92.6,"eta":3.1,"speed":"3.2x"}`）を stdout に。人間向け `text` は 1 行更新のプログレスバー。
 - `--last`: 前回のレンダーオプションを `.montash/render/last.json` から復元。
@@ -562,9 +612,11 @@ montash render -o <path> [--preset <name>] [--from <t>] [--to <t>]
 
 ### `montash render presets [--json]` / `montash render batch --preset <name[:opts]>... -o <dir> [--parallel 1]` — W-12
 
+`render presets` は実装済み。`render batch` は未実装（§1.9）。
+
 `batch` はプリセット名をファイル名サフィックスにする（`<project>_<preset>.mp4`）。
 
-### `montash render still --at <t> -o <path.png>` / `montash render gif --from --to -o` / `montash render audio -o <path.wav|mp3>`
+### `montash render still --at <t> -o <path.png>` / `montash render gif --from --to -o` / `montash render audio -o <path.wav|mp3>` — 未実装（§1.9）
 
 ---
 
@@ -590,17 +642,19 @@ montash render -o <path> [--preset <name>] [--from <t>] [--to <t>]
 | `montash history prune [--keep-commits 100] [--keep-days 30] [--dry-run]` / `verify` / `export -o <f>` / `import <f>` | 保守・監査 |
 | `montash ids rebuild [--json]` | `.montash/ids.json` を現在の `project.json` と全 object から再構築（ADR-13） |
 
+`blame` / `revert` / `reset --hard` / `snapshot` と `log --since`、`commit --body-file|--amend|--from-worktree` は未実装（§1.9）。
+
 `checkout`/`undo`/`redo`/`reset` は op を作らず `.montash/history/moves.jsonl` に記録する。Web からの操作は `actor: web` で同じコマンドが実行される（06 章 §3.3）。
 
 ---
 
 ## 16. AI 支援
 
-### `montash batch <file.jsonl|-> [--atomic] [--continue-on-error]`
+### `montash batch <file.jsonl|-> [--atomic] [--continue-on-error]` — 未実装（§1.9）
 
 1 行 1 コマンドの JSON Lines（`{"args": ["clip","add","--asset","clip_a","--at","end"]}`）または素の bash 行を順次実行。`--atomic`（既定）は途中失敗で開始前状態へ巻き戻し、全体を 1 op として記録。`-m` を付ければそのままコミット。
 
-### `montash explain (<id> | timeline | render) [--json]`
+### `montash explain (<id> | timeline | render) [--json]` — 未実装（§1.9）
 
 対象を自然言語で説明する（例: 「c2 は clip_b の 0.0–20.0 秒を 12.5 秒から配置。前に t1（crossfade 0.5s）、後に t2。音声は c2a とリンク」）。`render` は生成される ffmpeg コマンドとフィルタグラフを注釈付きで表示。
 
