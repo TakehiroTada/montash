@@ -118,7 +118,7 @@ Every action in the browser runs the matching `montash` command as a child proce
 So anything done in the browser can be reversed with `montash undo` / `montash checkout`,
 and an AI can see what the human did there via `montash log --ops`.
 
-The default allowlist covers history movement (`checkout`, `undo`, `redo`, `tag`), asset management (`import`, `assets *`, `proxy build`) and helpers (`preview build`, `validate`).
+The default allowlist covers history movement (`checkout`, `undo`, `redo`, `tag`, `tag delete`, `revert`, `reset --hard`), asset management (`import`, `assets set|set-text|new-text|remove|relink`, `proxy build`) and helpers (`preview build`, `validate`).
 Timeline editing (`clip *`, `text *`, `render *`, `commit`, …) is not allowed by default.
 
 Destructive flags (`--force`, `--overwrite`, …) return 409 `E_CONFIRM_REQUIRED` unless explicitly confirmed.

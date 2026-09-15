@@ -1,6 +1,6 @@
 ---
 title: History
-description: ops, commits and tags — and getting back to any point with checkout and undo
+description: ops, commits and tags — and getting back to any point with checkout, undo, revert and reset
 sidebar:
   order: 8
 ---
@@ -29,7 +29,15 @@ Commit IDs use `k_` (for kommit) rather than `c_` so they never collide with cli
 | tip | Branch tip |
 | tag | tag |
 | object | blob |
+| `log` / `show` / `diff` | `log` / `show` / `diff` |
 | `checkout` | `checkout` |
+| `undo` / `redo` | Step `checkout HEAD~1` back and forward (no git equivalent) |
+| `revert` | `revert` |
+| `reset --hard` | `reset --hard` |
+| `blame` | `blame` |
+| `history verify` | `fsck` |
+| `history prune` | `gc --prune` |
+| `history export` / `import` | `bundle create` / `bundle unbundle` |
 
 The big difference is that **ops are recorded for you**. There is no `git add` step.
 Anything you try is already recorded, so when you want it back, you just `undo`.
@@ -201,18 +209,139 @@ history verify — OK (16 ops, 2 commits, 1 tags, 2 moves)
 
 This verifies object hashes, the continuity of the op DAG, commits, tags and the move log.
 
+## Undoing one change (`revert`)
+
+Where `checkout` moves you back to a point, `revert` adds a new op that **undoes just one commit (or op)**.
+Like git's `revert`, **history is never rewritten**, and the edits made after it stay where they are.
+
+```bash
+montash revert k_0002 -m "00:00.0-00:05.0 undo the label"
+montash revert HEAD
+```
+
+```
+revert k_0002: 00:00.0-00:05.0 label on c1
+  2 changes: ~ /updated_at: ...; - /tracks/0/clips/0/label (was "Opening")
+op o_0006 → commit k_0003
+```
+
+This is what you want when the ask is not "put it back to before the titles" but "**drop the title I just
+added** and keep the colour tweak that came after it". The undo is itself an op, so you can `revert` a `revert`.
+
+## Who changed it, and when (`blame`)
+
+For an element — a clip, a title, a transition, an asset — this reports the **op, commit and actor that
+last changed it**.
+
+```bash
+montash blame c3
+montash blame x1 --json
+montash blame c3 --all        # search every branch, not only the HEAD line
+```
+
+```
+c1 last changed by o_0005  2026-09-15 05:58  ai
+  set label on c1
+  command: montash clip set c1 --label Opening
+  commit k_0002  00:00.0-00:05.0 label on c1
+  1 change: + /tracks/0/clips/0/label = "Opening"
+```
+
+Use it to chase down "when did this clip get shorter?". With `--json` you get `result.op`, `result.commit`
+and `result.changes` (JSON Patch) directly.
+
+## Moving HEAD back (`reset --hard`)
+
+`reset` moves HEAD to a ref and **drops the ops after it from the default `log` view**.
+
+```bash
+montash reset --hard k_0001 --yes
+```
+
+```
+reset --hard k_0001: HEAD is now at o_0004
+  2026-09-15 05:58  ai  add c3 (b60) on V1 at f:150
+  pending ops: 0  (on commit k_0001)
+  dropped from the default log: 2 ops (o_0005, o_0006)
+  they are kept on disk — see `montash log --all`
+```
+
+:::caution[`--hard` is required]
+Without it you get `E_USAGE` (`montash reset requires --hard`), because this rewrites `project.json`
+and you should have to say so. Add `--yes` to skip the confirmation.
+:::
+
+Unlike git, **the dropped ops stay on disk**. They remain visible in `montash log --all` and you can
+`montash checkout <id>` back to them. Only `history prune` actually removes anything.
+
+| What you want | What to use |
+|---------------|-------------|
+| To *look at* an earlier state | `checkout` / `undo` |
+| To undo **one** edit while keeping the history | `revert` |
+| To drop everything after a point | `reset --hard` |
+| To really delete it from disk | `history prune` |
+
+## Tidying up and moving the history
+
+### `history prune`
+
+Deletes old uncommitted ops and objects that nothing references. **Check with `--dry-run` first.**
+
+```bash
+montash history prune --dry-run
+montash history prune --keep-commits 20 --keep-days 7
+```
+
+```
+history prune (dry run): would delete 0 op(s), 0 object(s), 0 move(s)
+  ops: (none)
+  kept: 6 ops, 3 commits, 7 objects
+```
+
+| Option | Default | What it keeps |
+|--------|---------|---------------|
+| `--keep-commits` | 100 | Every op from the last n commits onwards |
+| `--keep-days` | 30 | Ops newer than n days |
+
+Committed ops are never removed.
+
+### `history export` / `history import`
+
+Write the history — ops, commits, moves, tags and objects — out as a single JSONL file, and read it back.
+Use it to hand over an audit trail, or to restore from a backup.
+
+```bash
+montash history export -o history.jsonl
+montash history export -o -            # to stdout
+montash history import history.jsonl
+```
+
+```
+exported 19 record(s) to /tmp/my-edit/history.jsonl (6 ops, 3 commits, 7 objects)
+```
+
+```
+imported 6 op(s), 3 commit(s), 7 object(s) from history.jsonl
+what     added  total
+-------  -----  -----
+ops      6      6
+commits  3      3
+tags     0      0
+```
+
+:::note[Import needs an empty history]
+Importing into a history that already contains the same op or commit IDs fails with
+`E_HISTORY_IMPORT_CONFLICT`. `history import` is for **restoring**, not for merging two histories.
+:::
+
 ## Not available yet
 
-The following are part of the history design but are **not implemented yet**.
-
-| Command | What it will do |
+| Feature | What it will do |
 |---------|-----------------|
-| `montash revert <k_xxxx>` | Undo one specific commit (like git's `revert`) |
-| `montash blame <id>` | Find out who changed an element, and when |
-| `montash history prune` | Delete old uncommitted ops and unreferenced objects |
-| `montash history export` / `import` | Move the history in and out as JSONL |
-
-In place of `revert`, the current practice is to `checkout` that point, look at it, and redo the equivalent operation.
+| `montash snapshot save\|restore\|list\|delete` | Compatibility aliases for `tag` / `checkout` |
+| `montash log --since` | Filter by date |
+| `montash commit --amend` / `--body-file` / `--from-worktree` | Redo a commit, and read the message from a file |
+| Some of the web history API | `GET /api/history/:id`, `/api/history/diff`, `/api/blame` (the CLI side is implemented) |
 
 ## Next
 

@@ -160,7 +160,7 @@ If you are running from the repository, read `montash` as `bun run dev`.
 
    ```
    render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
-   rendered /tmp/qs/my-edit/out/final.mp4 (270 frames; verified)
+   rendered /tmp/qs/my-edit/out/final.mp4 (270 frames, 1920x1080, youtube-1080p; verified)
    ```
 
    `verified` means the exported MP4 contains exactly the 270 frames it was supposed to.
@@ -169,6 +169,10 @@ If you are running from the repository, read `montash` as `bun run dev`.
    ```bash
    montash render verify out/final.mp4
    ```
+
+   There are ten built-in presets (`montash render presets`), plus `render batch` for several at once and
+   `render still` / `render gif` / `render audio` for a frame, a loop or the mix on its own.
+   See [Rendering](/en/guides/rendering/).
 
 9. ### Commit the finished pass
 

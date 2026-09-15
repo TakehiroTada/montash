@@ -102,24 +102,31 @@ These options are accepted by every command.
 | [`montash serve`](#serve) |  | start the local web preview server (Ctrl-C to stop) |
 | [`montash preview build`](#preview-build) |  | build the timeline preview MP4 (cached video segments + one audio pass) |
 | [`montash preview status`](#preview-status) |  | show timeline preview freshness and active build progress |
-| [`montash render`](#render) |  | render plain media clips to MP4 and verify exact frame count |
+| [`montash render`](#render) |  | render the timeline and verify the exact frame count |
 | [`montash render verify`](#render-verify) |  | verify frame count, FPS, audio duration and stream configuration |
-| [`montash render presets`](#render-presets) |  | list implemented encoding presets |
+| [`montash render presets`](#render-presets) |  | list the encoding presets (built-in and project.render_presets) |
+| [`montash render batch`](#render-batch) |  | render the same timeline with several presets into one directory |
+| [`montash render still`](#render-still) |  | write one frame of the timeline as a PNG/JPEG |
+| [`montash render gif`](#render-gif) |  | write a range of the timeline as an animated GIF (palettegen/paletteuse) |
+| [`montash render audio`](#render-audio) |  | write the mixed audio of the timeline (no video) |
 | [`montash status`](#status) |  | show HEAD, pending (uncommitted) ops, the last commit and tags |
 | [`montash log`](#log) |  | list commits (newest first); --ops expands the ops of each commit |
 | [`montash show`](#show) |  | show an op, commit or tag in detail (--patch includes the full JSON Patch) |
 | [`montash diff`](#diff) |  | diff two points of the history (default: last commit → HEAD, i.e. the pending ops) |
+| [`montash blame`](#blame) |  | show the op / commit / actor that last changed an element (clip, text, transition, asset) |
 | [`montash commit`](#commit) |  | group the pending ops into a commit with a human-readable message (-m) |
 | [`montash checkout`](#checkout) | ✅ | move HEAD to an op / commit / tag and expand that state into project.json |
 | [`montash undo`](#undo) | ✅ | move HEAD back n ops (default 1) and expand that state into project.json |
 | [`montash redo`](#redo) | ✅ | move HEAD forward n ops (default 1) along the most recently used branch |
+| [`montash revert`](#revert) | ✅ | apply the inverse of a commit or op as a new op (does not rewrite history) |
+| [`montash reset`](#reset) | ✅ | move HEAD to a ref and drop the ops after it from the default `log` view (--hard) |
 | [`montash tag`](#tag) | ✅ | name the current HEAD (or a given op / commit) so it can be checked out later |
 | [`montash tag list`](#tag-list) |  | list tags |
 | [`montash tag delete`](#tag-delete) | ✅ | delete a tag (the history it points to is kept) |
 | [`montash history verify`](#history-verify) |  | verify history integrity (object hashes, op DAG continuity, commits, tags, moves) |
-| [`montash history prune`](#history-prune) |  | delete old uncommitted ops and unreferenced objects (not implemented yet) |
-| [`montash history export`](#history-export) |  | export the history as one JSONL file (not implemented yet) |
-| [`montash history import`](#history-import) |  | import a history exported with `history export` (not implemented yet) |
+| [`montash history prune`](#history-prune) |  | delete old uncommitted ops and objects that nothing references |
+| [`montash history export`](#history-export) |  | export ops, commits, moves, tags and objects as one JSONL file (audit / backup) |
+| [`montash history import`](#history-import) | ✅ | import a history exported with `history export` (restores ops, commits, tags and objects) |
 | [`montash ids rebuild`](#ids-rebuild) |  | rebuild .montash/ids.json counters from project.json and every history object |
 
 ## `montash doctor`
@@ -1580,7 +1587,7 @@ montash preview status
 
 ## `montash render`
 
-render plain media clips to MP4 and verify exact frame count
+render the timeline and verify the exact frame count
 
 ```bash
 montash render --output <string> [options]
@@ -1590,14 +1597,33 @@ montash render --output <string> [options]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `-o, --output` | string |  | output MP4 path（required） |
-| `--preset` | `youtube-1080p` \| `web-preview` | `youtube-1080p` | encoding preset |
+| `-o, --output` | string |  | output path（required） |
+| `--preset` | string |  | encoding preset (default youtube-1080p; see `render presets`) |
 | `--resolution` | string |  | override output WxH |
-| `--crf` | number |  | H.264 quality (0..51) |
-| `--preset-speed` | `ultrafast` \| `superfast` \| `veryfast` \| `faster` \| `fast` \| `medium` \| `slow` \| `slower` \| `veryslow` |  | x264 encoding speed |
+| `--crf` | number |  | H.264/H.265 quality (0..51) |
+| `--preset-speed` | `ultrafast` \| `superfast` \| `veryfast` \| `faster` \| `fast` \| `medium` \| `slow` \| `slower` \| `veryslow` |  | x264/x265 encoding speed |
+| `--vcodec` | string |  | override the video encoder |
+| `--vbitrate` | string |  | target video bitrate (8M); switches off CRF |
+| `--acodec` | string |  | override the audio encoder |
+| `--abitrate` | string |  | audio bitrate (192k) |
+| `--pix-fmt` | string |  | override the pixel format |
+| `--fps` | number |  | output frame rate (re-times the output; verification is skipped) |
+| `--reframe` | string |  | crop anchor when the output aspect differs from the timeline: center\|left\|right\|<x>% (default: letterbox) |
+| `--hwaccel` | `auto` \| `none` \| `videotoolbox` \| `nvenc` \| `vaapi` \| `qsv` |  | hardware encoder |
+| `--two-pass` | boolean |  | two-pass encoding (libx264/libx265 with --vbitrate) |
 | `--threads` | number |  | encoder threads |
 | `--overwrite` | boolean |  | replace an existing output after successful verification |
 | `--progress` | `text` \| `jsonl` \| `none` | `text` | progress output |
+| `--last` | boolean |  | reuse the options of the previous render (.montash/render/last.json) |
+
+### Examples
+
+```bash
+montash render -o out/final.mp4 --preset youtube-1080p
+montash render -o out/reel.mp4 --preset instagram-reel --reframe center
+# same settings as last time
+montash render --last -o out/v2.mp4
+```
 
 ## `montash render verify`
 
@@ -1615,10 +1641,118 @@ montash render verify <path>
 
 ## `montash render presets`
 
-list implemented encoding presets
+list the encoding presets (built-in and project.render_presets)
 
 ```bash
 montash render presets
+```
+
+### Examples
+
+```bash
+montash render presets --json
+```
+
+## `montash render batch`
+
+render the same timeline with several presets into one directory
+
+```bash
+montash render batch --preset <array> --output <string> [options]
+```
+
+Each output is named <project>_<preset><ext>. Per-preset options: --preset name:--opt=value[,--opt2=v].
+
+### Options
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--preset` | array |  | preset name, optionally with options (repeatable)（required） |
+| `-o, --output` | string |  | output directory（required） |
+| `--parallel` | number | `1` | how many renders to run at once |
+| `--overwrite` | boolean |  | replace existing outputs |
+| `--progress` | `text` \| `jsonl` \| `none` | `text` | progress output |
+
+### Examples
+
+```bash
+montash render batch --preset youtube-1080p --preset web-preview -o out/
+montash render batch --preset instagram-reel:--reframe=center --preset web-preview -o out/
+```
+
+## `montash render still`
+
+write one frame of the timeline as a PNG/JPEG
+
+```bash
+montash render still --output <string> [options]
+```
+
+### Options
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `-o, --output` | string |  | output image path (.png / .jpg)（required） |
+| `--at` | time | `0` | timeline position (12.5 / 00:00:12.500 / f:375 / end-1) |
+| `--resolution` | string |  | override output WxH |
+| `--reframe` | string |  | crop anchor: center\|left\|right\|<x>% |
+| `--overwrite` | boolean |  | replace an existing file |
+
+### Examples
+
+```bash
+montash render still --at 00:00:03.000 -o out/thumb.png
+```
+
+## `montash render gif`
+
+write a range of the timeline as an animated GIF (palettegen/paletteuse)
+
+```bash
+montash render gif --output <string> [options]
+```
+
+### Options
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `-o, --output` | string |  | output .gif path（required） |
+| `--from` | time |  | range start (default 0) |
+| `--to` | time |  | range end, exclusive (default: end of timeline) |
+| `--resolution` | string |  | override output WxH |
+| `--fps` | number |  | GIF frame rate (default 15) |
+| `--reframe` | string |  | crop anchor: center\|left\|right\|<x>% |
+| `--overwrite` | boolean |  | replace an existing file |
+| `--progress` | `text` \| `jsonl` \| `none` | `none` | progress output |
+
+### Examples
+
+```bash
+montash render gif --from 2 --to 4 -o out/loop.gif
+```
+
+## `montash render audio`
+
+write the mixed audio of the timeline (no video)
+
+```bash
+montash render audio --output <string> [options]
+```
+
+### Options
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `-o, --output` | string |  | output .wav / .mp3 / .m4a path（required） |
+| `--acodec` | string |  | override the audio encoder |
+| `--abitrate` | string |  | audio bitrate (192k) |
+| `--overwrite` | boolean |  | replace an existing file |
+| `--progress` | `text` \| `jsonl` \| `none` | `none` | progress output |
+
+### Examples
+
+```bash
+montash render audio -o out/mix.wav
 ```
 
 ## `montash status`
@@ -1711,6 +1845,33 @@ montash diff [a] [b]
 montash diff --json
 montash diff k_0005 k_0007
 montash diff HEAD~3
+```
+
+## `montash blame`
+
+show the op / commit / actor that last changed an element (clip, text, transition, asset)
+
+```bash
+montash blame <element> [options]
+```
+
+### Arguments
+
+| Name | Type | Required | Description |
+| --- | --- | :-: | --- |
+| `element` | string | ✅ | element id (c3, x1, t2, an asset id, ...) |
+
+### Options
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--all` | boolean | `false` | search every branch, not only the HEAD line |
+
+### Examples
+
+```bash
+montash blame c3 --json
+montash blame x1
 ```
 
 ## `montash commit`
@@ -1811,6 +1972,60 @@ montash redo
 montash redo 2 --json
 ```
 
+## `montash revert`
+
+apply the inverse of a commit or op as a new op (does not rewrite history)
+
+```bash
+montash revert <ref>
+```
+
+The original op stays in the history; reverting twice returns to the original state. If the target of the inverse diff no longer exists, the command fails with E_REVERT_CONFLICT.
+
+### Arguments
+
+| Name | Type | Required | Description |
+| --- | --- | :-: | --- |
+| `ref` | string | ✅ | o_xxxx \| k_xxxx \| <tag> \| HEAD \| <ref>~n |
+
+### Examples
+
+```bash
+montash revert k_0006 -m "テロップ追加を取り消し"
+# undo the last op as a new op (history keeps both)
+montash revert HEAD
+```
+
+## `montash reset`
+
+move HEAD to a ref and drop the ops after it from the default `log` view (--hard)
+
+```bash
+montash reset <ref> [options]
+```
+
+Nothing is deleted: the discarded ops stay in ops.jsonl and are listed by `montash log --all`. Only --hard is supported (the working project.json is always rewritten to the target state).
+
+### Arguments
+
+| Name | Type | Required | Description |
+| --- | --- | :-: | --- |
+| `ref` | string | ✅ | o_xxxx \| k_xxxx \| <tag> \| HEAD~n |
+
+### Options
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--hard` | boolean | `false` | required: expand the target state into project.json |
+
+### Examples
+
+```bash
+montash reset --hard k_0006 --yes
+# the discarded ops are still there
+montash log --all
+```
+
 ## `montash tag`
 
 name the current HEAD (or a given op / commit) so it can be checked out later
@@ -1885,22 +2100,31 @@ montash history verify --json
 
 ## `montash history prune`
 
-delete old uncommitted ops and unreferenced objects (not implemented yet)
+delete old uncommitted ops and objects that nothing references
 
 ```bash
 montash history prune [options]
 ```
 
+Committed ops, HEAD and its ancestors, commit heads and tag targets are never deleted. Use --dry-run first: it lists exactly what would go.
+
 ### Options
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--keep-commits` | number | `100` | keep ops of the last n commits |
+| `--keep-commits` | number | `100` | keep every op from the last n commits onwards |
 | `--keep-days` | number | `30` | keep ops newer than n days |
+
+### Examples
+
+```bash
+montash history prune --dry-run --json
+montash history prune --keep-commits 20 --keep-days 7
+```
 
 ## `montash history export`
 
-export the history as one JSONL file (not implemented yet)
+export ops, commits, moves, tags and objects as one JSONL file (audit / backup)
 
 ```bash
 montash history export [options]
@@ -1910,21 +2134,35 @@ montash history export [options]
 
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
-| `-o, --out` | string |  | output file (.jsonl) |
+| `-o, --out` | string |  | output file (.jsonl); '-' for stdout |
+
+### Examples
+
+```bash
+montash history export -o history.jsonl
+```
 
 ## `montash history import`
 
-import a history exported with `history export` (not implemented yet)
+import a history exported with `history export` (restores ops, commits, tags and objects)
 
 ```bash
-montash history import [file]
+montash history import <file>
 ```
+
+Ids must not collide with the ones already present: import into a project whose .montash/history is empty.
 
 ### Arguments
 
 | Name | Type | Required | Description |
 | --- | --- | :-: | --- |
-| `file` | string |  | exported .jsonl file |
+| `file` | string | ✅ | exported .jsonl file |
+
+### Examples
+
+```bash
+montash history import history.jsonl --json
+```
 
 ## `montash ids rebuild`
 

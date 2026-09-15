@@ -1,6 +1,6 @@
 ---
 title: Rendering
-description: Render presets, verification and progress output
+description: Render presets and reframing, stills/GIF/audio, batch exports and verification
 sidebar:
   order: 9
 ---
@@ -16,7 +16,7 @@ montash render --preset youtube-1080p -o out/final.mp4
 
 ```
 render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
-rendered /tmp/my-edit/out/final.mp4 (270 frames; verified)
+rendered /tmp/my-edit/out/final.mp4 (240 frames, 1920x1080, youtube-1080p; verified)
 ```
 
 :::tip[Validate before you render]
@@ -33,19 +33,72 @@ so run it inside the project directory or pass an absolute path.
 montash render presets
 ```
 
-Two presets are implemented today.
+```
+youtube-1080p    builtin  1920x1080  libx264            YouTube 1080p (H.264 high@4.2)
+youtube-4k       builtin  3840x2160  libx264            YouTube 2160p (H.264 high@5.1)
+instagram-reel   builtin  1080x1920  libx264            vertical 9:16; use --reframe to crop instead of letterboxing
+twitter          builtin  1280x720   libx264            720p, conservative bitrate
+web-preview      builtin  1280x720   libx264            fast, small check render
+prores-422       builtin  timeline   prores_ks          editing master (ProRes 422 HQ + PCM)
+archive-h265     builtin  timeline   libx265            long-term archive (HEVC)
+audio-only-mp3   builtin  timeline   -                  audio only (VBR q2)
+gif              builtin  timeline   gif                480px wide, 15 fps, palettegen/paletteuse
+thumbnail        builtin  timeline   png                one still frame
+```
 
-| Preset | Resolution | CRF | Speed | Audio | For |
-|--------|-----------|-----|-------|-------|-----|
-| `youtube-1080p` (default) | 1920x1080 | 18 | `slow` | AAC 192k | The real export |
-| `web-preview` | 1280x720 | 28 | `veryfast` | AAC 96k | A fast export for checking |
+There are ten built-in presets.
 
-Both are H.264 (libx264) plus AAC in an MP4.
+| Preset | Resolution | Video | CRF / speed | Audio | Extension | For |
+|--------|-----------|-------|-------------|-------|-----------|-----|
+| `youtube-1080p` (default) | 1920x1080 | libx264 | 18 / `slow` | AAC 192k | `.mp4` | The real export |
+| `youtube-4k` | 3840x2160 | libx264 | 17 / `slow` | AAC 192k | `.mp4` | The real export, in 4K |
+| `instagram-reel` | 1080x1920 | libx264 | 20 / `medium` | AAC 128k | `.mp4` | Vertical 9:16 (Reels, Shorts) |
+| `twitter` | 1280x720 | libx264 | 23 / `medium` | AAC 128k | `.mp4` | 720p at a conservative bitrate |
+| `web-preview` | 1280x720 | libx264 | 28 / `veryfast` | AAC 96k | `.mp4` | A fast export for checking |
+| `prores-422` | timeline | prores_ks (yuv422p10le) | — | PCM 16-bit | `.mov` | A master to hand to another editor |
+| `archive-h265` | timeline | libx265 | 22 / `medium` | AAC 192k | `.mp4` | Long-term archive (HEVC) |
+| `audio-only-mp3` | — | none | — | MP3 (VBR q2) | `.mp3` | Audio only |
+| `gif` | 480px wide, 15fps | gif | — | none | `.gif` | An animated GIF |
+| `thumbnail` | timeline | png | — | none | `.png` | A single still frame |
+
+Presets whose resolution is "timeline" use the project's `settings.resolution` as-is;
+`--resolution` overrides it per render.
 
 ```bash
-montash render --preset web-preview -o out/check.mp4       # check it quickly first
-montash render --preset youtube-1080p -o out/final.mp4     # the real one
+montash render --preset web-preview -o out/check.mp4        # check it quickly first
+montash render --preset youtube-1080p -o out/final.mp4      # the real one
+montash render --preset prores-422 -o out/master.mov        # an editing master
 ```
+
+Project-specific presets written into `render_presets` in `project.json` show up in
+`render presets` as `project` and can be used with `--preset <name>`.
+
+## Going vertical (`--reframe`)
+
+When the output aspect ratio differs from the timeline's, the **default is letterboxing** —
+black bars are added so the whole frame fits. `--reframe` crops instead.
+
+| Value | Where it crops |
+|-------|----------------|
+| `center` | The middle |
+| `left` | The left edge (going from landscape to portrait) |
+| `right` | The right edge |
+| `<x>%` | Anywhere between 0% (left) and 100% (right) |
+
+```bash
+montash render --preset instagram-reel --reframe center -o out/reel.mp4
+montash render --preset instagram-reel --reframe 25% -o out/reel-left.mp4
+```
+
+```
+rendered /tmp/my-edit/out/reel.mp4 (240 frames, 1080x1920, instagram-reel; verified)
+```
+
+Exporting a 16:9 timeline with `instagram-reel` (1080x1920) letterboxes it top and bottom without
+`--reframe`, and crops a vertical strip out of the middle with `--reframe center`. If your subject
+sits to the left of frame, use `--reframe left` — or `--reframe 30%` to place it more precisely.
+
+`--reframe` is also available on `render still` and `render gif`.
 
 ## Overriding a preset
 
@@ -61,13 +114,107 @@ montash render -o out/final.mp4 \
 | Option | What it does |
 |--------|--------------|
 | `--resolution` | Override the output size as `WxH` |
-| `--crf` | H.264 quality (0–51; lower is better and bigger) |
-| `--preset-speed` | x264 encoding speed (`ultrafast` … `veryslow`) |
+| `--crf` | H.264 / H.265 quality (0–51; lower is better and bigger) |
+| `--preset-speed` | x264 / x265 encoding speed (`ultrafast` … `veryslow`) |
+| `--vcodec` / `--acodec` | Swap the video or audio encoder |
+| `--vbitrate` / `--abitrate` | Target a bitrate (`8M` / `192k`). `--vbitrate` switches CRF off |
+| `--pix-fmt` | Override the pixel format |
+| `--fps` | Change the output frame rate (**this re-times the output, so frame verification is skipped**) |
+| `--reframe` | The crop anchor when aspect ratios differ (above) |
+| `--hwaccel` | Hardware encoding (`auto` / `none` / `videotoolbox` / `nvenc` / `vaapi` / `qsv`) |
+| `--two-pass` | Two-pass encoding (libx264 / libx265 together with `--vbitrate`) |
 | `--threads` | Encoder threads |
 | `--overwrite` | Replace an existing file, but only after verification succeeds |
+| `--last` | Reuse the options of the previous render |
 
 Without `--overwrite`, an existing output file is an error (`E_OUTPUT_EXISTS`).
 Add it only when you have decided the file may be replaced.
+
+### Hardware encoding and two-pass
+
+```bash
+montash render -o out/fast.mp4 --preset youtube-1080p --hwaccel auto
+montash render -o out/8m.mp4 --preset youtube-1080p --vbitrate 8M --two-pass
+```
+
+`--hwaccel auto` picks whichever GPU encoder is available (VideoToolbox on macOS). It is much faster,
+but most hardware encoders ignore CRF; when that happens you get `W_CRF_IGNORED` and a bitrate is used
+instead. Pass `--vbitrate` alongside it to control quality, or `--hwaccel none` to go back to CPU encoding.
+
+`--two-pass` goes with `--vbitrate` when you are aiming at a particular file size.
+
+### Rendering again with the same settings
+
+Every `render` stores its options in `.montash/render/last.json`.
+
+```bash
+montash render --last -o out/v2.mp4
+```
+
+```
+rendered /tmp/my-edit/out/v2.mp4 (240 frames, 1080x1920, instagram-reel; verified)
+```
+
+Use it to re-export with the same settings and only the path changed. It errors in a project that has
+never been rendered.
+
+## Stills, GIFs and audio-only
+
+```bash
+montash render still --at 00:00:03.000 -o out/thumb.png
+montash render gif --from 2 --to 4 -o out/loop.gif
+montash render audio -o out/mix.wav
+```
+
+```
+wrote /tmp/my-edit/out/thumb.png (1 frame, thumbnail)
+wrote /tmp/my-edit/out/loop.gif (30 frames, gif)
+wrote /tmp/my-edit/out/mix.wav (240 frames, audio-only-mp3)
+```
+
+| Command | Main options |
+|---------|--------------|
+| `render still` | `--at` (position: `12.5` / `00:00:12.500` / `f:375` / `end-1`), `--resolution`, `--reframe`, `--overwrite` |
+| `render gif` | `--from` / `--to` (the range; `--to` is exclusive), `--fps` (default 15), `--resolution`, `--reframe`, `--overwrite` |
+| `render audio` | `--acodec`, `--abitrate`, `--overwrite`. The output extension (`.wav` / `.mp3` / `.m4a`) picks the container |
+
+:::note[These are not frame-verified]
+None of the three is a full-length render at the timeline fps, so `W_VERIFY_SKIPPED` is raised and
+the exact frame check is skipped. The render that matters for verification is the real one, so this
+costs you nothing.
+:::
+
+## Exporting several at once (`render batch`)
+
+Render the same timeline with several presets into one directory.
+
+```bash
+montash render batch --preset youtube-1080p --preset web-preview -o out/
+```
+
+```
+youtube-1080p    /tmp/my-edit/out/my-edit_youtube-1080p.mp4 (1920x1080, 6046511 bytes)
+web-preview      /tmp/my-edit/out/my-edit_web-preview.mp4 (1280x720, 1221555 bytes)
+```
+
+File names are `<project>_<preset>.<extension>`.
+
+To add options for one preset only, write them as `<preset>:<option>`.
+
+```bash
+montash render batch \
+  --preset instagram-reel:--reframe=center \
+  --preset web-preview \
+  -o out/
+```
+
+| Option | What it does |
+|--------|--------------|
+| `--preset` | Preset name, repeatable (required). `name:--opt=value` adds per-preset options |
+| `-o` / `--output` | The output **directory** (required) |
+| `--parallel` | How many renders to run at once (default 1) |
+| `--overwrite` | Replace existing outputs |
+| `--progress` | `text` (default) / `jsonl` / `none` |
 
 ## Verification
 
@@ -79,7 +226,7 @@ montash render verify out/final.mp4
 ```
 
 ```
-verified 270 frames with audio: /tmp/my-edit/out/final.mp4
+verified 240 frames with audio: /tmp/my-edit/out/final.mp4
 ```
 
 It checks frame count, FPS, audio duration and stream configuration —
@@ -99,6 +246,8 @@ so that "no error, but one frame short" gets caught rather than shipped.
 montash render -o out/final.mp4 --progress jsonl
 ```
 
+`render gif` and `render audio` default to `none`.
+
 ## Loudness normalization
 
 If `montash audio normalize` is configured, a two-pass `loudnorm` is applied during the render.
@@ -108,17 +257,15 @@ It is not applied to the preview built by `montash preview build`. See [Audio](/
 
 ## Not available yet
 
-The following are designed but **not implemented yet**.
+These are the parts of the render path that are **not implemented yet** and raise `E_UNSUPPORTED`.
 
 | Feature | What it will do |
 |---------|-----------------|
-| `montash render batch` | Export several presets in one go |
-| `--reframe center\|left\|right\|<x>%` | Choose the crop anchor, e.g. for vertical video |
-| Vertical presets (`instagram-reel`, …) | 9:16 presets |
-| Still / GIF / audio-only export | `render still` / `render gif` / `render audio` |
-| Hardware encoding (`--hwaccel`), two-pass (`--two-pass`) | |
-
-If you need several resolutions today, run `montash render` more than once with different `--resolution` values.
+| Clip `loop` | Repeat a clip to fill a duration |
+| Clip effects | Per-clip video effects |
+| 3D LUTs | Colour grading from a `.cube` file |
+| More than two audio channels | Mono and stereo only for now |
+| Generator clips on a text track | Generated clips such as solid colours or colour bars |
 
 ## Next
 

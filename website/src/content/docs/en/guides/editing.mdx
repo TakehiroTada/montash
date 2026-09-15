@@ -90,6 +90,9 @@ montash clip delete c5 --ripple             # delete and close the hole
 
 Use `--ripple=track` only when asked for something like "tighten the picture but leave the music where it is".
 
+`--ripple` is available on `clip move`, `clip trim`, `clip delete` and `clip set`.
+`clip add` does not take it yet — on insert, `--on-overlap push` pushes on every track.
+
 Trimming without ripple leaves a hole and warns with `W_GAP_CREATED`.
 Holes are listed by `timeline gaps`.
 

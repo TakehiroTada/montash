@@ -89,6 +89,9 @@ montash clip delete c5 --ripple             # 削除して穴を埋める
 
 「この映像だけ詰めて、BGM はそのまま」と言われたときだけ `--ripple=track` を使います。
 
+`--ripple` を取るのは `clip move` / `clip trim` / `clip delete` / `clip set` です。
+`clip add` にはまだありません（挿入時の押し出しは `--on-overlap push` で、常に全トラックが対象になります）。
+
 リップルせずに詰めると隙間が残り、`W_GAP_CREATED` が警告されます。
 隙間は `timeline gaps` で確認できます。
 

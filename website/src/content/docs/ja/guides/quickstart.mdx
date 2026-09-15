@@ -160,7 +160,7 @@ import { Steps } from '@astrojs/starlight/components';
 
    ```
    render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
-   rendered /tmp/qs/my-edit/out/final.mp4 (270 frames; verified)
+   rendered /tmp/qs/my-edit/out/final.mp4 (270 frames, 1920x1080, youtube-1080p; verified)
    ```
 
    `verified` は、書き出した MP4 のフレーム数が意図した 270 フレームと一致したことを意味します。
@@ -169,6 +169,10 @@ import { Steps } from '@astrojs/starlight/components';
    ```bash
    montash render verify out/final.mp4
    ```
+
+   プリセットは 10 種類あります（`montash render presets`）。複数まとめて出す `render batch`、
+   静止画・GIF・音声だけを出す `render still` / `render gif` / `render audio` もあります。
+   詳しくは [書き出し](/ja/guides/rendering/) を参照してください。
 
 9. ### 最後にコミットする
 

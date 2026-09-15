@@ -69,6 +69,8 @@ montash status                       # 今どこにいるか、未コミット�
 montash log --ops                    # これまでのコミットと操作
 montash checkout before-bgm          # タグを付けた時点へ戻る
 montash undo                         # 直前の操作を取り消す
+montash revert k_0006                # そのコミットの変更だけを打ち消す（新しい op として）
+montash blame c3                     # このクリップを最後に変えたのは誰か・いつか
 ```
 
 `checkout` や `undo` は履歴を消しません。分岐は DAG としてそのまま残り、`montash log --all` で辿れます。

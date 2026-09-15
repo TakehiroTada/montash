@@ -1,6 +1,6 @@
 ---
 title: 履歴
-description: op / commit / tag と、checkout・undo で任意の時点へ戻る
+description: op / commit / tag と、checkout・undo・revert・reset で任意の時点へ戻る
 sidebar:
   order: 8
 ---
@@ -29,7 +29,15 @@ git を使ったことがあれば、ほぼそのまま通じる仕組みです�
 | tip | ブランチの先端 |
 | tag | tag |
 | object | blob |
+| `log` / `show` / `diff` | `log` / `show` / `diff` |
 | `checkout` | `checkout` |
+| `undo` / `redo` | `checkout HEAD~1` を前後に移動する（git には無い） |
+| `revert` | `revert` |
+| `reset --hard` | `reset --hard` |
+| `blame` | `blame` |
+| `history verify` | `fsck` |
+| `history prune` | `gc --prune` |
+| `history export` / `import` | `bundle create` / `bundle unbundle` |
 
 いちばん大きな違いは、**op が自動で記録される**ことです。`git add` に相当する操作はありません。
 何かを試した時点でもう記録されているので、「やり直したい」と思ったら `undo` するだけです。
@@ -201,18 +209,139 @@ history verify — OK (16 ops, 2 commits, 1 tags, 2 moves)
 
 オブジェクトのハッシュ、op の DAG の連続性、コミット、タグ、移動ログを検証します。
 
+## 打ち消す（`revert`）
+
+`checkout` が「その時点まで戻る」のに対し、`revert` は**特定のコミット（または op）の変更だけを打ち消す**新しい op を足します。
+git の `revert` と同じで、**履歴は書き換わりません**。あいだにある他の編集はそのまま残ります。
+
+```bash
+montash revert k_0002 -m "00:00.0〜00:05.0 ラベル追加を取り消し"
+montash revert HEAD
+```
+
+```
+revert k_0002: 00:00.0〜00:05.0 c1 にラベル
+  2 changes: ~ /updated_at: ...; - /tracks/0/clips/0/label (was "オープニング")
+op o_0006 → commit k_0003
+```
+
+「テロップを入れる前に戻して」ではなく「**さっき入れたテロップだけ消して**、そのあとの色調整は残して」
+と言われたときがこれです。取り消しそのものが新しい op として残るので、`revert` をさらに `revert` することもできます。
+
+## 誰がいつ変えたか（`blame`）
+
+クリップ・テロップ・トランジション・素材といった要素について、**最後にそれを変えた op / コミット / actor** を調べます。
+
+```bash
+montash blame c3
+montash blame x1 --json
+montash blame c3 --all        # 分岐も含めてすべての系列から探す
+```
+
+```
+c1 last changed by o_0005  2026-09-15 05:58  ai
+  set label on c1
+  command: montash clip set c1 --label オープニング
+  commit k_0002  00:00.0〜00:05.0 c1 にラベル
+  1 change: + /tracks/0/clips/0/label = "オープニング"
+```
+
+「このクリップ、いつ短くなった？」を追うためのコマンドです。`--json` なら `result.op` / `result.commit` /
+`result.changes`（JSON Patch）がそのまま読めます。
+
+## HEAD を戻す（`reset --hard`）
+
+`reset` は HEAD を指定の地点まで戻し、**それより後の op を既定の `log` から外します**。
+
+```bash
+montash reset --hard k_0001 --yes
+```
+
+```
+reset --hard k_0001: HEAD is now at o_0004
+  2026-09-15 05:58  ai  add c3 (b60) on V1 at f:150
+  pending ops: 0  (on commit k_0001)
+  dropped from the default log: 2 ops (o_0005, o_0006)
+  they are kept on disk — see `montash log --all`
+```
+
+:::caution[`--hard` は必須です]
+`--hard` 無しで実行すると `E_USAGE`（`montash reset requires --hard`）になります。
+`project.json` を書き換える操作だと明示させるためです。確認を省くには `--yes` を付けます。
+:::
+
+git と違い、**外した op もディスク上には残ります**。`montash log --all` で見えますし、
+`montash checkout <id>` で戻ることもできます。本当に消したいときだけ `history prune` を使ってください。
+
+| したいこと | 使うもの |
+|-----------|---------|
+| 少し前の状態を「見たい」 | `checkout` / `undo` |
+| ある編集**だけ**を無かったことにしたい（履歴は残す） | `revert` |
+| ここから先をまとめて無かったことにしたい | `reset --hard` |
+| 本当にディスクから消したい | `history prune` |
+
+## 履歴を整理する・持ち出す
+
+### `history prune`
+
+コミットされていない古い op と、どこからも参照されていないオブジェクトを削除します。
+**まず `--dry-run` で確認してください。**
+
+```bash
+montash history prune --dry-run
+montash history prune --keep-commits 20 --keep-days 7
+```
+
+```
+history prune (dry run): would delete 0 op(s), 0 object(s), 0 move(s)
+  ops: (none)
+  kept: 6 ops, 3 commits, 7 objects
+```
+
+| オプション | 既定 | 内容 |
+|-----------|------|------|
+| `--keep-commits` | 100 | 直近 n コミット分の op は残す |
+| `--keep-days` | 30 | n 日以内の op は残す |
+
+コミット済みの op は消えません。
+
+### `history export` / `history import`
+
+履歴（op・コミット・移動ログ・タグ・オブジェクト）を 1 本の JSONL として書き出し、読み戻します。
+監査ログの提出や、バックアップからの復元に使います。
+
+```bash
+montash history export -o history.jsonl
+montash history export -o -            # 標準出力へ
+montash history import history.jsonl
+```
+
+```
+exported 19 record(s) to /tmp/my-edit/history.jsonl (6 ops, 3 commits, 7 objects)
+```
+
+```
+imported 6 op(s), 3 commit(s), 7 object(s) from history.jsonl
+what     added  total
+-------  -----  -----
+ops      6      6
+commits  3      3
+tags     0      0
+```
+
+:::note[import 先の履歴は空である必要があります]
+すでに同じ ID の op / コミットがある履歴に読み込もうとすると `E_HISTORY_IMPORT_CONFLICT` になります。
+`history import` は**復元**のためのもので、2 つの履歴をマージする機能ではありません。
+:::
+
 ## まだ使えないもの
 
-以下は履歴モデル上は設計済みですが、**現時点では実装されていません**。
-
-| コマンド | 内容 |
-|---------|------|
-| `montash revert <k_xxxx>` | 特定のコミットだけを打ち消す（git の `revert` 相当） |
-| `montash blame <id>` | ある要素を誰がいつ変えたかを調べる |
-| `montash history prune` | 古い未コミット op と参照されないオブジェクトを削除する |
-| `montash history export` / `import` | 履歴を JSONL で入出力する |
-
-`revert` の代わりに、いまは `checkout` でその時点を確認してから相当する操作をやり直す、という運用になります。
+| 機能 | 内容 |
+|------|------|
+| `montash snapshot save\|restore\|list\|delete` | `tag` / `checkout` の互換別名 |
+| `montash log --since` | 期間で絞る |
+| `montash commit --amend` / `--body-file` / `--from-worktree` | コミットの作り直しとメッセージのファイル入力 |
+| Web の履歴 API の一部 | `GET /api/history/:id`、`/api/history/diff`、`/api/blame`（CLI 側は実装済み） |
 
 ## 次に読むもの
 

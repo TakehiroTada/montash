@@ -118,7 +118,7 @@ montash serve --open
 つまり、ブラウザで行ったことも `montash undo` / `montash checkout` で戻せますし、
 AI は `montash log --ops` で「人間が Web で何をしたか」を把握できます。
 
-既定で許可されているのは履歴移動（`checkout`、`undo`、`redo`、`tag`）・素材管理（`import`、`assets *`、`proxy build`）・補助（`preview build`、`validate`）です。
+既定で許可されているのは履歴移動（`checkout`、`undo`、`redo`、`tag`、`tag delete`、`revert`、`reset --hard`）・素材管理（`import`、`assets set|set-text|new-text|remove|relink`、`proxy build`）・補助（`preview build`、`validate`）です。
 タイムライン編集系（`clip *`、`text *`、`render *`、`commit` など）は既定で許可されていません。
 
 破壊的なフラグ（`--force`、`--overwrite` など）は確認なしでは 409 `E_CONFIRM_REQUIRED` になります。

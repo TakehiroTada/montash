@@ -132,8 +132,15 @@ Setting `MONTASH_JSON=1` has the same effect as `--json`.
 | "Add music, duck it under the voice" | `track add --kind audio --name A2` → `clip add --asset bgm --track A2 --audio-only ...` → `audio duck --target A2 --sidechain A1` |
 | "Set the level for YouTube" | `audio normalize --loudness=-14 --true-peak=-1` |
 | "Export it for YouTube" | `render --preset youtube-1080p -o out/<name>.mp4 --progress jsonl` |
+| "Make a vertical cut (Reels / Shorts)" | `render --preset instagram-reel --reframe center -o out/<name>.mp4 --progress jsonl` |
+| "Give me both the real one and a check render" | `render batch --preset youtube-1080p --preset web-preview -o out/` |
+| "Pull a frame for the thumbnail" | `render still --at <t> -o out/thumb.png` |
+| "Just the audio" | `render audio -o out/mix.wav` |
+| "Export again with the same settings" | `render --last -o out/<name>_v2.mp4` |
 | "Undo that" | `undo` |
 | "Go back to before the titles" | `log --grep title --json` → `checkout <k_xxxx>~1` |
+| "Drop just the title I added" (keep the later edits) | find the commit with `log --json` → `revert <k_xxxx> -m "..."` |
+| "When did this clip change?" | `blame <id> --json` |
 | "Keep this version too" | `tag <name>` |
 | "Where is this clip used?" | `assets show <id> --json` (look at `usage`) |
 

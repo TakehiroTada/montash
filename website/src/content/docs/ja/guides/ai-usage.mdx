@@ -132,8 +132,15 @@ montash schema --json                                  # 生の定義
 | 「BGM を敷いて、声のところは下げて」 | `track add --kind audio --name A2` → `clip add --asset bgm --track A2 --audio-only ...` → `audio duck --target A2 --sidechain A1` |
 | 「音量を YouTube 向けに」 | `audio normalize --loudness=-14 --true-peak=-1` |
 | 「YouTube 用に書き出して」 | `render --preset youtube-1080p -o out/<name>.mp4 --progress jsonl` |
+| 「縦型（リール / ショート）にして」 | `render --preset instagram-reel --reframe center -o out/<name>.mp4 --progress jsonl` |
+| 「YouTube 用と確認用、両方出して」 | `render batch --preset youtube-1080p --preset web-preview -o out/` |
+| 「サムネ用に 1 枚書き出して」 | `render still --at <t> -o out/thumb.png` |
+| 「音だけ欲しい」 | `render audio -o out/mix.wav` |
+| 「同じ設定でもう一回出して」 | `render --last -o out/<name>_v2.mp4` |
 | 「さっきのやめて」 | `undo` |
 | 「テロップ入れる前に戻して」 | `log --grep テロップ --json` → `checkout <k_xxxx>~1` |
+| 「さっき入れたテロップだけ消して」（後の編集は残す） | `log --json` で対象コミットを特定 → `revert <k_xxxx> -m "..."` |
+| 「このクリップいつ変えた？」 | `blame <id> --json` |
 | 「このバージョンも残して」 | `tag <name>` |
 | 「この素材どこで使ってる？」 | `assets show <id> --json`（`usage` を見る） |
 

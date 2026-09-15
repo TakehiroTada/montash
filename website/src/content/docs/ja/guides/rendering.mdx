@@ -1,6 +1,6 @@
 ---
 title: 書き出し
-description: render のプリセットと検証、進捗出力
+description: render のプリセットとリフレーム、静止画・GIF・音声、一括書き出し、検証
 sidebar:
   order: 9
 ---
@@ -16,7 +16,7 @@ montash render --preset youtube-1080p -o out/final.mp4
 
 ```
 render 0.0%render 17.0%render 40.4%render 65.2%render 100.0%
-rendered /tmp/my-edit/out/final.mp4 (270 frames; verified)
+rendered /tmp/my-edit/out/final.mp4 (240 frames, 1920x1080, youtube-1080p; verified)
 ```
 
 :::tip[書き出す前に validate]
@@ -33,19 +33,72 @@ rendered /tmp/my-edit/out/final.mp4 (270 frames; verified)
 montash render presets
 ```
 
-現在実装されているプリセットは 2 つです。
+```
+youtube-1080p    builtin  1920x1080  libx264            YouTube 1080p (H.264 high@4.2)
+youtube-4k       builtin  3840x2160  libx264            YouTube 2160p (H.264 high@5.1)
+instagram-reel   builtin  1080x1920  libx264            vertical 9:16; use --reframe to crop instead of letterboxing
+twitter          builtin  1280x720   libx264            720p, conservative bitrate
+web-preview      builtin  1280x720   libx264            fast, small check render
+prores-422       builtin  timeline   prores_ks          editing master (ProRes 422 HQ + PCM)
+archive-h265     builtin  timeline   libx265            long-term archive (HEVC)
+audio-only-mp3   builtin  timeline   -                  audio only (VBR q2)
+gif              builtin  timeline   gif                480px wide, 15 fps, palettegen/paletteuse
+thumbnail        builtin  timeline   png                one still frame
+```
 
-| プリセット | 解像度 | CRF | 速度 | 音声 | 用途 |
-|-----------|-------|-----|------|------|------|
-| `youtube-1080p`（既定） | 1920x1080 | 18 | `slow` | AAC 192k | 配信用の本番書き出し |
-| `web-preview` | 1280x720 | 28 | `veryfast` | AAC 96k | 確認用の速い書き出し |
+組み込みプリセットは 10 種類です。
 
-どちらも H.264（libx264）+ AAC の MP4 です。
+| プリセット | 解像度 | 映像 | CRF / 速度 | 音声 | 拡張子 | 用途 |
+|-----------|-------|------|-----------|------|-------|------|
+| `youtube-1080p`（既定） | 1920x1080 | libx264 | 18 / `slow` | AAC 192k | `.mp4` | 配信用の本番書き出し |
+| `youtube-4k` | 3840x2160 | libx264 | 17 / `slow` | AAC 192k | `.mp4` | 4K の本番書き出し |
+| `instagram-reel` | 1080x1920 | libx264 | 20 / `medium` | AAC 128k | `.mp4` | 縦 9:16（リール・ショート） |
+| `twitter` | 1280x720 | libx264 | 23 / `medium` | AAC 128k | `.mp4` | 720p、控えめなビットレート |
+| `web-preview` | 1280x720 | libx264 | 28 / `veryfast` | AAC 96k | `.mp4` | 確認用の速い書き出し |
+| `prores-422` | タイムラインのまま | prores_ks（yuv422p10le） | — | PCM 16bit | `.mov` | 他の編集ソフトに渡すマスター |
+| `archive-h265` | タイムラインのまま | libx265 | 22 / `medium` | AAC 192k | `.mp4` | 長期保存（HEVC） |
+| `audio-only-mp3` | — | なし | — | MP3（VBR q2） | `.mp3` | 音声だけ |
+| `gif` | 幅 480px、15fps | gif | — | なし | `.gif` | アニメーション GIF |
+| `thumbnail` | タイムラインのまま | png | — | なし | `.png` | 静止画 1 枚 |
+
+解像度が「タイムラインのまま」のプリセットは、プロジェクトの `settings.resolution` をそのまま使います。
+`--resolution` で個別に上書きできます。
 
 ```bash
-montash render --preset web-preview -o out/check.mp4       # まず速い方で確認する
-montash render --preset youtube-1080p -o out/final.mp4     # 本番
+montash render --preset web-preview -o out/check.mp4        # まず速い方で確認する
+montash render --preset youtube-1080p -o out/final.mp4      # 本番
+montash render --preset prores-422 -o out/master.mov        # 編集マスター
 ```
+
+プロジェクト固有のプリセットを `project.json` の `render_presets` に書いておくと、
+`render presets` の一覧に `project` として並び、`--preset <名前>` で使えます。
+
+## 縦動画にする（`--reframe`）
+
+タイムラインの縦横比と出力の縦横比が違うとき、**既定はレターボックス**（黒帯を足して全体を収める）です。
+`--reframe` を付けると、黒帯の代わりに**切り出し（クロップ）**になります。
+
+| 値 | 切り出す位置 |
+|----|------------|
+| `center` | 中央 |
+| `left` | 左端（横長から縦長を切り出すとき） |
+| `right` | 右端 |
+| `<x>%` | 0%（左端）〜100%（右端）の間の任意の位置 |
+
+```bash
+montash render --preset instagram-reel --reframe center -o out/reel.mp4
+montash render --preset instagram-reel --reframe 25% -o out/reel-left.mp4
+```
+
+```
+rendered /tmp/my-edit/out/reel.mp4 (240 frames, 1080x1920, instagram-reel; verified)
+```
+
+16:9 のタイムラインを `instagram-reel`（1080x1920）で書き出すと、`--reframe` なしなら上下に黒帯、
+`--reframe center` なら中央を縦に切り出します。人物が画面の左寄りなら `--reframe left`、
+もう少し細かく寄せたいなら `--reframe 30%` のように指定します。
+
+`--reframe` は `render still` / `render gif` にもあります。
 
 ## プリセットを上書きする
 
@@ -61,13 +114,105 @@ montash render -o out/final.mp4 \
 | オプション | 内容 |
 |-----------|------|
 | `--resolution` | 出力解像度を `WxH` で上書きする |
-| `--crf` | H.264 の品質（0〜51、小さいほど高品質・大きいファイル） |
-| `--preset-speed` | x264 のエンコード速度（`ultrafast` 〜 `veryslow`） |
+| `--crf` | H.264 / H.265 の品質（0〜51、小さいほど高品質・大きいファイル） |
+| `--preset-speed` | x264 / x265 のエンコード速度（`ultrafast` 〜 `veryslow`） |
+| `--vcodec` / `--acodec` | 映像・音声のエンコーダを差し替える |
+| `--vbitrate` / `--abitrate` | ビットレートを指定する（`8M` / `192k`）。`--vbitrate` を付けると CRF は無効になる |
+| `--pix-fmt` | ピクセルフォーマットを上書きする |
+| `--fps` | 出力のフレームレートを変える（**尺が変わるのでフレーム数の検証はスキップされます**） |
+| `--reframe` | 縦横比が違うときの切り出し位置（上記） |
+| `--hwaccel` | ハードウェアエンコード（`auto` / `none` / `videotoolbox` / `nvenc` / `vaapi` / `qsv`） |
+| `--two-pass` | 2 パスエンコード（libx264 / libx265 と `--vbitrate` の組み合わせ） |
 | `--threads` | エンコーダのスレッド数 |
 | `--overwrite` | 検証に成功した場合のみ既存ファイルを置き換える |
+| `--last` | 前回の `render` と同じオプションを使う |
 
 `--overwrite` を付けないと、出力先にファイルがあるとエラーになります（`E_OUTPUT_EXISTS`）。
 上書きしていいと決めたときだけ付けてください。
+
+### ハードウェアエンコードと 2 パス
+
+```bash
+montash render -o out/fast.mp4 --preset youtube-1080p --hwaccel auto
+montash render -o out/8m.mp4 --preset youtube-1080p --vbitrate 8M --two-pass
+```
+
+`--hwaccel auto` は使える GPU エンコーダ（macOS なら VideoToolbox）を選びます。速い代わりに
+CRF が効かない実装が多く、その場合は `W_CRF_IGNORED` が警告されてビットレート指定に切り替わります。
+品質を握りたいときは `--vbitrate` を一緒に渡すか、`--hwaccel none` で CPU エンコードに戻してください。
+
+`--two-pass` は `--vbitrate` と組み合わせて、狙ったファイルサイズに寄せたいときに使います。
+
+### 前回と同じ設定で書き出す
+
+`render` は毎回オプションを `.montash/render/last.json` に残します。
+
+```bash
+montash render --last -o out/v2.mp4
+```
+
+```
+rendered /tmp/my-edit/out/v2.mp4 (240 frames, 1080x1920, instagram-reel; verified)
+```
+
+出力先だけ変えて同じ設定で書き直す、という使い方です。一度も `render` していないプロジェクトで使うとエラーになります。
+
+## 静止画・GIF・音声だけを書き出す
+
+```bash
+montash render still --at 00:00:03.000 -o out/thumb.png
+montash render gif --from 2 --to 4 -o out/loop.gif
+montash render audio -o out/mix.wav
+```
+
+```
+wrote /tmp/my-edit/out/thumb.png (1 frame, thumbnail)
+wrote /tmp/my-edit/out/loop.gif (30 frames, gif)
+wrote /tmp/my-edit/out/mix.wav (240 frames, audio-only-mp3)
+```
+
+| コマンド | 主なオプション |
+|---------|--------------|
+| `render still` | `--at`（位置。`12.5` / `00:00:12.500` / `f:375` / `end-1`）、`--resolution`、`--reframe`、`--overwrite` |
+| `render gif` | `--from` / `--to`（範囲。`--to` は含まない）、`--fps`（既定 15）、`--resolution`、`--reframe`、`--overwrite` |
+| `render audio` | `--acodec`、`--abitrate`、`--overwrite`。出力の拡張子（`.wav` / `.mp3` / `.m4a`）でコンテナが決まります |
+
+:::note[フレーム数の検証はされません]
+この 3 つはタイムライン全体を同じ fps で出すものではないので、`W_VERIFY_SKIPPED` が警告されて
+フレーム数の厳密な検証はスキップされます。厳密に確認したいのは本番の `render` なので、これで困ることはありません。
+:::
+
+## まとめて書き出す（`render batch`）
+
+同じタイムラインを複数のプリセットで、1 つのディレクトリに書き出します。
+
+```bash
+montash render batch --preset youtube-1080p --preset web-preview -o out/
+```
+
+```
+youtube-1080p    /tmp/my-edit/out/my-edit_youtube-1080p.mp4 (1920x1080, 6046511 bytes)
+web-preview      /tmp/my-edit/out/my-edit_web-preview.mp4 (1280x720, 1221555 bytes)
+```
+
+ファイル名は `<プロジェクト名>_<プリセット名>.<拡張子>` になります。
+
+プリセットごとにオプションを足したいときは `<プリセット>:<オプション>` の形で書きます。
+
+```bash
+montash render batch \
+  --preset instagram-reel:--reframe=center \
+  --preset web-preview \
+  -o out/
+```
+
+| オプション | 内容 |
+|-----------|------|
+| `--preset` | プリセット名（繰り返し指定。必須）。`名前:--opt=値` で個別オプションを付けられる |
+| `-o` / `--output` | 出力**ディレクトリ**（必須） |
+| `--parallel` | 同時に走らせる本数（既定 1） |
+| `--overwrite` | 既存の出力を置き換える |
+| `--progress` | `text`（既定）/ `jsonl` / `none` |
 
 ## 検証
 
@@ -79,7 +224,7 @@ montash render verify out/final.mp4
 ```
 
 ```
-verified 270 frames with audio: /tmp/my-edit/out/final.mp4
+verified 240 frames with audio: /tmp/my-edit/out/final.mp4
 ```
 
 フレーム数・FPS・音声長・ストリーム構成を確認します。
@@ -99,6 +244,8 @@ verified 270 frames with audio: /tmp/my-edit/out/final.mp4
 montash render -o out/final.mp4 --progress jsonl
 ```
 
+`render gif` / `render audio` は既定が `none` です。
+
 ## ラウドネス正規化
 
 `montash audio normalize` を設定してあると、render のときに 2 パスの `loudnorm` が適用されます。
@@ -108,17 +255,15 @@ montash render -o out/final.mp4 --progress jsonl
 
 ## まだ使えないもの
 
-以下は仕様上は設計されていますが、**現時点では実装されていません**。
+書き出しの経路で、**現時点では未実装**なため `E_UNSUPPORTED` になるものです。
 
 | 機能 | 内容 |
 |------|------|
-| `montash render batch` | 複数プリセットを一括で書き出す |
-| `--reframe center\|left\|right\|<x>%` | 縦動画などへのクロップ位置指定 |
-| 縦動画プリセット（`instagram-reel` など） | 9:16 のプリセット |
-| 静止画 / GIF / 音声のみの書き出し | `render still` / `render gif` / `render audio` |
-| ハードウェアエンコード（`--hwaccel`）、2 パス（`--two-pass`） | |
-
-複数の解像度が必要な場合は、いまは `--resolution` を変えて `montash render` を複数回実行してください。
+| クリップの `loop` | クリップを繰り返して尺を埋める |
+| クリップエフェクト | クリップ単位の映像エフェクト |
+| 3D LUT | `.cube` などによるカラーグレーディング |
+| 3 チャンネル以上の音声 | 現状はモノラル / ステレオのみ |
+| テキストトラック上のジェネレータクリップ | 単色・カラーバーなどの生成クリップ |
 
 ## 次に読むもの
 

@@ -68,6 +68,8 @@ montash status                       # where you are and what is uncommitted
 montash log --ops                    # commits and the operations inside them
 montash checkout before-bgm          # jump back to a tagged point
 montash undo                         # undo the last operation
+montash revert k_0006                # undo just that one commit, as a new op
+montash blame c3                     # who last changed this clip, and when
 ```
 
 `checkout` and `undo` never delete history. Branches stay in the DAG and are reachable with `montash log --all`.
