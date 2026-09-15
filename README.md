@@ -22,6 +22,7 @@ AI（LLM）が人間のプロンプト指示を受けて **CLI コマンドだ�
 | 5 | **bash 互換** | Windows WSL / Linux / macOS の bash で同じコマンドが動く |
 | 6 | **Web の操作も CLI の発行** | Web UI からの操作（履歴の移動、素材管理）は例外なく対応する `montash` コマンドを発行して実行し、履歴に `actor: web` で記録される。タイムライン編集（ドラッグ等）は Web に持たず CLI で行う |
 | 7 | **履歴は git のように** | すべての操作を op として自動記録し、AI が `montash commit -m "00:12〜00:15 をカット"` と意味付けする。任意時点へ `checkout` で即時に戻る／進む |
+| 8 | **拡張はプラグイン、加工は ffmpeg** | 本体は時間・履歴・タイムラインの意味論に絞る。効果や入出力は 6 種の拡張点レジストリに登録し、**組み込み機能も同じ経路を通る**。プラグインはピクセルを触らず ffmpeg のフィルタ片を返す純関数（[docs/14](docs/14-plugin-architecture.md)） |
 
 ## ドキュメント
 
@@ -67,6 +68,7 @@ CLI リファレンス（`website/src/content/docs/{ja,en}/reference/cli.md`）�
 | 11 | [docs/11-history-model.md](docs/11-history-model.md) | git ライクな履歴モデル（op / commit / checkout / tag）と Web の History タイムライン | トレーサビリティ |
 | 12 | [docs/12-tech-decisions.md](docs/12-tech-decisions.md) | 技術選定の決定記録（Bun / yargs / chokidar / React+canvas / 整数フレーム / libass）と実機検証結果 | 実装の前提 |
 | 13 | [docs/13-open-issues.md](docs/13-open-issues.md) | 未解決の懸念一覧（要決定事項・技術リスク・進め方）と推奨対応 | 着手前の合意 |
+| 14 | [docs/14-plugin-architecture.md](docs/14-plugin-architecture.md) | プラグイン契約（拡張点 6 種・供給元 3 種・能力 3 段階・マニフェスト・互換規則） | 拡張の仕様 |
 
 ## 現在実行できる編集（M3 完了）
 
@@ -176,6 +178,9 @@ bun run compile                             # 現在の OS 向け CLI を dist/m
 | コミット (commit) | 連続する op にメッセージを付けてまとめた作業単位。`k_0007`。git のコミットに相当 |
 | HEAD / checkout | 現在展開されている履歴上の位置／そこへ移動する操作。移動は即時 |
 | tag | 履歴上の位置に付ける名前（旧スナップショット） |
+| エフェクト (effect) | クリップに掛ける加工。`{type, params}` を持ち、レンダー時に ffmpeg のフィルタ片へ展開される |
+| レジストリ (registry) | 拡張点の登録先。`effects` / `transitions` / `generators` / `presets` / `io` / `commands` の 6 種。組み込み機能もここを通る |
+| プラグイン (plugin) | レジストリに登録を足す外部モジュール。`montash-plugin.json` と `apiVersion` を持つ |
 
 ## 検証はローカルで行う
 
