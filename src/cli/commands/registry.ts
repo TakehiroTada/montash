@@ -12,6 +12,16 @@ import {
   assetsSetText,
   assetsShow,
 } from "./assets.ts";
+import {
+  audioAnalyze,
+  audioDuck,
+  audioDuckRemove,
+  audioFade,
+  audioGain,
+  audioNormalize,
+  audioOffset,
+  audioShow,
+} from "./audio.ts";
 import { checkout } from "./checkout.ts";
 import { clipAdd, clipList } from "./clip.ts";
 import { clipDelete, clipMove, clipSet, clipSplit, clipTrim } from "./clip-edit.ts";
@@ -104,6 +114,16 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(subtitleRemove),
   spec(subtitleList),
   // オーバーレイ / 音声                                                → M3/M4
+  // 音声（docs/04 §11）
+  spec(audioGain),
+  spec(audioFade),
+  spec(audioDuck),
+  spec(audioDuckRemove),
+  spec(audioNormalize),
+  spec(audioOffset),
+  spec(audioAnalyze),
+  spec(audioShow),
+  // オーバーレイ / 字幕                                                → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
   spec(previewBuild),

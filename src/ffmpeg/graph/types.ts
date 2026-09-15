@@ -8,6 +8,7 @@
 import { MontashError, type Warning } from "../../cli/errors.ts";
 import type { Asset, Fps, Project, Resolution } from "../../core/schema.ts";
 import { framesToSamples, framesToSecString } from "../../core/time.ts";
+import type { DuckWindow, LoudnormSpec } from "./audio.ts";
 import type { TextBurn } from "./text.ts";
 
 /** 1 入力ぶんの ffmpeg 引数（`["-i", path]` / `["-loop","1","-framerate","30/1","-i",path]`） */
@@ -49,6 +50,24 @@ export interface GraphOptions {
    * `range` を指定する場合、渡す ASS は区間の先頭を 0 とした時刻にシフト済みであること。
    */
   text?: TextBurn;
+  /**
+   * `[Aout]` 末尾に付ける `loudnorm`（docs/07 §8.4）。省略すると正規化しない。
+   * `measured` を含めると 2 パス目（`linear=true`）になる。
+   */
+  loudnorm?: LoudnormSpec | undefined;
+  /**
+   * `--simple` ダッキングの事前解析結果（ducking ID → サイドチェインの発話区間と音量）。
+   * 解析は I/O なのでグラフの外（ffmpeg/audio-analysis.ts）で行う（docs/07 §8.3）。
+   */
+  ducking?: Record<string, DuckAnalysis> | undefined;
+}
+
+/** `--simple` ダッキング 1 件ぶんの事前解析（docs/07 §8.3） */
+export interface DuckAnalysis {
+  /** サイドチェインが鳴っている区間（秒） */
+  windows: DuckWindow[];
+  /** サイドチェインのピーク音量（dBFS）。下げ幅の計算に使う */
+  level_db: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +214,6 @@ export class GraphContext {
 
 export function unsupported(what: string): never {
   throw new MontashError("E_NOT_IMPLEMENTED", `the filter graph does not support ${what} yet`, {
-    hint: "Ducking, text tracks, looped clips, LUTs and keyframed effects arrive in later milestones.",
+    hint: "Text tracks, looped clips, LUTs and keyframed effects arrive in later milestones.",
   });
 }

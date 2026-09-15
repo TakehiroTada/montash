@@ -21,6 +21,7 @@ import { resolveAssetPath, validateProject } from "../core/validate.ts";
 import { buildGraph } from "./graph/builder.ts";
 import { serializeGraph } from "./graph/serialize.ts";
 import { type Binaries, locateBinaries } from "./locate.ts";
+import { type AudioPasses, prepareAudio } from "./loudnorm.ts";
 import { proxyState } from "./proxy.ts";
 import { verifyRender } from "./render.ts";
 import { type Progress, runFfmpeg } from "./run.ts";
@@ -289,7 +290,7 @@ function fingerprintInputs(inputs: readonly string[][], sources: Map<string, Sou
 export async function buildPreviewPlan(
   project: Project,
   dir: string,
-  opts: { height?: number; bins?: Binaries } = {},
+  opts: { height?: number; bins?: Binaries; audio?: AudioPasses } = {},
 ): Promise<PreviewPlan> {
   const validation = validateProject(project, { dir, checkFiles: true });
   if (!validation.ok)
@@ -368,7 +369,13 @@ export async function buildPreviewPlan(
   }
 
   // --- 音声（docs/07 §11.2: タイムライン全体を毎回 1 パス） ---
-  const audioGraph = buildGraph(project, { resolution: res, source, video: false });
+  const audioGraph = buildGraph(project, {
+    resolution: res,
+    source,
+    video: false,
+    ...(opts.audio?.loudnorm ? { loudnorm: opts.audio.loudnorm } : {}),
+    ...(opts.audio?.ducking ? { ducking: opts.audio.ducking } : {}),
+  });
   const audioHash = canonicalHash({
     version: 3,
     total,
@@ -390,10 +397,11 @@ export async function buildPreviewPlan(
       },
     });
 
-  if (project.audio.normalize.enabled)
+  if (project.audio.normalize.enabled && !opts.audio?.loudnorm)
     warnings.push({
       code: "W_NORMALIZE_DEFERRED",
-      message: "preview keeps source audio levels; loudness normalization runs on render only (docs/07 §8.4).",
+      message:
+        "preview keeps source audio levels; set settings.preview.normalize to hear a one-pass loudnorm (docs/07 §8.4).",
     });
 
   return { duration_f: total, resolution: res, fps, segments, audio: { hash: audioHash, args: audioArgs }, warnings };
@@ -494,7 +502,15 @@ export async function buildPreview(
   const progressFile = join(folder, "build.json");
 
   try {
-    const plan = await buildPreviewPlan(project, dir, { height, bins });
+    // 音声の事前パス（`--simple` ダッキングの解析。正規化はプレビューでは既定で省略。docs/07 §8.3, §8.4）
+    const audio = await prepareAudio(bins, project, {
+      source: (asset) => resolveAssetPath(dir, asset.path),
+      singlePass: true,
+      skipNormalize: project.settings.preview.normalize !== true,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    const plan = await buildPreviewPlan(project, dir, { height, bins, audio: audio.passes });
+    plan.warnings.push(...audio.warnings.map((w) => ({ code: w.code, message: w.message })));
     const previous = await readPreviewManifest(dir);
 
     // どのセグメントを作り直すか（--force は全部、--from/--to はその区間にかかるものだけ）

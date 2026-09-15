@@ -11,6 +11,7 @@ import { buildGraph } from "./graph/builder.ts";
 import { serializeGraph } from "./graph/serialize.ts";
 import type { OutputSpec } from "./graph/types.ts";
 import type { Binaries } from "./locate.ts";
+import type { AudioPasses } from "./loudnorm.ts";
 import { runFfprobeJson } from "./run.ts";
 import { prepareText, type TextEngine } from "./text-prepare.ts";
 
@@ -30,6 +31,8 @@ export interface RenderOptions {
   bins?: Binaries;
   /** 検出結果を上書きする（テスト用） */
   textEngine?: TextEngine;
+  /** レンダー前に走らせた音声パスの結果（ダッキング解析・loudnorm 測定。docs/07 §8.3, §8.4） */
+  audio?: AudioPasses;
 }
 export interface RenderPlan {
   args: string[];
@@ -64,6 +67,8 @@ export async function buildRenderPlan(
     resolution,
     source: (asset) => resolveAssetPath(dir, asset.path),
     ...(text.burn !== undefined ? { text: text.burn } : {}),
+    ...(opts.audio?.loudnorm ? { loudnorm: opts.audio.loudnorm } : {}),
+    ...(opts.audio?.ducking ? { ducking: opts.audio.ducking } : {}),
   });
   const spec: OutputSpec = {
     path: output,
@@ -91,10 +96,10 @@ export async function buildRenderPlan(
     ...graph.warnings.map((w) => ({ code: w.code, message: w.message })),
     ...text.warnings.map((w) => ({ code: w.code, message: w.message })),
   ];
-  if (project.audio.normalize.enabled)
+  if (project.audio.normalize.enabled && !opts.audio?.loudnorm)
     warnings.push({
-      code: "W_NORMALIZE_DEFERRED",
-      message: "render preserves audio levels; loudness normalization is planned for a later milestone.",
+      code: "W_NORMALIZE_SKIPPED",
+      message: "loudness normalization is enabled but no measurement was supplied; audio is rendered as is.",
     });
   return {
     args: serializeGraph(graph, spec),

@@ -1,0 +1,73 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`clip gain, fade and sample offset are applied per clip (docs/07 §8.1) 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=90,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N,format=yuv420p[V1]",
+  "[1:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a2]",
+  "[a2]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a3]",
+  "[2:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=-12dB,afade=t=out:ss=48000:ns=96000:curve=tri[a4]",
+  "[a4]atrim=start_sample=480,asetpts=PTS-STARTPTS[a5]",
+  "[a5]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a6]",
+  "[a3][a6]amix=inputs=2:normalize=0:dropout_transition=0[a7]",
+  "[a7]volume=0dB,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a8]",
+]
+`;
+
+exports[`ducking splits the sidechain and compresses the target (docs/07 §8.3) 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=90,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N,format=yuv420p[V1]",
+  "[1:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a2]",
+  "[a2]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a3]",
+  "[2:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a4]",
+  "[a4]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a5]",
+  "[a3]asplit=2[a6][a7]",
+  "[a5][a7]sidechaincompress=threshold=0.031623:ratio=8:attack=20:release=500:makeup=1[a8]",
+  "[a6][a8]amix=inputs=2:normalize=0:dropout_transition=0[a9]",
+  "[a9]volume=0dB,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a10]",
+]
+`;
+
+exports[`--simple ducking uses the analysed windows with a volume expression 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=90,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N,format=yuv420p[V1]",
+  "[1:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a2]",
+  "[a2]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a3]",
+  "[2:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a4]",
+  "[a4]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a5]",
+  "[a5]volume='if(between(t,0.5,1.5),0.089125,1)':eval=frame[a6]",
+  "[a3][a6]amix=inputs=2:normalize=0:dropout_transition=0[a7]",
+  "[a7]volume=0dB,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a8]",
+]
+`;
+
+exports[`loudnorm pass 2 adds the measured values and linear=true (docs/07 §8.4) 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=90,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N,format=yuv420p[V1]",
+  "[1:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a2]",
+  "[a2]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a3]",
+  "[2:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a4]",
+  "[a4]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a5]",
+  "[a3][a5]amix=inputs=2:normalize=0:dropout_transition=0[a6]",
+  "[a6]volume=0dB,loudnorm=I=-14:TP=-1:LRA=11:measured_I=-21.06:measured_TP=-18.98:measured_LRA=0:measured_thresh=-31.06:offset=-0.04:linear=true,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a7]",
+]
+`;
+
+exports[`several audio tracks are mixed with normalize=0 and fitted to the timeline 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=90,settb=expr=1/30,setpts=N[v0]",
+  "[v0]fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N,format=yuv420p[V1]",
+  "[1:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a2]",
+  "[a2]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a3]",
+  "[2:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=144000,asetpts=PTS-STARTPTS,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS,volume=0dB[a4]",
+  "[a4]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a5]",
+  "[3:a:0]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start_sample=0:end_sample=96000,asetpts=PTS-STARTPTS,apad=whole_len=96000,atrim=end_sample=96000,asetpts=PTS-STARTPTS,volume=-6dB[a6]",
+  "[a6]adelay=48000S:all=1[a7]",
+  "[a7]apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a8]",
+  "[a3][a5][a8]amix=inputs=3:normalize=0:dropout_transition=0[a9]",
+  "[a9]volume=0dB,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a10]",
+]
+`;
