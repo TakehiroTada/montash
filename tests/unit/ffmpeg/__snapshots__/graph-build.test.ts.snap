@@ -1,0 +1,47 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`clips without transitions are concatenated with background gaps 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=30,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=30,settb=expr=1/30,setpts=N[v0]",
+  "color=c=#000000:s=320x180:r=30/1,trim=end_frame=15,settb=expr=1/30,setpts=N[v1]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=60:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=30,settb=expr=1/30,setpts=N[v2]",
+  "[v0][v1][v2]concat=n=3:v=1:a=0,fps=30/1,trim=end_frame=75,settb=expr=1/30,setpts=N[v3]",
+  "[v3]fps=30/1,trim=end_frame=75,settb=expr=1/30,setpts=N,format=yuv420p[V4]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=120000[a5]",
+  "[a5]volume=0dB,apad=whole_len=120000,atrim=end_sample=120000,asetpts=PTS-STARTPTS[a6]",
+]
+`;
+
+exports[`a transition folds into xfade and the untouched cut stays a concat 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=35,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=35,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=55:end_frame=90,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=35,settb=expr=1/30,setpts=N[v1]",
+  "[v0][v1]xfade=transition=wipeleft:duration=0.333333:offset=0.833333,settb=expr=1/30,setpts=N[v2]",
+  "[2:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=120:end_frame=150,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=30,settb=expr=1/30,setpts=N[v3]",
+  "[v2][v3]concat=n=2:v=1:a=0,fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N[v4]",
+  "[v4]fps=30/1,trim=end_frame=90,settb=expr=1/30,setpts=N,format=yuv420p[V5]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=144000[a6]",
+  "[a6]volume=0dB,apad=whole_len=144000,atrim=end_sample=144000,asetpts=PTS-STARTPTS[a7]",
+]
+`;
+
+exports[`an upper video track is composited with overlay and frame-number enable 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=60,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=60,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=0:end_frame=30,settb=expr=1/30,setpts=N,scale=iw*0.25:-2:flags=bicubic,setsar=1,format=yuva420p,colorchannelmixer=aa=0.5,trim=end_frame=30,settb=expr=1/30,setpts=N[v1]",
+  "[v1]setpts=PTS+0.333333/TB[v2]",
+  "[v0][v2]overlay=x=W-w-8:y=8:enable='between(n,10,39)':eof_action=pass:shortest=0:format=auto,settb=expr=1/30,setpts=N[v3]",
+  "[v3]fps=30/1,trim=end_frame=60,settb=expr=1/30,setpts=N,format=yuv420p[V4]",
+  "anullsrc=r=48000:cl=stereo,atrim=end_sample=96000[a5]",
+  "[a5]volume=0dB,apad=whole_len=96000,atrim=end_sample=96000,asetpts=PTS-STARTPTS[a6]",
+]
+`;
+
+exports[`a range build produces only the segment and starts at frame 0 1`] = `
+[
+  "[0:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=40:end_frame=60,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=20,settb=expr=1/30,setpts=N[v0]",
+  "[1:V:0]setpts=PTS-STARTPTS,fps=30/1,trim=start_frame=100:end_frame=140,settb=expr=1/30,setpts=N,scale=320:180:force_original_aspect_ratio=decrease:flags=bicubic,pad=320:180:(ow-iw)/2:(oh-ih)/2:color=#000000,setsar=1,format=yuv420p,trim=end_frame=40,settb=expr=1/30,setpts=N[v1]",
+  "[v0][v1]concat=n=2:v=1:a=0,fps=30/1,trim=end_frame=60,settb=expr=1/30,setpts=N[v2]",
+  "[v2]fps=30/1,trim=end_frame=60,settb=expr=1/30,setpts=N,format=yuv420p[V3]",
+]
+`;

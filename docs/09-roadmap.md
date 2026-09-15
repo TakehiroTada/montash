@@ -10,7 +10,10 @@
 - この時点のコマンド引数は `montash schema` が正。04章の将来仕様のうち、`clip add --loop`、`--on-overlap push/overwrite`、`project set fps/resolution`、部分レンダー、`render --last`、テキスト・演出・音量正規化は未実装。
 - W-16の履歴連携を実装: WebでHEAD・pending・コミット・タグ・分岐を表示し、CLI操作と同期。Playwrightでキャンバスクリック、`[` / `]`、コミット・タグ通知、監視なしの再取得を検証。
 - M2のプレビュー経路を追加: `preview build/status`（映像セグメントキャッシュ + 音声1パス + mux、`--from/--to`・`--audio-only`・`--height`・`--force`）、`serve` のデバウンス自動生成とキャンセル、`GET /preview/timeline.mp4`（Range・`ETag`=project_hash）と `/preview/timeline.json`、`/api/status` の `preview`。W-04 で CLI・HTTP・（chromium があれば）実ブラウザ再生を検証。
-- 次の実装対象: M2のWeb Assets閲覧の充実、コンパイル版の自己spawn／資産配信の検証。M3の演出・音声処理へ進む。
+- M3のフィルタグラフを再構築: `src/ffmpeg/graph/`（types / video / transitions / audio / overlay / builder / serialize）に純関数として切り出し、`render` と `preview build` が同じ `buildGraph()` を使う（プレビューは区間・プロキシ入力・`-an` をオプションで表現）。
+- W-05のトランジション・フェードを追加: `transition add|set|remove|list`（`--between` / `--track --all-cuts` / `--at-cut`、`handle` / `overlap`、`acrossfade`）、`fade`（トラック／クリップ、`--with-audio`）。あわせて複数映像トラックの overlay（position プリセット・scale・opacity）、速度変更（`setpts` + `atempo`）、音声オフセット（`offset_smp`）に対応。30 / 29.97 / 59.94fps のゴールデンテスト（`duration_f` 奇数・偶数）でフレーム数厳密一致と xfade 前後フレームのPSNR照合を常設。
+- 未実装のまま: ダッキング、テキスト・字幕トラック、`loop`、LUT、キーフレーム、音量正規化。
+- 次の実装対象: M2のWeb Assets閲覧の充実、コンパイル版の自己spawn／資産配信の検証。M3のテキスト（ASS/libass）・音声処理へ進む。
 - CIは費用抑制のため一時的にUbuntuのみ。以下の複数OS要件は再開後の目標。
 
 ## 1. マイルストーン

@@ -16,17 +16,10 @@ import { MontashError, type Warning } from "../cli/errors.ts";
 import { timelineDurationF } from "../core/assets.ts";
 import { canonicalHash } from "../core/history/hash.ts";
 import { atomicWrite, hashProject, projectPaths } from "../core/project.ts";
-import {
-  type Clip,
-  clipEndF,
-  type Fps,
-  isMediaClip,
-  type Project,
-  type Resolution,
-  type Track,
-} from "../core/schema.ts";
-import { framesToSamples } from "../core/time.ts";
+import { type Asset, clipEndF, type Fps, type Project, type Resolution } from "../core/schema.ts";
 import { resolveAssetPath, validateProject } from "../core/validate.ts";
+import { buildGraph } from "./graph/builder.ts";
+import { serializeGraph } from "./graph/serialize.ts";
 import { type Binaries, locateBinaries } from "./locate.ts";
 import { proxyState } from "./proxy.ts";
 import { verifyRender } from "./render.ts";
@@ -200,12 +193,6 @@ export async function readPreviewStatus(
 // プラン（セグメント分割と ffmpeg 引数の組み立て）
 // ---------------------------------------------------------------------------
 
-function unsupported(what: string): never {
-  throw new MontashError("E_NOT_IMPLEMENTED", `M2 preview does not support ${what}`, {
-    hint: "Use plain media clips with speed 1; transitions, text and effects arrive in later milestones.",
-  });
-}
-
 interface SourceRef {
   /** ffmpeg に渡す実際の入力パス（プロキシがあればプロキシ） */
   path: string;
@@ -233,49 +220,38 @@ export interface PreviewPlan {
   warnings: Warning[];
 }
 
-/** 映像・テキストトラックのクリップ端をセグメント境界にし、短すぎる区間は後ろへ統合する */
+/**
+ * 映像・テキストトラックのクリップ端をセグメント境界にし、短すぎる区間は後ろへ統合する。
+ * トラックフェードの窓（`fade=s:n` はストリーム先頭からのフレーム指定なので区間を跨げない）は割らない。
+ */
 export function segmentBoundaries(project: Project, total: number): number[] {
   const marks = new Set<number>();
+  const keepWhole: Array<[number, number]> = [];
+  let base = true;
   for (const track of project.tracks) {
     if (track.kind === "audio" || track.muted) continue;
     for (const clip of track.clips) {
       marks.add(clip.start_f);
       marks.add(clipEndF(clip));
     }
+    if (track.kind !== "video" || !track.clips.length) continue;
+    // 一番下の映像トラックはタイムライン全体、上位トラックは自分の範囲でフェードする（graph/builder.ts と同じ規則）
+    const spanStart = base ? 0 : Math.min(...track.clips.map((c) => c.start_f));
+    const spanEnd = base ? total : Math.max(...track.clips.map((c) => clipEndF(c)));
+    if (track.fade.in_f > 0) keepWhole.push([spanStart, spanStart + track.fade.in_f]);
+    if (track.fade.out_f > 0) keepWhole.push([spanEnd - track.fade.out_f, spanEnd]);
+    base = false;
   }
-  const sorted = [...marks].filter((f) => f > 0 && f < total).sort((a, b) => a - b);
+  const sorted = [...marks]
+    .filter((f) => f > 0 && f < total)
+    .filter((f) => !keepWhole.some(([a, b]) => f > a && f < b))
+    .sort((a, b) => a - b);
   const out = [0];
   for (const mark of sorted) {
     if (mark - out[out.length - 1]! >= SEGMENT_MIN_F && total - mark >= SEGMENT_MIN_F) out.push(mark);
   }
   out.push(total);
   return out;
-}
-
-function activeTracks(project: Project): Track[] {
-  return project.tracks.filter((t) => !t.muted && t.clips.length > 0);
-}
-
-/** M1/M2 のパイプラインが扱える構成かを確認する（render.ts と同じ制限） */
-function assertSupported(project: Project): void {
-  if (project.transitions.length) unsupported("transitions");
-  if (project.audio.ducking.length) unsupported("audio ducking");
-  if (![1, 2].includes(project.settings.channels)) unsupported("more than two audio channels");
-  const active = activeTracks(project);
-  if (active.filter((t) => t.kind === "video").length > 1) unsupported("multiple video layers");
-  for (const track of active) {
-    if (track.kind === "text") unsupported("text tracks");
-    if (track.fade.in_f || track.fade.out_f) unsupported("track fades");
-    for (const clip of track.clips) {
-      if (!isMediaClip(clip)) unsupported("text, subtitle or generator clips");
-      if (clip.speed !== 1 || clip.loop || clip.effects.length) unsupported("speed, loops or effects");
-      const v = clip.video;
-      if (v && (v.opacity !== 1 || v.transform || v.crop || v.color || v.lut || v.fade.in_f || v.fade.out_f))
-        unsupported("video transforms or fades");
-      const a = clip.audio;
-      if (a && (a.fade.in_f || a.fade.out_f || a.offset_smp)) unsupported("audio fades or offsets");
-    }
-  }
 }
 
 async function resolveSources(project: Project, dir: string): Promise<Map<string, SourceRef>> {
@@ -297,6 +273,18 @@ async function resolveSources(project: Project, dir: string): Promise<Map<string
   return out;
 }
 
+/** 入力引数の中のパスを指紋（size / mtime）に置き換えたもの。キャッシュキーに使う */
+function fingerprintInputs(inputs: readonly string[][], sources: Map<string, SourceRef>): unknown[] {
+  const byPath = new Map<string, SourceRef>();
+  for (const ref of sources.values()) byPath.set(ref.path, ref);
+  return inputs.map((input) =>
+    input.map((token) => {
+      const ref = byPath.get(token);
+      return ref ? { path: token, size: ref.size, mtime: ref.mtime } : token;
+    }),
+  );
+}
+
 export async function buildPreviewPlan(
   project: Project,
   dir: string,
@@ -313,214 +301,83 @@ export async function buildPreviewPlan(
     throw new MontashError("E_EMPTY_TIMELINE", "cannot build a preview of an empty timeline", {
       hint: "Use `montash clip add` first.",
     });
-  assertSupported(project);
 
   const res = previewResolution(project, opts.height);
   const fps = project.settings.fps;
-  const rate = `${fps.num}/${fps.den}`;
-  const sr = project.settings.sample_rate;
-  const layout = project.settings.channels === 1 ? "mono" : "stereo";
-  const background = project.settings.background;
-  if (!/^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|[a-zA-Z]+)$/.test(background))
-    throw new MontashError("E_USAGE", "unsupported background color");
   const sources = await resolveSources(project, dir);
-  const tb = `settb=expr=${fps.den}/${fps.num},setpts=N`;
-  const active = activeTracks(project);
-  const videoClips = [...(active.find((t) => t.kind === "video")?.clips ?? [])]
-    .map((c) => c as Clip)
-    .sort((a, b) => a.start_f - b.start_f);
+  const source = (asset: Asset): string => sources.get(asset.id)?.path ?? resolveAssetPath(dir, asset.path);
+  const warnings: Warning[] = validation.warnings.map((w) => ({ code: w.code, message: w.message }));
 
-  // --- 映像セグメント（docs/07 §11.1） ---
+  // --- 映像セグメント（docs/07 §11.1）。graph/ の buildGraph を区間指定で呼ぶ ---
   const bounds = segmentBoundaries(project, total);
   const segments: SegmentPlan[] = [];
   for (let i = 0; i + 1 < bounds.length; i++) {
     const from = bounds[i]!;
     const to = bounds[i + 1]!;
-    const length = to - from;
-    /** セグメント内のローカル座標（先頭 = 0 フレーム）に直したクリップ */
-    const parts: Array<{ id: string; at: number; frames: number; in_f: number; source: SourceRef; image: boolean }> =
-      [];
-    for (const clip of videoClips) {
-      const start = Math.max(clip.start_f, from);
-      const end = Math.min(clipEndF(clip), to);
-      if (end <= start) continue;
-      const source = sources.get(clip.asset);
-      if (!source) throw new MontashError("E_ASSET_NOT_FOUND", `clip "${clip.id}" references unknown asset`);
-      parts.push({
-        id: clip.id,
-        at: start - from,
-        frames: end - start,
-        in_f: clip.in_f + (start - clip.start_f),
-        source,
-        image: project.assets[clip.asset]!.type === "image",
-      });
-    }
-    // 位置が動いただけの同一内容はキャッシュを共有できるよう、ローカル座標だけをハッシュする
+    const graph = buildGraph(project, { resolution: res, source, range: { from_f: from, to_f: to }, audio: false });
+    // 位置が動いただけの同一内容はキャッシュを共有できるよう、区間ローカルのグラフだけをハッシュする
     const hash = canonicalHash({
-      version: 2,
-      length,
+      version: 3,
+      length: to - from,
       fps,
       resolution: res,
-      background,
-      clips: parts.map((p) => ({
-        at: p.at,
-        frames: p.frames,
-        in_f: p.in_f,
-        source: { path: p.source.path, size: p.source.size, mtime: p.source.mtime },
-        image: p.image,
-      })),
+      filter: graph.filterComplex,
+      inputs: fingerprintInputs(graph.inputs, sources),
     });
+    const clips: string[] = [];
+    for (const track of project.tracks) {
+      if (track.kind === "audio" || track.muted) continue;
+      for (const clip of track.clips)
+        if (clip.start_f < to && clipEndF(clip) > from && !clips.includes(clip.id)) clips.push(clip.id);
+    }
     segments.push({
       from_f: from,
       to_f: to,
       hash,
       path: `${SEGMENT_DIR}/${hash.slice("sha1:".length)}.mp4`,
-      clips: parts.map((p) => p.id),
-      args(output: string) {
-        const args: string[] = [];
-        const graph: string[] = [];
-        const labels: string[] = [];
-        const blank = (frames: number) => {
-          if (frames <= 0) return;
-          const label = `v${labels.length}`;
-          graph.push(
-            `color=c=${background}:s=${res.width}x${res.height}:r=${rate},trim=end_frame=${frames},${tb}[${label}]`,
-          );
-          labels.push(label);
-        };
-        let cursor = 0;
-        let index = 0;
-        for (const part of parts) {
-          blank(part.at - cursor);
-          if (part.image) args.push("-loop", "1", "-framerate", rate);
-          args.push("-i", part.source.path);
-          const label = `v${labels.length}`;
-          graph.push(
-            `[${index}:V:0]setpts=PTS-STARTPTS,fps=${rate},trim=start_frame=${part.in_f}:end_frame=${part.in_f + part.frames},${tb},scale=${res.width}:${res.height}:force_original_aspect_ratio=decrease,pad=${res.width}:${res.height}:(ow-iw)/2:(oh-ih)/2:color=${background},setsar=1,format=yuv420p[${label}]`,
-          );
-          labels.push(label);
-          index++;
-          cursor = part.at + part.frames;
-        }
-        blank(length - cursor);
-        graph.push(
-          `${labels.map((l) => `[${l}]`).join("")}concat=n=${labels.length}:v=1:a=0,fps=${rate},trim=end_frame=${length},${tb}[Vout]`,
-        );
-        args.push(
-          "-filter_complex_threads",
-          "1",
-          "-filter_complex",
-          graph.join(";"),
-          "-map",
-          "[Vout]",
-          "-an",
-          "-c:v",
-          "libx264",
-          "-preset",
-          "ultrafast",
-          "-crf",
-          "30",
-          "-g",
-          "30",
-          "-pix_fmt",
-          "yuv420p",
-          "-r",
-          rate,
-          "-frames:v",
-          String(length),
-          // 全セグメントを同じ timescale で書き、`-c copy` の concat を厳密にする
-          "-video_track_timescale",
-          String(fps.num),
-          "-threads",
-          "2",
-          "-f",
-          "mp4",
-          output,
-        );
-        return args;
-      },
+      clips,
+      args: (output: string) =>
+        serializeGraph(graph, {
+          path: output,
+          format: "mp4",
+          video: {
+            codec: "libx264",
+            preset: "ultrafast",
+            crf: 30,
+            pixFmt: "yuv420p",
+            gop: 30,
+            // 全セグメントを同じ timescale で書き、`-c copy` の concat を厳密にする
+            trackTimescale: fps.num,
+          },
+          threads: 2,
+        }),
     });
+    for (const w of graph.warnings) if (!warnings.some((x) => x.code === w.code)) warnings.push(w);
   }
 
   // --- 音声（docs/07 §11.2: タイムライン全体を毎回 1 パス） ---
-  const samples = framesToSamples(total, fps, sr);
-  const audioParts: Array<{ clip: Clip; gain: number; source: SourceRef }> = [];
-  for (const track of active.filter((t) => t.kind === "audio")) {
-    for (const c of track.clips) {
-      const clip = c as Clip;
-      if (clip.audio?.muted) continue;
-      const source = sources.get(clip.asset);
-      if (!source) throw new MontashError("E_ASSET_NOT_FOUND", `clip "${clip.id}" references unknown asset`);
-      audioParts.push({
-        clip,
-        gain: (clip.audio?.gain_db ?? 0) + (project.audio.track_gain_db[track.id] ?? 0),
-        source,
-      });
-    }
-  }
+  const audioGraph = buildGraph(project, { resolution: res, source, video: false });
   const audioHash = canonicalHash({
-    version: 2,
+    version: 3,
     total,
     fps,
-    sample_rate: sr,
+    sample_rate: project.settings.sample_rate,
     channels: project.settings.channels,
-    master_gain_db: project.audio.master_gain_db,
-    clips: audioParts.map((p) => ({
-      start_f: p.clip.start_f,
-      in_f: p.clip.in_f,
-      out_f: p.clip.out_f,
-      gain: p.gain,
-      source: { path: p.source.path, size: p.source.size, mtime: p.source.mtime },
-    })),
+    filter: audioGraph.filterComplex,
+    inputs: fingerprintInputs(audioGraph.inputs, sources),
   });
-
-  const audioArgs = (output: string): string[] => {
-    const args: string[] = [];
-    const graph: string[] = [];
-    const labels: string[] = [];
-    audioParts.forEach((part, index) => {
-      args.push("-i", part.source.path);
-      const label = `a${index}`;
-      const start = framesToSamples(part.clip.in_f, fps, sr);
-      const length = framesToSamples(clipEndF(part.clip) - part.clip.start_f, fps, sr);
-      const delay = framesToSamples(part.clip.start_f, fps, sr);
-      graph.push(
-        `[${index}:a:0]asetpts=PTS-STARTPTS,aresample=${sr},aformat=sample_fmts=fltp:channel_layouts=${layout},atrim=start_sample=${start}:end_sample=${start + length},asetpts=PTS-STARTPTS,apad=whole_len=${length},atrim=end_sample=${length},volume=${part.gain}dB,adelay=${delay}S:all=1[${label}]`,
-      );
-      labels.push(label);
+  const audioArgs = (output: string): string[] =>
+    serializeGraph(audioGraph, {
+      path: output,
+      format: "mp4",
+      audio: {
+        codec: "aac",
+        bitrate: "96k",
+        sampleRate: project.settings.sample_rate,
+        channels: project.settings.channels,
+      },
     });
-    if (labels.length)
-      graph.push(
-        `${labels.map((l) => `[${l}]`).join("")}amix=inputs=${labels.length}:normalize=0:dropout_transition=0[Amix]`,
-      );
-    else graph.push(`anullsrc=r=${sr}:cl=${layout},atrim=end_sample=${samples}[Amix]`);
-    graph.push(
-      `[Amix]volume=${project.audio.master_gain_db}dB,apad=whole_len=${samples},atrim=end_sample=${samples},asetpts=PTS-STARTPTS[Aout]`,
-    );
-    args.push(
-      "-filter_complex_threads",
-      "1",
-      "-filter_complex",
-      graph.join(";"),
-      "-map",
-      "[Aout]",
-      "-vn",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "96k",
-      "-ar",
-      String(sr),
-      "-ac",
-      String(project.settings.channels),
-      "-f",
-      "mp4",
-      output,
-    );
-    return args;
-  };
 
-  const warnings: Warning[] = validation.warnings.map((w) => ({ code: w.code, message: w.message }));
   if (project.audio.normalize.enabled)
     warnings.push({
       code: "W_NORMALIZE_DEFERRED",
