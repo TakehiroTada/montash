@@ -37,6 +37,14 @@ export function assertPlacement(track: Track, start: number, end: number): void 
     });
 }
 
+/**
+ * リンク相手のトラック ID（映像 `V1` → 音声 `A1`、その逆も）。
+ * `clip add` のリンク音声、`clip move` のトラック移動が共有する（docs/05 §6.1）。
+ */
+export function counterpartTrackId(trackId: string, fromKind: TrackKind): string {
+  return fromKind === "video" ? trackId.replace(/^V/, "A") : trackId.replace(/^A/, "V");
+}
+
 /** 種別ごとの ID プレフィックス（docs/04 §1.4: `V1` / `A1` / `T1`） */
 export function trackPrefix(kind: TrackKind): string {
   return kind === "video" ? "V" : kind === "audio" ? "A" : "T";
