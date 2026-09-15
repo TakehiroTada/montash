@@ -327,6 +327,27 @@ code,
   width: 100%;
   height: 100%;
 }
+/* detached 警告帯（docs/06 §2.7、docs/13 D-8）。canvas を覆うが、ボタン以外はクリックを通す */
+.history .detached-banner {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--warn) 22%, var(--bg-2));
+  border-bottom: 1px solid var(--warn);
+  pointer-events: none;
+}
+.history .detached-banner button {
+  pointer-events: auto;
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 .log {
   grid-area: log;
@@ -378,6 +399,12 @@ code,
 .toast .code {
   font-family: var(--mono);
   color: var(--fg-dim);
+}
+/* トーストの操作（checkout の「元に戻す」など。docs/13 D-8） */
+.toast .toast-action {
+  margin-top: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
 }
 
 /* ---------------------------------------------------------------------------

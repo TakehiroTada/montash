@@ -4,7 +4,7 @@
  * 409 `E_CONFIRM_REQUIRED` を受けたら確認ダイアログを出し、`confirm: true` で再送する。
  */
 import { refreshAssets, refreshHistory, refreshProject, refreshStatus } from "./api.ts";
-import { useStore } from "./store.ts";
+import { type ToastAction, useStore } from "./store.ts";
 
 export interface CliError {
   code: string;
@@ -28,6 +28,10 @@ export interface ExecOptions {
   ask?: (text: string) => boolean | Promise<boolean>;
   /** true ならトーストを出さない */
   silent?: boolean;
+  /** 成功トーストに付ける操作（例: checkout の「元に戻す」。docs/13 D-8） */
+  action?: ToastAction;
+  /** 成功トーストの表示時間 ms（既定 3000）。`action` を出すときは長めにする */
+  toastMs?: number;
 }
 
 export async function execCli(args: string[], opts: ExecOptions = {}): Promise<CliResponse> {
@@ -54,7 +58,10 @@ export async function execCli(args: string[], opts: ExecOptions = {}): Promise<C
     const st = useStore.getState();
     const cmd = `montash ${args.join(" ")}`;
     if (body.ok) {
-      st.toast("info", `${cmd} — ok${body.exec ? ` (${body.exec.duration_ms}ms)` : ""}`);
+      st.toast("info", `${cmd} — ok${body.exec ? ` (${body.exec.duration_ms}ms)` : ""}`, {
+        action: opts.action,
+        ttlMs: opts.toastMs,
+      });
       st.log("info", `${cmd} → ok`, "web");
     } else {
       const e = body.error;
@@ -68,7 +75,7 @@ export async function execCli(args: string[], opts: ExecOptions = {}): Promise<C
 
 export const undo = (): Promise<CliResponse> => execCli(["undo"]);
 export const redo = (): Promise<CliResponse> => execCli(["redo"]);
-export const checkout = (ref: string): Promise<CliResponse> => execCli(["checkout", ref]);
+export const checkout = (ref: string, opts: ExecOptions = {}): Promise<CliResponse> => execCli(["checkout", ref], opts);
 
 /** `POST /api/upload` の戻り（CLI の import 結果 + 保存情報） */
 export interface UploadResponse extends CliResponse {

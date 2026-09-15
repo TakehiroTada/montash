@@ -162,15 +162,23 @@ CLI 実行ログをコミットと op の **時系列タイムライン**とし�
 - **HEAD** は ◉ で強調。HEAD より右（未来側）のノードは「進める」候補として実線、別系列（分岐）は下段に薄く描く。
 - **pending ops** は最終コミットの右に点線で描き、「未コミット n 件 — `montash commit -m "..."`」の注記とコマンド例（コピー可）。
 - **tag** はノード上のラベル。
-- **detached** 状態（HEAD が tip でない）はヘッダーと History に警告帯「過去の状態を表示中 — `montash checkout tip` で最新へ」。
+- **detached** 状態（HEAD が tip でない）はヘッダーと History に警告帯「過去の状態を表示中（detached）」。帯は History タイムラインの上端に常時出し、**「最新へ」ボタン**（`checkout tip`）を添える。まだクリップが無い時点では `preview build` が `E_EMPTY_TIMELINE` になることも帯に書く（docs/13 D-8）。
+
+**誤クリック対策（docs/13 D-8）**
+
+放置中のクリック 1 回で `checkout` が走り、タイムラインが init 直後に戻って見える事故があったため、次の 3 点を満たす。
+
+- **当たり判定は描かれたノードの円の内側だけ**（`web/src/lib/history-hit.ts` の `layoutHistoryNodes` / `hitTestHistoryNode`）。帯の余白・ノードの外周・ID ラベルはクリックしても何も起きない。円が重なる場合は中心が最も近いノードを選ぶ。カーソルはノード上でだけ `pointer` になる。
+- **HEAD 自身のクリックはコマンドを発行しない**（`moves.jsonl` に無意味な移動を残さない）。
+- **移動したらトーストに「元に戻す（`checkout <移動前の HEAD>`）」を 12 秒出す**。押すと直前の位置へ戻る。取り消しも §1.1 のとおり `POST /api/cli` の `montash checkout <id>` として発行する（UI が履歴を直接書き換えることはない）。
 
 **操作**
 
 | UI 操作 | 実行される CLI |
 |---------|----------------|
-| ノード（op / commit / tag）をクリック | `checkout <id>` |
+| ノード（op / commit / tag）**本体**をクリック | `checkout <id>`（移動後のトーストから 1 クリックで取り消せる） |
 | `[` / `]` キー、◀ ▶ ボタン | `undo` / `redo` |
-| 「最新へ」ボタン | `checkout tip` |
+| 「最新へ」ボタン（detached の警告帯に常設） | `checkout tip` |
 | ノード右クリック → 「ここにタグ」 | `tag <name> <id>`（名前入力） |
 | ノード右クリック → 「このコミットを取り消す（revert）」 | `revert <id> -m "<自動生成>"`（確認ダイアログ） |
 | ノード右クリック → 「差分を表示」 | `GET /api/history/diff?a=<id>&b=HEAD` を表示（読み取り） |

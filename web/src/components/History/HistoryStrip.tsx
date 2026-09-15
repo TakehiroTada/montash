@@ -1,32 +1,28 @@
 /**
  * 下部常設の History タイムライン（docs/06 §2.7）。canvas に op を点で描く（この段階は等間隔配置のみ）。
  * ノードクリックで `checkout <id>` を発行する。
+ *
+ * 誤クリック対策（docs/13 D-8）:
+ * - クリック判定は `lib/history-hit.ts` の `hitTestHistoryNode`（描かれた円の内側だけ）。
+ * - checkout が走ったら「元に戻す」付きのトーストを出す（押すと直前の位置へ `checkout` を再発行）。
+ * - detached の間は警告帯を出し、`checkout tip` への導線を常設する。
  */
 import { useEffect, useRef } from "react";
 import { checkout } from "../../cli-client.ts";
-import { type OpLike, useStore } from "../../store.ts";
+import {
+  checkoutIntentAt,
+  HISTORY_PAD,
+  type HistoryNode,
+  hitTestHistoryNode,
+  layoutHistoryNodes,
+  R_COMMIT,
+} from "../../lib/history-hit.ts";
+import { useStore } from "../../store.ts";
 
-const PAD = 24;
-const R_OP = 4;
-const R_COMMIT = 6;
+/** 「元に戻す」を押す時間を確保するため、通常のトーストより長く出す */
+const UNDO_TOAST_MS = 12_000;
 
-interface Node {
-  op: OpLike;
-  x: number;
-  y: number;
-  r: number;
-}
-
-function nodes(width: number, height: number): Node[] {
-  const h = useStore.getState().history;
-  const ops = h?.ops ?? [];
-  if (ops.length === 0) return [];
-  const gap = ops.length > 1 ? (width - PAD * 2) / (ops.length - 1) : 0;
-  const y = Math.round(height / 2);
-  return ops.map((op, i) => ({ op, x: PAD + i * gap, y, r: op.commit ? R_COMMIT : R_OP }));
-}
-
-function draw(ctx: CanvasRenderingContext2D, width: number, height: number, ns: Node[]): void {
+function draw(ctx: CanvasRenderingContext2D, width: number, height: number, ns: HistoryNode[]): void {
   ctx.clearRect(0, 0, width, height);
   const st = useStore.getState();
   const head = st.status?.head?.op ?? st.history?.head ?? null;
@@ -34,7 +30,7 @@ function draw(ctx: CanvasRenderingContext2D, width: number, height: number, ns: 
     ctx.fillStyle = "#8b919b";
     ctx.font = "11px system-ui, sans-serif";
     ctx.textBaseline = "middle";
-    ctx.fillText("no history yet — ops appear here as `montash` commands run", PAD, height / 2);
+    ctx.fillText("no history yet — ops appear here as `montash` commands run", HISTORY_PAD, height / 2);
     return;
   }
   // 辺
@@ -51,15 +47,15 @@ function draw(ctx: CanvasRenderingContext2D, width: number, height: number, ns: 
   }
   ctx.stroke();
   ctx.lineWidth = 1;
-  // ノード
+  // ノード（半径はレイアウト済みの値 = クリック判定と同じ）
   ctx.font = "10px ui-monospace, Menlo, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  const labelEvery = Math.max(1, Math.ceil((ns.length * 44) / Math.max(1, width - PAD * 2)));
+  const labelEvery = Math.max(1, Math.ceil((ns.length * 44) / Math.max(1, width - HISTORY_PAD * 2)));
   ns.forEach((n, i) => {
     const isHead = head !== null && n.op.id === head;
     ctx.beginPath();
-    ctx.arc(n.x, n.y, isHead ? n.r + 2 : n.r, 0, Math.PI * 2);
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
     ctx.fillStyle = n.op.commit ? "#4f8cff" : "#1a1d22";
     ctx.fill();
     ctx.strokeStyle = isHead ? "#ffffff" : n.op.actor === "web" ? "#3fb950" : "#8b919b";
@@ -74,9 +70,10 @@ function draw(ctx: CanvasRenderingContext2D, width: number, height: number, ns: 
 
 export function HistoryStrip() {
   const ref = useRef<HTMLCanvasElement>(null);
-  const nodesRef = useRef<Node[]>([]);
+  const nodesRef = useRef<HistoryNode[]>([]);
   const ops = useStore((s) => s.history?.ops.length ?? 0);
   const head = useStore((s) => s.status?.head?.op ?? null);
+  const detached = useStore((s) => s.status?.head?.detached ?? false);
   const pending = useStore((s) => s.status?.head?.pending ?? 0);
   const readOnly = useStore((s) => s.status?.server.read_only ?? false);
 
@@ -107,7 +104,9 @@ export function HistoryStrip() {
         canvas.height = Math.round(h * dpr);
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      nodesRef.current = nodes(w, h);
+      const st = useStore.getState();
+      const at = st.status?.head?.op ?? st.history?.head ?? null;
+      nodesRef.current = layoutHistoryNodes(st.history?.ops ?? [], w, h, at);
       draw(ctx, w, h, nodesRef.current);
     };
     raf = requestAnimationFrame(loop);
@@ -118,14 +117,28 @@ export function HistoryStrip() {
     };
   }, []);
 
+  /** ノードの上だけ pointer カーソルにして、当たり判定の範囲を見えるようにする */
+  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = ref.current;
+    if (!canvas || readOnly) return;
+    const r = canvas.getBoundingClientRect();
+    const hit = hitTestHistoryNode(nodesRef.current, e.clientX - r.left, e.clientY - r.top);
+    canvas.style.cursor = hit ? "pointer" : "default";
+  };
+
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = ref.current;
     if (!canvas || readOnly) return;
     const r = canvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
-    const hit = nodesRef.current.find((n) => Math.hypot(n.x - x, n.y - y) <= n.r + 4);
-    if (hit) void checkout(hit.op.id);
+    const from = useStore.getState().status?.head?.op ?? null;
+    // ノード本体の外・HEAD 自身は無反応（D-8: 帯の余白を踏んだだけで checkout が走らないようにする）
+    const intent = checkoutIntentAt(nodesRef.current, e.clientX - r.left, e.clientY - r.top, from);
+    if (!intent) return;
+    const { to, undoTo } = intent;
+    void checkout(to, {
+      toastMs: UNDO_TOAST_MS,
+      action: undoTo ? { label: `元に戻す（checkout ${undoTo}）`, run: () => void checkout(undoTo) } : undefined,
+    });
   };
 
   return (
@@ -146,7 +159,20 @@ export function HistoryStrip() {
         </span>
       </div>
       <div className="canvas-wrap">
-        <canvas ref={ref} onClick={onClick} style={{ cursor: readOnly ? "default" : "pointer" }} />
+        <canvas ref={ref} onClick={onClick} onMouseMove={onMouseMove} style={{ cursor: "default" }} />
+        {detached ? (
+          <div className="detached-banner" role="status">
+            <span>
+              過去の状態を表示中（detached）— このまま <code>preview build</code> すると、まだクリップの無い時点では{" "}
+              <code>E_EMPTY_TIMELINE</code> になります
+            </span>
+            {readOnly ? null : (
+              <button type="button" onClick={() => void checkout("tip")} title="montash checkout tip">
+                最新へ
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
     </section>
   );
