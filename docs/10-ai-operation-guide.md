@@ -41,7 +41,9 @@
 | 「さっきのバージョンも残しておいて」 | タグ | `tag <name>` |
 | 「今のを記録して」「ここまでで一区切り」 | コミット | `commit -m "..."` |
 | 「タイトル追加だけ無しにして、他はそのまま」 | 特定コミットの取り消し | `revert <k_xxxx> -m "タイトル追加を取り消し"` |
-| 「この素材どこで使ってる？」 | 使用箇所 | `assets show <id> --json`（`usage`） |
+| 「この素材どこで使ってる？」 | 使用箇所 | `assets show <id> --json`（`usage`）または `explain <id> --json` |
+| 「このクリップ何だっけ？」「これ何が掛かってる？」 | 要素の説明 | `explain <id> --json`（`result.explanation` をそのまま人間に渡せる。`result.facts` で次の操作を組む） |
+| 「今どうなってる？」（全体） | タイムライン要約 | `explain timeline --json` |
 | 「このテロップ誰がいつ変えた？」 | 由来 | `blame x1 --json` |
 | 「定型文を素材として登録して」 | テキスト素材 | `assets new-text <id> --text "..."` → `text add --asset <id> ...` |
 
@@ -72,6 +74,7 @@
 8. **状態変更の前に `status` を確認する**。人間が Web の History で checkout している（`detached: true`）場合は、「過去の状態 k_xxxx を表示中です。ここから編集を続けますか、最新（tip）に戻しますか」と確認する。黙って tip に戻さない。
 9. **作業単位ごとにコミットする**。人間の 1 指示が完了した時点、または人間が「OK」と言った時点で `commit -m`。試行錯誤の途中はコミットしない（op は自動で残る）。1 セッションの終わりに pending を残さない。
 10. Web（`actor: web`）で行われた操作は `log --ops` で把握し、人間が Web で取り込んだ素材や付けたラベルを前提に会話する。
+11. **人間に「これは何か」を説明するときは `explain <id> --json` の `result.explanation` を使う**。自分で project.json から文章を組み立てない（尺・速度・字幕の扱いを取り違える）。`result.notes` に書かれた注意（プラグイン不足・素材欠落・トラックのロック）は必ず人間に伝える。
 
 ## 4. 状態確認の推奨コマンド
 
@@ -81,7 +84,9 @@
 | 全体把握 | `montash project show --json && montash timeline show --json` |
 | クリップ ID の特定 | `montash clip list --track V1 --json` |
 | ある時刻に何があるか | `montash timeline show --from 11.5 --to 13 --json` |
-| 特定要素の詳細 | `montash clip list --json`（`clip show` / `explain` は未実装。04 章 §1.9） |
+| 特定要素の詳細 | `montash explain <id> --json`（クリップ・トランジション・トラック・アセット・ダッキング。`clip show` は未実装。04 章 §1.9） |
+| 全体を 1 度で把握 | `montash explain timeline --json` |
+| 何がどう書き出されるか | `montash explain render --json`（ffmpeg コマンドとフィルタグラフの注釈付き） |
 | 素材の尺 | `montash assets show clip_a --json | jq .duration` |
 | 実行前チェック | `montash validate --json` |
 | 何が変わるか | `<command> --dry-run --json` |
@@ -99,6 +104,8 @@
 | `E_OUTPUT_EXISTS` | 別名（`_v2`）で保存するか上書きするか確認 |
 | `E_FFMPEG_FAILED` | `detail.stderr_tail` を読む。`validate --deep` を実行。解決できなければ stderr を人間に見せる |
 | `E_ASSET_MISSING` | `assets relink --search <推定ディレクトリ>` を提案 |
+| `E_PLUGIN_MISSING` | `explain <id> --json` の `notes` で何が足りないかを確認し、`plugin doctor --json` を実行して人間に報告 |
+| `E_CLIP_NOT_FOUND` ほか `*_NOT_FOUND`（`explain`） | `hint` の候補 ID で再実行。候補が無ければ `explain timeline --json` で全体を取り直す |
 | `E_TRIM_EXCEEDS_CLIP` | クリップ削除の意図か確認 |
 | `E_NOTHING_TO_UNDO` | 「これ以上戻せない」と報告 |
 | `W_DETACHED_HEAD` | 過去状態にいる。人間に「ここから分岐して編集するか、tip に戻るか」を確認 |

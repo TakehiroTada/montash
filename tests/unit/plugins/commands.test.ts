@@ -23,7 +23,7 @@ import { clearRegisteredCommands, getCommands, registeredCommands } from "../../
 import { clearRegisteredRequirements, requiredFilters } from "../../../src/registry/requirements.ts";
 
 /** 組み込みコマンド数。プラグインが無ければここから 1 つも増減しない（docs/04） */
-const BUILTIN_COMMAND_COUNT = 97;
+const BUILTIN_COMMAND_COUNT = 98;
 
 const globals = (over: Partial<GlobalOptions> = {}): GlobalOptions => ({
   json: false,
@@ -80,7 +80,7 @@ afterEach(() => {
 });
 
 describe("プラグインが無ければ何も変わらない", () => {
-  test("コマンド数は組み込みのまま（97）", async () => {
+  test("コマンド数は組み込みのまま（98）", async () => {
     expect(builtinCommands).toHaveLength(BUILTIN_COMMAND_COUNT);
     expect(await getCommands()).toHaveLength(BUILTIN_COMMAND_COUNT);
     const all = await schema.handler(ctx(), { format: "json" });

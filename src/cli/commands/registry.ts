@@ -34,6 +34,7 @@ import { commit } from "./commit.ts";
 import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
 import { effectAdd, effectList, effectPresets, effectRemove, effectSet } from "./effect.ts";
+import { explain } from "./explain.ts";
 import { fade } from "./fade.ts";
 import { fontsList } from "./fonts.ts";
 import { help } from "./help.ts";
@@ -182,4 +183,5 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(historyImport),
   spec(idsRebuild),
   // AI 支援: batch, explain                                           → M4
+  spec(explain),
 ];

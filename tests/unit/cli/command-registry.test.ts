@@ -23,7 +23,7 @@ import {
 } from "../../../src/registry/requirements.ts";
 
 /** 組み込みコマンド数。外から見た挙動を変えないための固定値（docs/04） */
-const BUILTIN_COMMAND_COUNT = 97;
+const BUILTIN_COMMAND_COUNT = 98;
 
 const globals = (over: Partial<GlobalOptions> = {}): GlobalOptions => ({
   json: false,
