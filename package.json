@@ -25,7 +25,8 @@
     "verify": "bun run check && bash tests/workflows/run-all.sh",
     "licenses": "bun scripts/collect-licenses.ts",
     "check:spec": "bun scripts/check-spec-drift.ts",
-    "check:spikes": "bun scripts/check-bun-spikes.ts"
+    "check:spikes": "bun scripts/check-bun-spikes.ts",
+    "release": "bun scripts/release-build.ts"
   },
   "dependencies": {
     "chokidar": "^4.0.3",

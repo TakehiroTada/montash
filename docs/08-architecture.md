@@ -30,7 +30,10 @@ cli-video-editor/
 ├── scripts/
 │   ├── install-deps.sh         # 非 npm 依存（ffmpeg / Bun / フォント / WSL ツール）の導入・確認（12 章 ADR-07）
 │   ├── make-fixtures.sh        # テスト素材生成（ffmpeg testsrc2 / sine）
-│   ├── build.ts                # bun build web/index.html → web/dist、bun build --compile → dist/montash-<os>-<arch>
+│   ├── build.ts                # bun build web/index.html → web/dist
+│   ├── release-build.ts        # OS 別の単一バイナリ（bun run release）。4 ターゲットをクロスコンパイル
+│   ├── check-spec-drift.ts     # docs/04 §1.9 ⇄ montash schema の差分検出（bun run check:spec、C-5）
+│   ├── check-bun-spikes.ts     # spikes を検証した Bun バージョンとの差を知らせる（C-7）
 │   └── spikes/                 # Bun 互換性の再検証スクリプト（watch / serve / yargs / frontend / compile）
 ├── src/
 │   ├── cli/                    # コマンド定義（04 章と 1:1）
