@@ -7,6 +7,7 @@
  */
 import { MontashError } from "../../cli/errors.ts";
 import type { Resolution } from "../../core/schema.ts";
+import { DEFAULT_POSITION, POSITION_NAMES, positions } from "../../registry/positions.ts";
 import type { GraphContext, Stream } from "./types.ts";
 import { sizeExpr } from "./video.ts";
 
@@ -19,19 +20,6 @@ export interface Transform {
   rotate: number;
 }
 
-/** position プリセット → overlay の座標式（docs/07 §5 の表）。`W/H` は base、`w/h` は overlay のサイズ */
-const PRESETS: Record<string, (m: string) => { x: string; y: string }> = {
-  "top-left": (m) => ({ x: m, y: m }),
-  "top-center": (m) => ({ x: "(W-w)/2", y: m }),
-  "top-right": (m) => ({ x: `W-w-${m}`, y: m }),
-  "center-left": (m) => ({ x: m, y: "(H-h)/2" }),
-  center: () => ({ x: "(W-w)/2", y: "(H-h)/2" }),
-  "center-right": (m) => ({ x: `W-w-${m}`, y: "(H-h)/2" }),
-  "bottom-left": (m) => ({ x: m, y: `H-h-${m}` }),
-  "bottom-center": (m) => ({ x: "(W-w)/2", y: `H-h-${m}` }),
-  "bottom-right": (m) => ({ x: `W-w-${m}`, y: `H-h-${m}` }),
-};
-
 export function overlayPosition(transform: Transform | null, res: Resolution): { x: string; y: string } {
   if (!transform) return { x: "(W-w)/2", y: "(H-h)/2" };
   if (transform.rotate) throw new MontashError("E_NOT_IMPLEMENTED", "clip rotation is not implemented yet");
@@ -42,12 +30,13 @@ export function overlayPosition(transform: Transform | null, res: Resolution): {
     };
   }
   const margin = sizeExpr(transform.margin, String(res.width));
-  const preset = transform.position === null ? PRESETS.center! : PRESETS[transform.position];
-  if (!preset)
+  // 位置プリセットは ASS 側（`\an`）と同じレジストリ（docs/13 D-16）
+  const spec = positions.get(transform.position ?? DEFAULT_POSITION);
+  if (!spec)
     throw new MontashError("E_USAGE", `unknown position preset ${JSON.stringify(transform.position)}`, {
-      hint: `Known presets: ${Object.keys(PRESETS).join(", ")}, or use x/y coordinates.`,
+      hint: `Known presets: ${POSITION_NAMES.join(", ")}, or use x/y coordinates.`,
     });
-  return preset(margin);
+  return spec.overlay(margin);
 }
 
 /**

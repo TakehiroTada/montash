@@ -98,17 +98,26 @@
 ```
 
 - `n` は base 側の出力フレーム番号（0 起点）なので整数比較で正確。
-- `position` プリセット → 座標式：
+- `position` プリセットは **§6.2 のテキスト位置と同じ 1 つのレジストリ**（`src/registry/positions.ts`）。
+  1 エントリが overlay の座標式と ASS の `\an` の**両方**を持ち、どちらも 3x3 グリッドの行・列から導く
+  （overlay とテキストで受け付ける名前が食い違わない。13 章 D-16）。座標式は：
 
-| preset | x | y |
-|--------|---|---|
-| `top-left` | `{m}` | `{m}` |
-| `top-right` | `W-w-{m}` | `{m}` |
-| `bottom-left` | `{m}` | `H-h-{m}` |
-| `bottom-right` | `W-w-{m}` | `H-h-{m}` |
-| `center` | `(W-w)/2` | `(H-h)/2` |
-| `x%,y%` | `W*{x}/100` | `H*{y}/100` |
-| px | そのまま | そのまま |
+| preset | `\an` | x | y |
+|--------|------|---|---|
+| `top-left` | 7 | `{m}` | `{m}` |
+| `top-center` | 8 | `(W-w)/2` | `{m}` |
+| `top-right` | 9 | `W-w-{m}` | `{m}` |
+| `middle-left` | 4 | `{m}` | `(H-h)/2` |
+| `center` | 5 | `(W-w)/2` | `(H-h)/2` |
+| `middle-right` | 6 | `W-w-{m}` | `(H-h)/2` |
+| `bottom-left` | 1 | `{m}` | `H-h-{m}` |
+| `bottom-center` | 2 | `(W-w)/2` | `H-h-{m}` |
+| `bottom-right` | 3 | `W-w-{m}` | `H-h-{m}` |
+| `x%,y%` | — | `W*{x}/100` | `H*{y}/100` |
+| px | — | そのまま | そのまま |
+
+  別名（統合前の綴りの違い）も受け付ける: `center-left` = `middle-left`、`center-right` = `middle-right`、
+  `middle-center` = `center`。`--help` と hint には正規名 9 種だけを出す。
 
 - `scale` はオーバーレイ側で `scale=iw*{s}:-2`（`WxH` 指定時は `scale={W}:{H}:force_original_aspect_ratio=decrease`）。
 - アルファ付き PNG/ProRes 4444 は `format=yuva420p`（`keep_alpha`）または `rgba` を維持して overlay。
@@ -148,7 +157,7 @@ Dialogue: 0,0:00:00.00,0:00:03.00,x1,,0,0,0,,{\pos(960,540)\fad(500,500)}Summer 
 
 - **テキストクリップ 1 つ = Style 1 つ + Dialogue 1 行**（Style 名 = クリップ ID）。プリセットは Style の既定値を埋めるだけ。
 - 色: `#RRGGBB[AA]` → ASS の `&HAABBGGRR`（ASS のアルファは `00` が不透明なので `AA' = 255 - AA`）。
-- **位置**: プリセット → `\an`（テンキー配置: 7 8 9 / 4 5 6 / 1 2 3）+ `Margin*`。`center` → `\an5` + `\pos(W/2,H/2)`、`bottom-center` → `\an2` + `MarginV`、`top-right` → `\an9` + `MarginR/MarginV`。`{x,y}` 指定 → `\an7`（左上基準。`align` が center/right なら `\an8`/`\an9` に切替）+ `\pos(x,y)`。`%` は W/H から px に解決。
+- **位置**: プリセットは §5 の overlay と**同じレジストリ**（`src/registry/positions.ts`。13 章 D-16）。プリセット → `\an`（テンキー配置: 7 8 9 / 4 5 6 / 1 2 3）+ `Margin*`。`center` → `\an5` + `\pos(W/2,H/2)`、`bottom-center` → `\an2` + `MarginV`、`top-right` → `\an9` + `MarginR/MarginV`。`{x,y}` 指定 → `\an7`（左上基準。`align` が center/right なら `\an8`/`\an9` に切替）+ `\pos(x,y)`。`%` は W/H から px に解決。
 - **背景ボックス**（`bg`）: `BorderStyle=4`（libass 拡張: 行ブロック全体を `BackColour` で塗る。padding は `Outline` 値）。`bg_padding` → `Outline`、縁取りが同時に必要な場合は `\bord` を行内オーバーライドで分離。libass が古く `BorderStyle=4` 非対応なら `3`（行ごとのボックス）にフォールバック。
 - **縁取り／影**: `Outline`/`OutlineColour`、`Shadow`/`BackColour`（BorderStyle=1 のとき Shadow 色は `BackColour`）。影の x/y 個別指定は `\xshad`/`\yshad`。
 - **フェード**: `\fad({round(sec(in_f)*1000)},{round(sec(out_f)*1000)})`（ミリ秒）。

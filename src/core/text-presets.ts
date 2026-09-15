@@ -8,6 +8,7 @@
  * プリセットの `fade` はフレームで持つため、fps 変更時は §2.1 の再スナップ対象になる。
  */
 import { MontashError } from "../cli/errors.ts";
+import { createRegistry, type RegistrySource } from "../registry/index.ts";
 import type { Project, TextPreset } from "./schema.ts";
 
 /** 組み込みプリセット（docs/05 §9 の表をそのまま写したもの） */
@@ -45,31 +46,39 @@ export const BUILTIN_TEXT_PRESETS: Readonly<Record<string, TextPreset>> = Object
 export interface TextPresetEntry {
   name: string;
   preset: TextPreset;
-  /** builtin: 組み込みのみ / project: プロジェクト独自 / overridden: 組み込みを上書き */
-  source: "builtin" | "project" | "overridden";
+  /** builtin: 組み込みのみ / project: プロジェクト独自 / overridden: 組み込みを上書き / plugin: Phase 2 */
+  source: RegistrySource | "overridden";
 }
+
+/**
+ * 組み込み + 外部由来のマージは `registry/` の共通基盤に載せてある（docs/13 D-16）。
+ * ここでの外部由来は `project.text_presets` の 1 種だけなので `source` は `project`、
+ * 組み込みを置き換えたものは表示上 `overridden` にする（従来どおり）。
+ */
+const registry = createRegistry<TextPreset>({
+  label: "text preset",
+  builtin: BUILTIN_TEXT_PRESETS,
+  sorted: true,
+  notFound: (name, known) =>
+    new MontashError("E_PRESET_NOT_FOUND", `text preset "${name}" not found`, {
+      hint: `Use \`montash text presets\` to list them (${known.join(", ")}).`,
+      detail: { preset: name, known_presets: [...known] },
+    }),
+});
 
 /** 組み込み + `project.text_presets`（上書き・追加）を名前順に解決する */
 export function resolveTextPresets(project: Pick<Project, "text_presets">): TextPresetEntry[] {
-  const names = new Set([...Object.keys(BUILTIN_TEXT_PRESETS), ...Object.keys(project.text_presets ?? {})]);
-  return [...names].sort().map((name) => {
-    const builtin = BUILTIN_TEXT_PRESETS[name];
-    const override = project.text_presets?.[name];
-    if (builtin && override) return { name, preset: { ...builtin, ...override }, source: "overridden" };
-    if (builtin) return { name, preset: { ...builtin }, source: "builtin" };
-    return { name, preset: { ...(override as TextPreset) }, source: "project" };
-  });
+  return registry
+    .resolve(project.text_presets ?? {})
+    .entries()
+    .map((e) => ({
+      name: e.name,
+      preset: { ...e.value },
+      source: e.overridden ? "overridden" : e.source,
+    }));
 }
 
 /** 名前でプリセットを引く。無ければ E_PRESET_NOT_FOUND（hint に一覧） */
 export function requireTextPreset(project: Pick<Project, "text_presets">, name: string): TextPreset {
-  const entries = resolveTextPresets(project);
-  const found = entries.find((e) => e.name === name);
-  if (!found) {
-    throw new MontashError("E_PRESET_NOT_FOUND", `text preset "${name}" not found`, {
-      hint: `Use \`montash text presets\` to list them (${entries.map((e) => e.name).join(", ")}).`,
-      detail: { preset: name, known_presets: entries.map((e) => e.name) },
-    });
-  }
-  return found.preset;
+  return { ...registry.resolve(project.text_presets ?? {}).require(name) };
 }

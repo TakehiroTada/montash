@@ -13,7 +13,8 @@
  * 時刻はすべて**区間ローカル**（`opts.range` の先頭を 0 とする）で渡ってくる。シフトは text-prepare 側の責務。
  */
 import type { Resolution, TextPosition } from "../../core/schema.ts";
-import { escapeFilterValue, POSITION_PRESETS, resolveCoordinate, subtitlesFilter, type TextAlign } from "../ass.ts";
+import { DEFAULT_POSITION, positions } from "../../registry/positions.ts";
+import { escapeFilterValue, resolveCoordinate, subtitlesFilter, type TextAlign } from "../ass.ts";
 import type { GraphContext } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -87,8 +88,8 @@ export function drawtextPosition(
   marginV: number,
 ): { x: string; y: string } {
   if (position === undefined || position === null || typeof position === "string") {
-    const preset = POSITION_PRESETS[String(position ?? "center").toLowerCase()] ?? 5;
-    const row = preset >= 7 ? "top" : preset >= 4 ? "middle" : "bottom";
+    // 位置プリセットは overlay / ASS と同じレジストリ（docs/13 D-16）。未知名は中央扱い
+    const row = positions.get(String(position ?? DEFAULT_POSITION).toLowerCase())?.row ?? "middle";
     const x = align === "left" ? `${marginH}` : align === "right" ? `w-tw-${marginH}` : "(w-tw)/2";
     const y = row === "top" ? `${marginV}` : row === "middle" ? "(h-th)/2" : `h-th-${marginV}`;
     return { x, y };

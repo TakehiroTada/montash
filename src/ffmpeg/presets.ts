@@ -12,6 +12,7 @@
 import { MontashError, type Warning, warning } from "../cli/errors.ts";
 import { parseResolution } from "../core/project.ts";
 import type { Fps, Project, Resolution } from "../core/schema.ts";
+import { createRegistry, type RegistrySource } from "../registry/index.ts";
 import type { FilterGraph } from "./graph/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -61,8 +62,8 @@ export interface PresetSpec {
   maxDurationS?: number;
   /** 人間向けの注記 */
   note?: string;
-  /** 由来（`render presets` の表示用） */
-  source?: "builtin" | "project";
+  /** 由来（`render presets` の表示用）。`plugin` は Phase 2 */
+  source?: RegistrySource;
   base?: string;
 }
 
@@ -213,48 +214,45 @@ const USER_KEYS = [
 ] as const;
 
 /**
+ * 組み込み + 外部由来のマージは `registry/` の共通基盤に載せてある（docs/13 D-16）。
+ * ユーザー定義は `base`（省略時 `youtube-1080p`）を継承するので、`merge()` の中で
+ * `ctx.resolve()` を使って解決中の表を引く（循環は `E_USAGE`）。
+ */
+const registry = createRegistry<PresetSpec>({
+  label: "render preset",
+  builtin: BUILTIN_PRESETS,
+  allowedKeys: USER_KEYS,
+  merge: (_base, raw, ctx) => {
+    const spec = raw as Record<string, unknown>;
+    const baseName = typeof spec.base === "string" ? spec.base : "youtube-1080p";
+    return { ...applyUserOverrides(ctx.name, ctx.resolve(baseName), spec), base: baseName };
+  },
+  notFound: (name, known) => unknownPreset(name, known),
+  loop: (name) =>
+    new MontashError("E_USAGE", `render preset '${name}' inherits from itself (base loop)`, {
+      hint: "Fix project.render_presets so that every `base` chain ends at a built-in preset.",
+      detail: { preset: name },
+    }),
+  unknownKeys: (name, keys) =>
+    new MontashError("E_USAGE", `render preset '${name}' has unknown key(s): ${keys.join(", ")}`, {
+      hint: `Supported keys: ${USER_KEYS.join(", ")}.`,
+      detail: { preset: name, unknown: [...keys] },
+    }),
+});
+
+/**
  * 組み込み + `project.render_presets` を解決した表を返す。
  * ユーザー定義は `base`（省略時 `youtube-1080p`）を継承し、指定したキーだけ上書きする。
  * `base` の循環は `E_USAGE`。
  */
 export function resolvePresets(project?: Pick<Project, "render_presets"> | null): Record<string, PresetSpec> {
   const out: Record<string, PresetSpec> = {};
-  for (const [name, spec] of Object.entries(BUILTIN_PRESETS)) out[name] = { ...spec, source: "builtin" };
-  const user = project?.render_presets ?? {};
-  const resolving = new Set<string>();
-  const resolve = (name: string): PresetSpec => {
-    const existing = out[name];
-    if (existing && !Object.hasOwn(user, name)) return existing;
-    if (existing?.source === "project") return existing;
-    const raw = user[name] as Record<string, unknown> | undefined;
-    if (!raw) {
-      if (existing) return existing;
-      throw unknownPreset(name, [...Object.keys(out), ...Object.keys(user)]);
-    }
-    if (resolving.has(name))
-      throw new MontashError("E_USAGE", `render preset '${name}' inherits from itself (base loop)`, {
-        hint: "Fix project.render_presets so that every `base` chain ends at a built-in preset.",
-        detail: { preset: name },
-      });
-    resolving.add(name);
-    const baseName = typeof raw.base === "string" ? raw.base : "youtube-1080p";
-    const base = resolve(baseName);
-    resolving.delete(name);
-    const merged = applyUserOverrides(name, base, raw);
-    out[name] = { ...merged, source: "project", base: baseName };
-    return out[name] as PresetSpec;
-  };
-  for (const name of Object.keys(user)) resolve(name);
+  for (const entry of registry.resolve(project?.render_presets ?? {}).entries())
+    out[entry.name] = { ...entry.value, source: entry.source };
   return out;
 }
 
 function applyUserOverrides(name: string, base: PresetSpec, raw: Record<string, unknown>): PresetSpec {
-  const unknownKeys = Object.keys(raw).filter((k) => !(USER_KEYS as readonly string[]).includes(k));
-  if (unknownKeys.length > 0)
-    throw new MontashError("E_USAGE", `render preset '${name}' has unknown key(s): ${unknownKeys.join(", ")}`, {
-      hint: `Supported keys: ${USER_KEYS.join(", ")}.`,
-      detail: { preset: name, unknown: unknownKeys },
-    });
   const spec: PresetSpec = {
     ...base,
     video: base.video ? { ...base.video } : null,
