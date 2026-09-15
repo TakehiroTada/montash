@@ -156,22 +156,22 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 
 状態を変更するコマンドは、実行前後のスナップショット（内容ハッシュ）・コマンド引数・actor・差分・影響範囲を **op** として `.montash/history/ops.jsonl` に追記する（11 章）。`--dry-run` と読み取り系コマンドは記録しない。`checkout`/`undo`/`redo` は op を作らず `moves.jsonl` に移動を記録する。
 
-### 1.9 実装状況（2026-09-15 / M3 完了時点）
+### 1.9 実装状況（2026-09-15 / M4 進行中）
 
-本章は最終仕様なので、まだ実装されていないコマンド・オプションを含む。`montash schema --json` の出力との差分は以下のとおり。
+本章は最終仕様なので、まだ実装されていないコマンド・オプションを含む。`montash schema --json` の出力との差分は以下のとおり（実機で確認した値）。
 
 **未実装のコマンド**
 
 | コマンド | 章 | 予定 |
 |----------|----|------|
-| `help <command>` | §2 | yargs の `--help` / `schema` で代替（実装予定なし） |
-| `clip show` | §6 | `clip list --json` で代替中。M4 |
-| `clip unlink` / `clip link` | §11 | M4（`clip move/trim/split/set --unlink` は実装済み） |
-| `render batch` / `render still` / `render gif` / `render audio` | §14 | M4（W-12） |
-| `blame` / `revert` / `reset --hard` | §15 | M4（W-11） |
-| `snapshot save\|restore\|list\|delete` | §15 | `tag` / `checkout` を使う。互換別名は M4 以降 |
-| `batch` / `explain` | §16 | M4 |
-| `serve stop` / `serve status`（`--daemon` の制御） | §13 | M4 |
+| `help <command>` | §2 | yargs の `--help` / `schema` で代替（実装予定なし。docs/13 D-11） |
+| `clip show` | §6 | `clip list --json` で代替中 |
+| `clip link` / `clip unlink` | §11 | `clip move/trim/split/set --unlink` は実装済み |
+| `snapshot save|restore|list|delete` | §15 | `tag` / `checkout` を使う。互換別名は後回し |
+| `batch` / `explain` | §16 | 未着手 |
+| `serve stop` / `serve status` | §13 | `--daemon` 自体は実装済み |
+
+**M4 で実装済みになったもの**（旧「未実装」から移動）: `render batch` / `render still` / `render gif` / `render audio`、`blame` / `revert` / `reset --hard`、`history prune|export|import`。
 
 **未実装のオプション**
 
@@ -179,14 +179,18 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 |----------|--------------------|------|
 | `import` | `--thumbs`, `--waveform` | `proxy build --thumbs/--waveform` は実装済み |
 | `assets show` | `--keyframes` | `--probe` は実装済み |
-| `clip add` | `--loop`, `--ripple` | `--on-overlap error\|overwrite\|push` は実装済み |
-| `render` | `--from`, `--to`, `--last`, `--vcodec`, `--acodec`, `--vbitrate`, `--abitrate`, `--pix-fmt`, `--fps`, `--two-pass`, `--hwaccel`, `--reframe`, `--skip-validate` | 実装済みは `-o/--output`, `--preset`, `--crf`, `--preset-speed`, `--resolution`, `--threads`, `--progress`, `--overwrite`。部分レンダーとコーデック個別指定は M4 |
-| `serve` | `--allow`, `--deny`, `--max-upload`, `--daemon` の制御コマンド | 許可リストは 06 章 §3.3 の固定リスト。`--read-only` は実装済み |
+| `clip add` | `--loop`, `--ripple` | `--on-overlap error|overwrite|push` は実装済み。`--ripple` は `clip move/trim/delete/set` にはある（docs/13 D-9） |
+| `render` | `--from`, `--to`, `--skip-validate` | 区間レンダーは `render gif --from/--to` で可能。それ以外（`--last` `--vcodec` `--acodec` `--vbitrate` `--abitrate` `--pix-fmt` `--fps` `--two-pass` `--hwaccel` `--reframe`）は**すべて実装済み**、プリセットは 10 種 |
+| `serve` | `--allow`, `--deny`, `--max-upload` | 許可リストは 06 章 §3.3 の固定リスト。`--read-only` `--daemon` は実装済み |
 | `log` | `--since` | |
 | `commit` | `--body-file`, `--amend`, `--from-worktree` | `-m` / `--body` / `--last` / `--ops` / `--tag` / `--author` / `--allow-empty` / `--auto-message` は実装済み |
 | `project set` | `fps` / `resolution` キー | それ以外のキーは実装済み |
 
+レンダーで **グラフが対応していない構成**（`E_UNSUPPORTED`）: クリップの `loop`、クリップエフェクト、3D LUT、3ch 以上の音声、テキストトラック上のジェネレータクリップ。
+
 未実装の機能を呼ぶと `E_NOT_IMPLEMENTED`（終了コード 6）またはオプション未知のエラーになる。
+
+> この表は実装が進むたびにずれる。`montash schema --json` が常に正なので、食い違いを見つけたら docs/13 に起票して直すこと。
 
 ---
 

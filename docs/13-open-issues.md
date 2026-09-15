@@ -48,7 +48,7 @@
 | C-5 | 中 | 仕様と実装の乖離: `montash schema` ↔ 04 章の CI 差分チェックが M5 予定 | M1 で `defineCommand` → 04 章の表を生成する簡易スクリプトを先に作る | open |
 | C-6 | 中 | AI に渡すコンテキスト量: 仕様全体は大きすぎる | AI 運用は **10 章 + `montash schema` 出力** だけで完結する設計を維持。10 章を独立して読める状態に保つ | open |
 | C-7 | 低 | `scripts/spikes/` の再実行を忘れる | Bun 更新 PR で `bun run all` を CI に含める | open |
-| C-8 | 中 | **LICENSE ファイルが無い**: `package.json` は `"license": "MIT"` と宣言しているが、リポジトリ直下に LICENSE ファイルが存在しない。OSS として配布・引用するときの根拠が不足し、利用者向けドキュメントサイト（`website/`）のライセンスページも「MIT を予定」としか書けない | 著作権者名と年を確定して `LICENSE`（MIT）を追加し、`website/src/content/docs/{ja,en}/license.md` を実ファイルの内容に合わせて更新する | open |
+| C-8 | 中 | **LICENSE ファイルが無い**: `package.json` は `"license": "MIT"` と宣言しているが、リポジトリ直下に LICENSE ファイルが存在しない。OSS として配布・引用するときの根拠が不足し、利用者向けドキュメントサイト（`website/`）のライセンスページも「MIT を予定」としか書けない | 著作権者名と年を確定して `LICENSE`（MIT）を追加し、`website/src/content/docs/{ja,en}/license.md` を実ファイルの内容に合わせて更新する | done（MIT の `LICENSE` と `THIRD-PARTY-NOTICES.md` を追加し、サイトのライセンスページも実体に合わせて更新） |
 | C-9 | 低 | **ドキュメントサイトの CI・公開先が未定**: `website/`（Astro + Starlight）は Node 前提のツールチェーンのため、`node` を潰して実行する既存 CI ジョブには含めていない。公開先（GitHub Pages 等）も未定で `astro.config.mjs` の `site` / `base` が未設定 | 公開先を決めてから、`website/` 専用の CI ジョブ（`bun install && bun run build`）を別ワークフローとして追加するか判断する | open |
 
 ## D. 実装の不具合・改善（実機確認で判明）
