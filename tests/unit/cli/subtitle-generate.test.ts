@@ -207,6 +207,25 @@ test("整形の制約はオプションで変えられる", async () => {
   }
 });
 
+test("--pause は句点が無い区間の切れ目になる（D-22）", async () => {
+  // 句点が無く、2 文が地続きのトークン列（実素材と同じ形）。0.38 秒の間がある
+  const noStop: TranscriptToken[] = [
+    { text: "テックライブのお知らせと", startMs: 0, endMs: 1200 },
+    { text: "ありがとうございます", startMs: 1450, endMs: 2450 },
+    { text: "テックライブの33回目のお知らせです", startMs: 2830, endMs: 4530 },
+  ];
+  __setTranscribeHooks(hooks(noStop));
+  const split = (await call({ pause: 0.3, output: join(dir, "split.srt") })).result as Record<string, unknown>;
+  expect(split.cues).toBe(2);
+  const merged = (await call({ pause: 0, output: join(dir, "merged.srt") })).result as Record<string, unknown>;
+  expect(merged.cues).toBe(1);
+});
+
+test("--pause に負の数は弾く", async () => {
+  const err = (await call({ pause: -1 }).catch((e) => e)) as MontashError;
+  expect(err.code).toBe("E_USAGE");
+});
+
 test("--mode soft / --at / --id / --asset-id を反映する", async () => {
   const out = await call({ mode: "soft", at: "f:30", id: "s9", assetId: "talk_subs" });
   const result = out.result as Record<string, any>;
