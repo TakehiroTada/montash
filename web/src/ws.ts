@@ -3,6 +3,7 @@
  * 切断時は指数バックオフで再接続する（docs/06 §5「切断バッジと自動再接続」）。
  */
 import { refreshAll, refreshAssets, refreshHistory, refreshProject, refreshStatus } from "./api.ts";
+import { invalidateDerived } from "./lib/derived.ts";
 import { useStore } from "./store.ts";
 
 export interface WsMessage {
@@ -35,10 +36,17 @@ export function handleMessage(msg: WsMessage): void {
     case "assets.changed": {
       const count = (n: unknown) => (Array.isArray(n) ? n.length : 0);
       st.log("info", `assets.changed (+${count(msg.added)} -${count(msg.removed)} ~${count(msg.updated)})`, "ws");
+      // サムネイル・波形は素材が差し替わると作り直されるので、キャッシュを捨てて取り直す
+      invalidateDerived(
+        [...(Array.isArray(msg.updated) ? msg.updated : []), ...(Array.isArray(msg.removed) ? msg.removed : [])].map(
+          String,
+        ),
+      );
       void refreshAssets();
       break;
     }
     case "proxy.state":
+      invalidateDerived(typeof msg.asset === "string" ? [msg.asset] : undefined);
       void refreshAssets();
       break;
     case "job.progress":
@@ -57,6 +65,7 @@ export function handleMessage(msg: WsMessage): void {
         done: true,
         ok: msg.ok === true,
       });
+      invalidateDerived();
       void refreshAssets();
       break;
     case "history.moved":

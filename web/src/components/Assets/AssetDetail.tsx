@@ -28,6 +28,7 @@ import {
 } from "../../lib/assets.ts";
 import { useStore } from "../../store.ts";
 import { ConfirmDialog } from "../ui/ConfirmDialog.tsx";
+import { AssetDerived } from "./AssetDerived.tsx";
 import { TextAssetForm } from "./TextAssetForm.tsx";
 
 interface DetailResponse {
@@ -175,6 +176,9 @@ export function AssetDetail({ asset }: { asset: AssetView }) {
           </>
         ) : null}
       </dl>
+
+      {/* --- サムネイルストリップ・波形（docs/06 §2.6） --- */}
+      <AssetDerived asset={asset} />
 
       {/* --- 使用箇所 --- */}
       <h3>使用箇所 ({usage.length})</h3>

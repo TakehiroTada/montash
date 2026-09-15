@@ -17,6 +17,7 @@ import pkg from "../../package.json";
 import {
   assetsSnapshot,
   diffAssets,
+  handleAssetDerived,
   handleAssetFile,
   handleAssetList,
   handleAssetProxy,
@@ -267,6 +268,16 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     "/api/assets/:id": { GET: (req) => handleAssetShow(assetsDeps, String(req.params.id ?? "")) },
     "/api/assets/:id/file": { GET: (req) => handleAssetFile(assetsDeps, String(req.params.id ?? ""), req) },
     "/api/assets/:id/proxy.mp4": { GET: (req) => handleAssetProxy(assetsDeps, String(req.params.id ?? ""), req) },
+    // 派生物（docs/05 §12、docs/06 §3.2）。生成していなければ 404
+    "/api/assets/:id/thumbs.json": {
+      GET: (req) => handleAssetDerived(assetsDeps, String(req.params.id ?? ""), "thumbs.json", req),
+    },
+    "/api/assets/:id/thumbs.jpg": {
+      GET: (req) => handleAssetDerived(assetsDeps, String(req.params.id ?? ""), "thumbs.jpg", req),
+    },
+    "/api/assets/:id/waveform.json": {
+      GET: (req) => handleAssetDerived(assetsDeps, String(req.params.id ?? ""), "waveform.json", req),
+    },
     "/api/upload": {
       POST: async (req) => {
         const denied = requireWritable();

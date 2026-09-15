@@ -35,6 +35,7 @@ import { idsRebuild } from "./ids.ts";
 import { importAssets } from "./import.ts";
 import { init } from "./init.ts";
 import { log } from "./log.ts";
+import { overlayAdd, overlayList, overlayRemove, overlaySet } from "./overlay.ts";
 import { previewBuild, previewStatus } from "./preview.ts";
 import { projectSet, projectShow } from "./project.ts";
 import { proxyBuild, proxyStatus } from "./proxy.ts";
@@ -108,12 +109,16 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(textRemove),
   spec(textList),
   spec(textPresets),
+  // オーバーレイ（docs/04 §10）
+  spec(overlayAdd),
+  spec(overlaySet),
+  spec(overlayRemove),
+  spec(overlayList),
   // 字幕（docs/04 §12）
   spec(subtitleAdd),
   spec(subtitleSet),
   spec(subtitleRemove),
   spec(subtitleList),
-  // オーバーレイ / 音声                                                → M3/M4
   // 音声（docs/04 §11）
   spec(audioGain),
   spec(audioFade),
@@ -123,7 +128,6 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(audioOffset),
   spec(audioAnalyze),
   spec(audioShow),
-  // オーバーレイ / 字幕                                                → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
   spec(previewBuild),
