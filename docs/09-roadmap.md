@@ -73,8 +73,12 @@
   - D-16 プリセット統合（`createRegistry<T>()`）／ D-17 ID プレフィックス開放／ D-18 コマンド・機能宣言の合成
   - D-13 マイグレーション機構は **deferred**。リリース前なので移行は提供せず、旧 `schema_version` は `E_SCHEMA_TOO_OLD` で拒否して作り直す
 - ドキュメント（本仕様と実装の差分は `bun run check:spec` が検出する。C-5 で実装済み。04 章の表の自動生成までは行わない）
-- パフォーマンス（N-3〜N-5）計測と改善
-- npm 公開（`bunx montash`）、`bun build --compile` による OS 別単一バイナリ（linux-x64 / linux-arm64 / darwin-arm64 / darwin-x64。WSL は linux バイナリ）のリリース、`install-deps.sh` からのバイナリ取得オプション
+- **パフォーマンス（N-3〜N-5）実測済み**（2026-09-15）。いずれも基準内なので改善は不要
+  - **N-3**（状態操作 200ms 以内）: `clip add` が 116〜122ms（うち bun の起動が 62ms）。project の load 6〜14ms / save 0.5〜0.9ms
+  - **N-4**（プレビュー 1 分以内）: 10 分 / 10 クリップ・キャッシュヒット 0 で 42 秒（B-8）
+  - **N-5**（レンダー速度）: 入力 100・filter_complex 28,485 文字で 5.2 秒、中間ファイル無し（B-7）
+- **OS 別単一バイナリのビルドは実装済み**（`bun run release` = `scripts/release-build.ts`）。macOS arm64 のホストから **4 ターゲットすべてをクロスコンパイルできることを実測**（linux-x64 93MB / linux-arm64 92MB / darwin-x64 69MB / darwin-arm64 63MB、各 0.1〜0.2 秒）。WSL は linux バイナリを使う
+- 残り: npm 公開（`bunx montash`）と `install-deps.sh` からのバイナリ取得オプション。**公開操作なので実行前に判断が要る**
 - 10 章の AI 操作ガイドを実運用で検証（実際に LLM に指示して W-01〜W-14 を通す）
 
 ### M6. プラグイン — 13〜15 週目 ✅ 完了
