@@ -60,6 +60,11 @@ export interface GraphOptions {
    * 解析は I/O なのでグラフの外（ffmpeg/audio-analysis.ts）で行う（docs/07 §8.3）。
    */
   ducking?: Record<string, DuckAnalysis> | undefined;
+  /**
+   * エフェクトの事前解析結果（クリップ ID → `target:effect` → 値。docs/14 §4 の Level C）。
+   * ducking と同じく、解析は `ffmpeg/effect-analysis.ts` が行い、ここには**値だけ**が渡る。
+   */
+  effectAnalyses?: Record<string, Record<string, unknown>> | undefined;
 }
 
 /** `--simple` ダッキング 1 件ぶんの事前解析（docs/07 §8.3） */

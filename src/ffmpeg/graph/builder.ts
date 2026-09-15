@@ -315,6 +315,7 @@ function audioGroupStream(ctx: GraphContext, group: ClipGroup<Clip>, index: Tran
         speed: clip.speed,
         pitchKeep: clip.pitch_keep,
         effects: clip.effects,
+        clipId: clip.id,
       }),
     );
   });

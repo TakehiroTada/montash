@@ -35,6 +35,8 @@ export interface AudioClipSpec {
   pitchKeep: boolean;
   /** クリップの effects[]（docs/07 §8a） */
   effects?: readonly EffectRef[] | undefined;
+  /** 解析結果を引くためのクリップ ID（Level C。docs/14 §4） */
+  clipId?: string | undefined;
 }
 
 /** `atempo` は 0.5〜2 の範囲で多段にする（古いビルドでも動く。docs/07 §8.1） */
@@ -84,12 +86,12 @@ export function normalizeAudioClip(ctx: GraphContext, spec: AudioClipSpec): Audi
     "asetpts=PTS-STARTPTS",
     `volume=${spec.gainDb}dB`,
     // クリップの effects[] は配列順に、ゲインのあと・フェード前へ差し込む（docs/07 §8a）
-    ...buildEffectFilters("audio", spec.effects, {
-      fps: ctx.fps,
-      resolution: ctx.res,
-      frames: 0,
-      sampleRate: ctx.sampleRate,
-    }),
+    ...buildEffectFilters(
+      "audio",
+      spec.effects,
+      { fps: ctx.fps, resolution: ctx.res, frames: 0, sampleRate: ctx.sampleRate },
+      spec.clipId === undefined ? undefined : ctx.opts.effectAnalyses?.[spec.clipId],
+    ),
     ...fadeFilters(ctx, spec.fade, spec.samples),
   ];
   return { label: ctx.chain(spec.stream, filters, "a"), samples: spec.samples };

@@ -49,6 +49,11 @@ export interface EffectBuildContext {
   frames: number;
   /** 音声のサンプルレート */
   sampleRate: number;
+  /**
+   * `analyze()` の結果（Level C のエフェクトのみ）。
+   * 解析が済んでいない／不要な場合は undefined で、`build()` は既定の挙動に落とす。
+   */
+  analysis?: unknown;
 }
 
 export interface EffectSpec {
@@ -61,8 +66,33 @@ export interface EffectSpec {
   /**
    * パラメータ → フィルタ片の配列（純関数）。
    * 受け取る `params` は既定値の適用と範囲検査が済んでいる。
+   *
+   * `analyze` を持つエフェクトでは、`ctx.analysis` にレンダー前の測定結果が入る。
    */
   build(params: Readonly<Record<string, unknown>>, ctx: EffectBuildContext): string[];
+  /**
+   * **Level C**: レンダーの前に 1 度だけ走る測定パス（docs/14 §4）。
+   *
+   * loudnorm / ducking と同じ「解析は外でやり、結果を値で注入する」形にすることで、
+   * `build()` の純粋性と preview のキャッシュ整合を保つ。
+   * プラグインが持つ場合は**マニフェストで `capabilities: ["analyze"]` の宣言が要る**。
+   * 宣言していないエフェクトの `analyze` はホストが呼ばない。
+   */
+  analyze?(params: Readonly<Record<string, unknown>>, ctx: EffectAnalyzeContext): Promise<unknown>;
+}
+
+/** `analyze()` に渡る文脈。ffmpeg の実行はホストが仲介する（プラグインは直接起動しない） */
+export interface EffectAnalyzeContext extends EffectBuildContext {
+  /** 解析対象クリップの入力ファイル（絶対パス） */
+  readonly source: string;
+  /** 素材から切り出す範囲（フレーム） */
+  readonly srcIn: number;
+  readonly srcOut: number;
+  /**
+   * ffprobe / ffmpeg のフィルタを 1 度だけ走らせて stderr を受け取る。
+   * **ホストが引数を組み立てる**ので、プラグインが任意のコマンドを実行することはできない。
+   */
+  probe(filter: string): Promise<string>;
 }
 
 export function defineEffect(spec: EffectSpec): EffectSpec {
@@ -392,6 +422,8 @@ export function buildEffectFilters(
   target: EffectTarget,
   effects: readonly EffectRef[] | undefined,
   ctx: EffectBuildContext,
+  /** クリップ単位の解析結果（`analysisKey()` の値 → `analyze()` の戻り値） */
+  analyses?: Readonly<Record<string, unknown>>,
 ): string[] {
   if (!effects || effects.length === 0) return [];
   const registry = effectRegistry(target);
@@ -402,7 +434,30 @@ export function buildEffectFilters(
         hint: "See docs/09-roadmap.md (F-FX-8).",
       });
     const spec = registry.require(ref.type);
-    out.push(...spec.build(resolveEffectParams(spec, ref.params ?? {}), ctx));
+    const analysis = analyses?.[analysisKey(target, ref.type)];
+    out.push(
+      ...spec.build(resolveEffectParams(spec, ref.params ?? {}), analysis === undefined ? ctx : { ...ctx, analysis }),
+    );
+  }
+  return out;
+}
+
+/** 解析結果を引くためのキー（クリップ内で同じ効果を 2 度掛けたら同じ解析を共有する） */
+export function analysisKey(target: EffectTarget, effectName: string): string {
+  return `${target}:${effectName}`;
+}
+
+/** そのクリップに、解析が要るエフェクトが含まれているか */
+export function effectsNeedingAnalysis(target: EffectTarget, effects: readonly EffectRef[] | undefined): EffectSpec[] {
+  if (!effects || effects.length === 0) return [];
+  const registry = effectRegistry(target);
+  const seen = new Set<string>();
+  const out: EffectSpec[] = [];
+  for (const ref of effects) {
+    const spec = registry.get(ref.type);
+    if (!spec?.analyze || seen.has(spec.name)) continue;
+    seen.add(spec.name);
+    out.push(spec);
   }
   return out;
 }

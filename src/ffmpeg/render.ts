@@ -9,6 +9,7 @@ import { timelineDurationF } from "../core/assets.ts";
 import type { Fps, Project, Resolution } from "../core/schema.ts";
 import { framesToSeconds } from "../core/time.ts";
 import { resolveAssetPath, validateProject } from "../core/validate.ts";
+import { analyzeEffects, needsEffectAnalysis } from "./effect-analysis.ts";
 import { buildGraph } from "./graph/builder.ts";
 import { serializeGraph } from "./graph/serialize.ts";
 import type { FilterGraph, OutputSpec } from "./graph/types.ts";
@@ -205,6 +206,18 @@ export async function buildRenderPlan(
     ...((opts.fps ?? preset.fps) ? { fps: opts.fps ?? (preset.fps as number) } : {}),
     ...(preset.palette ? { palette: true } : {}),
   };
+  // Level C（`analyze` を持つ）エフェクトの測定パス。
+  // 解析を持つエフェクトが無ければ ffmpeg は 1 度も起動しない（docs/14 §4、docs/07 §3a）。
+  const analyses =
+    opts.bins && needsEffectAnalysis(project)
+      ? await analyzeEffects(project, opts.bins, {
+          source: (assetId) => {
+            const asset = project.assets[assetId];
+            return asset ? resolveAssetPath(dir, asset.path) : assetId;
+          },
+        })
+      : {};
+
   const build = (audio: boolean): { graph: FilterGraph; warnings: Warning[] } => {
     const g = buildGraph(project, {
       resolution: working,
@@ -215,6 +228,7 @@ export async function buildRenderPlan(
       ...(text.burn !== undefined ? { text: text.burn } : {}),
       ...(opts.audio?.loudnorm ? { loudnorm: opts.audio.loudnorm } : {}),
       ...(opts.audio?.ducking ? { ducking: opts.audio.ducking } : {}),
+      ...(Object.keys(analyses).length > 0 ? { effectAnalyses: analyses } : {}),
     });
     return { graph: applyOutputStage(g, stageOpts).graph, warnings: g.warnings.map((w) => warning(w.code, w.message)) };
   };
