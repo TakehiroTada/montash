@@ -116,7 +116,7 @@
 
 ## 6. テキスト（libass / ASS 生成）
 
-テキストトラックの全クリップから **1 つの ASS ファイル**（`.montash/tmp/<hash>.ass`）を生成し、映像合成の最後（overlay の後、出力 `format` の前）に 1 回だけ `subtitles` フィルタで焼く。
+テキストトラックの全クリップから **1 つの ASS ファイル**（`.montash/tmp/<hash>.ass`）を生成し、映像合成の最後（overlay の後、出力 `format` の前）に `subtitles` フィルタで焼く。生成 ASS は必ず 1 回。`mode: burn` の ASS 素材（§7）があれば、そのぶんだけ `subtitles` を後ろに続ける。
 
 ```
 [bN]subtitles=filename='.montash/tmp/ab12.ass':fontsdir='.montash/tmp/fonts':original_size={W}x{H}[Vtext]

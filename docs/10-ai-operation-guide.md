@@ -81,7 +81,7 @@
 | 全体把握 | `montash project show --json && montash timeline show --json` |
 | クリップ ID の特定 | `montash clip list --track V1 --json` |
 | ある時刻に何があるか | `montash timeline show --from 11.5 --to 13 --json` |
-| 特定要素の詳細 | `montash clip show c2 --json` / `montash explain c2` |
+| 特定要素の詳細 | `montash clip list --json`（`clip show` / `explain` は未実装。04 章 §1.9） |
 | 素材の尺 | `montash assets show clip_a --json | jq .duration` |
 | 実行前チェック | `montash validate --json` |
 | 何が変わるか | `<command> --dry-run --json` |

@@ -109,6 +109,7 @@
 - **理由**: float 秒では `from.end == to.start` の等値比較、ギャップ／重なり検出、29.97fps のフレーム丸めが誤差で壊れる。整数なら不変条件（05 章 §14）を厳密に検証でき、undo/redo・履歴のハッシュも安定する。ffmpeg 側もフレーム／サンプル指定（`trim=end_frame`, `fade=s:n`, `enable=between(n,...)`, `atrim=end_sample`, `adelay=...S`, `afade=ss:ns`）を持つため、秒を経由せずに渡せる箇所が大半。
 - **残る秒指定と誤差の扱い**: `-ss`、`xfade=offset/duration`、ASS の時刻は秒でしか渡せない。`-ss` はマイクロ秒精度（後段の `fps=` が量子化するので決定的）、ASS はセンチ秒（floor/ceil で隣接フレームに漏れない）、`xfade` は量子化済み pts に対するマイクロ秒丸めなのでフレーム取り違えは理論上起きないが、**M1 で 29.97fps のゴールデンテスト**（`ffprobe -count_frames` で合成後フレーム数 = 期待値）を必須にする。
 - **入力の受理**: `12.5` / `00:00:12.500` → `round(t * num/den)`。丸めが生じたら `W_SNAPPED` で採用値を返す（AI が次の指示に使える）。`f:375` は直接。
+- **検証**（2026-09-15、macOS 26 / Bun 1.3.14 / ffmpeg 9.0.1）: `tests/unit/ffmpeg/transition-golden.test.ts` が 30 / 29.97 / 59.94fps × `duration_f` 15（奇数）/ 16（偶数）の 6 通りで `ffprobe -count_frames` の実フレーム数 = `timelineDurationF()` の**厳密一致**を確認（7 tests pass / 2.06s）。29.97fps では xfade 前後のフレームが素材のどのフレームかを PSNR で照合し、`k=0↔src10: 45.63dB` / `k=32↔src42: 45.11dB` / `k=48↔src68: 44.90dB` / `k=79↔src99: 45.29dB`（いずれも判定基準 30dB 以上）、トランジション中央（`k=40`）は素材と 30dB 未満でブレンドが確認できた。プレビューの concat 経路も `tests/unit/ffmpeg/preview.test.ts` の 29.97fps ケースでフレーム数一致。13 章 B-4 はこれで解消。
 - **代替案**: float 秒 + `snap_to_frame`（当初案。比較が壊れる）、`1/(fps*1000)` の tick（fps に依存し fps 変更で意味が変わる）、ナノ秒整数（fps 非依存だが 29.97 のフレーム境界が表せない）。
 - **影響**: 05 章全面改稿（`schema_version: 2`）、04 章 §1.3（入力・出力）、07 章（フレーム／サンプル指定）、`core/time.ts`（有理数演算）、Web の再生ヘッド（`<video>.currentTime` → `floor(t*num/den + ε)`）。
 
@@ -118,12 +119,15 @@
 - **理由**: `drawtext` は自動折り返し・行単位スタイル・CJK と絵文字の混在フォールバック・複数行の背景ボックスが弱い。ASS/libass は位置（`\an`/`\pos`）、フェード（`\fad`）、縁取り／影、折り返し（WrapStyle）、行内オーバーライド（`markup: ass` で AI が直接書ける）を一貫して扱え、字幕と実装を共有できる。
 - **設計上の要点**: `PlayResX/Y` = プロジェクト解像度で px 座標を 1:1 に、`fontsdir=` に解決済みフォントファイルを集めて環境依存（fontconfig の有無）を排除、`original_size` でプレビュー（プロキシ解像度）と本番で同じ ASS を使う。1 テキストクリップ = 1 Style + 1 Dialogue。
 - **リスク**: `BorderStyle=4`（行ブロック背景）は libass 拡張で古いビルドに無い → `3` にフォールバック。ASS 時刻がセンチ秒 → floor/ceil で対処。`doctor` で `subtitles` フィルタの有無を確認。
+- **検証**（2026-09-15、macOS 26 / ffmpeg 9.0.1 = libass 入り）: `doctor` が `text_engine: "libass"`、`recommended.present: ["subtitles", "drawtext"]` を返す。`tests/unit/ffmpeg/{ass,graph-text,text-render,ass-burn}.test.ts` で ASS 文書のスナップショット、`subtitles=` が 1 回だけ張られること、テロップ区間のフレームだけが素材と変わる（区間内 PSNR < 35dB、区間外 > 40dB）こと、CJK フォールバックで日本語グリフが .notdef と異なる（PSNR < 40dB）ことを確認。字幕の焼き込みも `duration_f` 149 を維持。未解決: `BorderStyle=4` と `fontsdir=` の Linux / 旧 libass での差（13 章 B-5、macOS の libass のみで検証）。
+- **`line_spacing` の制約**: ASS の Style に行間の項目が無く（`Spacing` は字間）、`style.line_spacing` は保存されるだけで描画に効かない（13 章 D-3、04 章 §9 / 05 章 §6.2 に明記済み）。
 - **代替案**: `drawtext`（当初案）、テキストを PNG に事前描画して overlay（Bun には描画ライブラリが無くネイティブ依存になる）。
 
 ## ADR-11. プレビューは「映像セグメントキャッシュ + 音声 1 パス + mux」
 
 - **決定**: `preview build` は映像だけをセグメント（フレーム境界）でキャッシュ・concat し、音声はタイムライン全体を毎回 1 パスで生成し、最後に `-c copy` で mux する（07 章 §11）。
 - **理由**: AAC のエンコーダ遅延（priming）により、音声付きセグメントを `-c copy` で concat すると境界でクリック／ズレが出る。音声処理は映像デコードを伴わず数秒で終わるため、毎回生成しても即時性を損なわない。映像は高コストなのでキャッシュの恩恵が大きい。
+- **検証**（2026-09-15、macOS 26 / Bun 1.3.14 / ffmpeg 9.0.1）: `src/ffmpeg/preview.ts` として M2 で実装。`tests/unit/ffmpeg/preview.test.ts`（11 tests）で、セグメント境界がクリップ端とフェード窓に揃うこと、**編集で位置だけが動いたセグメントは再エンコードされず再利用される**こと（変更したクリップのぶんだけ `built_segments` が増える）、`--audio-only` が `timeline.mp4` に触れずに `audio.m4a` だけを作り直すこと、キャンセル時に直前のマニフェストとキャッシュロックが保全されること、29.97fps の concat でフレーム数が厳密一致することを確認。`-c copy` mux による継ぎ目のクリック／ズレは発生しない。公開点はマニフェスト（`.montash/preview/timeline.json`）の差し替え。
 - **代替案**: MPEG-TS でセグメント化（AAC の扱いが多少良いが完全ではない）、PCM で中間保存（サイズ大）、MediaSource でブラウザ側結合（実装が重い）。
 
 ## ADR-12. `clip split` は前半が元 ID を維持する
@@ -173,7 +177,7 @@
 
 ## 保留（実装時に問題化したら検討）
 
-13 章 B-1〜B-4（`Bun.spawn` での ffmpeg 制御、コンパイル済みバイナリの自己 spawn と資産埋め込み、大容量アップロードのメモリ、`xfade=offset` の 29.97fps 境界）は、**事前 spike を行わず実装中に検証**する方針とした（2026-09-14）。ただし B-4 はゴールデンテスト（08 章 §6）として M1 のテストスイートに含めるため、事実上そこで検証される。
+13 章 B-1〜B-4（`Bun.spawn` での ffmpeg 制御、コンパイル済みバイナリの自己 spawn と資産埋め込み、大容量アップロードのメモリ、`xfade=offset` の 29.97fps 境界）は、**事前 spike を行わず実装中に検証**する方針とした（2026-09-14）。ただし B-4 はゴールデンテスト（08 章 §6）として M1 のテストスイートに含めるため、事実上そこで検証される。**B-1 / B-4 は解消済み**（ADR-09 の検証欄、13 章 B-1 / B-4）。B-2 / B-3 は M4 以降に持ち越し。
 
 ## 決定一覧（サマリ）
 
@@ -186,15 +190,15 @@
 | ADR-05 | 監視 | chokidar 4（`fs.watch` は不採用、ポーリングを第 2 案） | ✅ 実機（比較） |
 | ADR-06 | フロント | React 19 + zustand + canvas（時間軸描画） | ✅ 実機（バンドル） |
 | ADR-07 | 依存導入 | `scripts/install-deps.sh` | ✅ `--check` |
-| ADR-08 | テスト | `bun test` + bash E2E + Playwright | — |
-| ADR-09 | 時間表現 | 整数フレーム（`_f`）／整数サンプル（`_smp`）、fps は有理数 | M1 ゴールデンテストで検証 |
-| ADR-10 | テキスト | ASS 生成 → libass（`drawtext` はフォールバック） | M3 |
-| ADR-11 | プレビュー | 映像セグメントキャッシュ + 音声 1 パス + mux | M2/M3 |
-| ADR-12 | ID | `clip split` は前半が元 ID を維持 | — |
-| ADR-13 | ID | 採番カウンタは `.montash/ids.json`（履歴の外） | — |
+| ADR-08 | テスト | `bun test` + bash E2E + Playwright | ✅ 実機（`tests/unit/**` 55 ファイル、`tests/workflows/W-*.sh` 15 本、Playwright は `scripts/e2e-{history,preview}.ts`） |
+| ADR-09 | 時間表現 | 整数フレーム（`_f`）／整数サンプル（`_smp`）、fps は有理数 | ✅ ゴールデンテスト（30/29.97/59.94fps でフレーム数厳密一致、xfade 前後 PSNR 44.9〜45.6dB。2026-09-15） |
+| ADR-10 | テキスト | ASS 生成 → libass（`drawtext` はフォールバック） | ✅ 実機（ffmpeg 9.0.1 / `text_engine: libass`、焼き込みと CJK フォールバックを PSNR 照合。Linux / 旧 libass は未検証 = B-5） |
+| ADR-11 | プレビュー | 映像セグメントキャッシュ + 音声 1 パス + mux | ✅ 実機（セグメント再利用・`--audio-only`・キャンセル保全・29.97fps concat の 11 テスト。2026-09-15） |
+| ADR-12 | ID | `clip split` は前半が元 ID を維持 | ✅ 実機（`tests/unit/cli/clip-edit.test.ts`） |
+| ADR-13 | ID | 採番カウンタは `.montash/ids.json`（履歴の外） | ✅ 実機（`tests/unit/core/ids.test.ts`、`ids rebuild`） |
 | ADR-14 | データ | ffprobe 生 JSON は `.montash/cache/<id>/probe.json` へ | — |
 | ADR-15 | 依存 | ffmpeg は機能検出で判定、Linux/WSL は static ビルド既定 | `install-deps.sh --dry-run` |
-| ADR-16 | 編集 | リップルは既定で全トラック、`--ripple=track` で限定 | — |
+| ADR-16 | 編集 | リップルは既定で全トラック、`--ripple=track` で限定 | ✅ 実機（`core/ripple.ts` + `tests/unit/core/ripple.test.ts`、`clip move|trim|delete|set --ripple`） |
 | ADR-17 | 名称 | アプリ名・CLI 名は `montash`（montage + sh） | npm / PATH / brew 衝突なし |
 
 ## 再検証の手順

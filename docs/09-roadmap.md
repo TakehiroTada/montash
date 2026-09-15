@@ -2,23 +2,22 @@
 
 作業手順開発の原則に従い、**手順（W-xx）単位で縦に切って** 実装する。各マイルストーンは「その手順が bash スクリプトで通しで動く」ことを完了条件とする。
 
-## 実装状況（2026-09-15）
+## 実装状況（2026-09-15 / M3 完了）
 
-- M0 と履歴基盤は実装済み。既存の W-01 / W-10 / W-15 を維持。
-- M1 の基本経路を追加: `import` → `proxy build/status` → `assets list/show` → `clip add/list` → `timeline show` → `render/verify/presets`。W-02 / W-03 / W-09 のE2Eを追加。
-- レンダーは単一映像トラックのカット結合、画像、ギャップ、音声ミックス、`youtube-1080p` / `web-preview` に対応。30 / 29.97 / 59.94fpsの厳密フレーム数・カット位置テストを常設。
-- この時点のコマンド引数は `montash schema` が正。04章の将来仕様のうち、`clip add --loop`、`--on-overlap push/overwrite`、`project set fps/resolution`、部分レンダー、`render --last`、テキスト・演出・音量正規化は未実装。
-- W-16の履歴連携を実装: WebでHEAD・pending・コミット・タグ・分岐を表示し、CLI操作と同期。Playwrightでキャンバスクリック、`[` / `]`、コミット・タグ通知、監視なしの再取得を検証。
-- M2のプレビュー経路を追加: `preview build/status`（映像セグメントキャッシュ + 音声1パス + mux、`--from/--to`・`--audio-only`・`--height`・`--force`）、`serve` のデバウンス自動生成とキャンセル、`GET /preview/timeline.mp4`（Range・`ETag`=project_hash）と `/preview/timeline.json`、`/api/status` の `preview`。W-04 で CLI・HTTP・（chromium があれば）実ブラウザ再生を検証。
-- M3のフィルタグラフを再構築: `src/ffmpeg/graph/`（types / video / transitions / audio / overlay / builder / serialize）に純関数として切り出し、`render` と `preview build` が同じ `buildGraph()` を使う（プレビューは区間・プロキシ入力・`-an` をオプションで表現）。
-- W-05のトランジション・フェードを追加: `transition add|set|remove|list`（`--between` / `--track --all-cuts` / `--at-cut`、`handle` / `overlap`、`acrossfade`）、`fade`（トラック／クリップ、`--with-audio`）。あわせて複数映像トラックの overlay（position プリセット・scale・opacity）、速度変更（`setpts` + `atempo`）、音声オフセット（`offset_smp`）に対応。30 / 29.97 / 59.94fps のゴールデンテスト（`duration_f` 奇数・偶数）でフレーム数厳密一致と xfade 前後フレームのPSNR照合を常設。
-- 未実装のまま: ダッキング、テキスト・字幕トラック、`loop`、LUT、キーフレーム、音量正規化。
-- 次の実装対象: M2のWeb Assets閲覧の充実、コンパイル版の自己spawn／資産配信の検証。M3のテキスト（ASS/libass）・音声処理へ進む。
-- CIは費用抑制のため一時的にUbuntuのみ。以下の複数OS要件は再開後の目標。
+**完了: M0 / M1 / M2 / M3**（W-01〜W-10, W-13〜W-17）。**進行中: M4**（W-11 / W-12）。
+
+- **M0**: CLI 骨格（yargs + `defineCommand`）、`--json`／エラー／終了コード、`doctor` / `schema` / `init` / `project show` / `validate`、履歴基盤（op / commit / object / HEAD）、`Bun.serve` 最小サーバ、CI。
+- **M1**: `import` → `proxy build|status` → `assets list|show` → `clip add|list` → `timeline show` → `render` / `render verify|presets`、履歴コマンド群（`status` / `log` / `show` / `diff` / `commit` / `checkout` / `undo` / `redo` / `tag` / `history verify|prune|export|import` / `ids rebuild`）。30 / 29.97 / 59.94fps の厳密フレーム数・カット位置テストを常設。
+- **M2**: `serve`（静的 + `/api/*` + WS + `POST /api/cli` 許可リスト）、`preview build|status`（映像セグメントキャッシュ + 音声 1 パス + mux、`--from/--to`・`--audio-only`・`--height`・`--force`）、`GET /preview/timeline.mp4`（Range・`ETag`=project_hash）、`clip move|trim|split|delete|set` と `track add|list|remove|mute|lock|move`、`timeline gaps`、Web のプレイヤー・トランスポート・編集タイムライン canvas・Inspector・History タイムライン（クリック / `[` `]`）。
+- **M3**: フィルタグラフを `src/ffmpeg/graph/`（types / video / transitions / audio / overlay / text / builder / serialize）の純関数に切り出し、`render` と `preview build` が同じ `buildGraph()` を使う。`transition add|set|remove|list` と `fade`、`text add|set|remove|list|presets` と `fonts list`（ASS 生成 + libass、`drawtext` フォールバック）、`subtitle add|set|remove|list`（burn / soft）、`audio gain|fade|duck|normalize|analyze|show|offset`（amix / sidechaincompress / loudnorm 2 パス）、`overlay add|set|remove|list`、`proxy build --thumbs --waveform` と Web の波形・サムネイル表示、`assets set|new-text|set-text|remove|relink` と Web Assets タブの操作系（`POST /api/upload`）。速度変更（`setpts` + `atempo`）と音声オフセット（`offset_smp`）も対応。
+- **ゴールデンテスト**: 30 / 29.97 / 59.94fps で `duration_f` 厳密一致、xfade 前後フレームの PSNR 照合、テロップ焼き込みを常設（`tests/unit/ffmpeg/transition-golden.test.ts`, `text-render.test.ts`, `audio-render.test.ts`）。
+- **M4（進行中）**: `revert` / `blame` / `reset --hard` / `commit --amend`、`render --last|--from|--to|--hwaccel|--reframe`・全プリセット・`render batch`、W-11 / W-12 の E2E。
+- **未実装**: `clip show`、`clip link|unlink`、`clip add --loop`、`render still|gif|audio`、`batch`、`explain`、`schema --format *-tools` 以外の AI 支援、`serve --allow|--deny|--max-upload` と `serve stop|status`、`log --since`、`project set fps|resolution`、LUT、キーフレームアニメーション、ぼかし／モザイク。コマンド単位の差分は 04 章 §1.9 を正とする。
+- **CI**: 費用抑制のため一時的に Ubuntu のみ（macOS runner は停止中。13 章 D-6）。3 OS マトリクスは再開後の目標。
 
 ## 1. マイルストーン
 
-### M0. 骨格（手順なし・基盤のみ）— 1 週目
+### M0. 骨格（手順なし・基盤のみ）— 1 週目 ✅ 完了
 
 - リポジトリ（Bun: `package.json` / `bun.lock` / `bunfig.toml` / `tsconfig.json` strict）、`scripts/install-deps.sh`（済）、`scripts/spikes/`（12 章の検証スクリプトを取り込み）
 - CLI エントリ（yargs + `defineCommand`）、`--json`／エラー／終了コードの枠組み
@@ -29,7 +28,7 @@
 - `tests/fixtures` 生成スクリプト
 - 完了条件: `montash doctor --json`, `montash init`, `montash project show` が 3 OS で動く（= **W-01**）
 
-### M1. 取り込みと粗編集 — 2〜3 週目
+### M1. 取り込みと粗編集 — 2〜3 週目 ✅ 完了
 
 - **W-02**: `import`, `assets list|show`, `proxy build|status`（プロキシのみ。サムネ・波形は M3）
 - `core/time.ts`（有理数 fps、整数フレーム／サンプル）と入力パーサ。**30 / 29.97 / 59.94 fps のゴールデンテスト基盤**（`ffprobe -count_frames` でフレーム数一致）を最初に用意
@@ -38,14 +37,14 @@
 - **W-10 / W-15**: `status`, `log`, `undo`, `redo`, `checkout`, `commit -m`, 任意コマンドの `-m`, `tag`（DAG・分岐保持を含む。`revert`/`blame`/`reset` は M4）
 - 完了条件: `tests/workflows/W-02.sh, W-03.sh, W-09.sh, W-10.sh, W-15.sh` が通る。「複数素材をカットして繋げて mp4 に書き出し、作業をコミットとして記録する」が AI 経由で成立
 
-### M2. Web プレビュー — 4〜5 週目
+### M2. Web プレビュー — 4〜5 週目 ✅ 完了
 
 - **W-04**: `serve`（静的 + `/api/project` + WS）、`preview build`（まずセグメントキャッシュ無しの単発生成）、`clip move|trim|split|delete`（リップル含む）
 - **W-16**: `POST /api/cli`（許可リスト: `checkout`/`undo`/`redo`/`tag` のみ）、`GET /api/history`、Web の **History タイムライン**（時系列表示、HEAD、pending、クリック→checkout、`[`/`]`）
 - Web: プレイヤー、トランスポート、編集タイムライン canvas、Inspector（プロパティ + 由来 + CLI 例）、自動リロード、Assets タブ（**閲覧のみ**: 一覧・フィルタ・単体プレビュー・使用箇所）
 - 完了条件: `W-04.sh`, `W-16.sh`（Playwright でノードクリック→`status` の HEAD 変化を検証）が通り、ブラウザで編集結果が 5 秒以内、History クリックで表示が 300ms 以内に反映される
 
-### M3. 演出（トランジション・テキスト・音声）— 6〜8 週目
+### M3. 演出（トランジション・テキスト・音声）— 6〜8 週目 ✅ 完了
 
 - **W-05**: `transition add|set|remove|list`, `fade`（xfade グラフビルダー、整数ハンドル計算、29.97fps での offset 検証）
 - **W-06**: `text add|set|remove|list|presets`, `fonts list`（**ASS 生成 + libass**、`fontsdir` 構築、CJK フォールバック、`drawtext` フォールバック）
@@ -56,15 +55,15 @@
 - History タイムラインの hover 差分表示と編集タイムラインへのハイライト（`affects`）
 - 完了条件: `W-05.sh, W-06.sh, W-07.sh, W-17.sh` が通る。README のクイックスタートがそのまま動く
 
-### M4. 仕上げと拡張 — 9〜10 週目
+### M4. 仕上げと拡張 — 9〜10 週目 🚧 進行中
 
-- **W-08**: `overlay add|set|remove|list`
+- ~~**W-08**: `overlay add|set|remove|list`~~ → M3 で前倒し実装済み（`W-08.sh`）
 - **W-11**: `render --last`, `diff`, `show`, `blame`, `revert`, `reset --hard`, `commit --amend`, `history prune|verify|export|import`、Web History の右クリック操作（タグ付け・revert・差分）、`log --graph`
 - **W-12**: `render batch`, `--reframe`, 全プリセット、`--hwaccel`
-- **W-13**: `assets relink`
-- **W-14**: `subtitle add|set|remove|list`
+- ~~**W-13**: `assets relink`~~ → M3 で前倒し実装済み（`W-13.sh`）
+- ~~**W-14**: `subtitle add|set|remove|list`~~ → M3 で前倒し実装済み（`W-14.sh`）
 - `batch --atomic`, `explain`, `schema --format *-tools`
-- 完了条件: 全 W-xx.sh が 3 OS の CI で通る
+- 完了条件: 全 W-xx.sh が 3 OS の CI で通る（残りは `W-11.sh` / `W-12.sh`。CI は当面 Ubuntu のみ）
 
 ### M5. v1.0 — 11〜12 週目
 
@@ -82,26 +81,28 @@
 
 ## 2. トレーサビリティ表（手順 ⇄ 要件 ⇄ コマンド ⇄ ffmpeg ⇄ 実装 ⇄ テスト）
 
-| 手順 | 要件 | コマンド（04） | データ（05） | ffmpeg（07） | 実装モジュール（08） | テスト | MS |
-|------|------|----------------|--------------|--------------|----------------------|--------|----|
-| W-01 | F-PRJ-1,2 / N-2 | `doctor`, `init`, `project show` | `settings` | — | `cli/doctor,init,project`, `ffmpeg/locate` | `W-01.sh` | M0 |
-| W-02 | F-AST-1〜4 / F-PV-7 | `import`, `assets *`, `proxy *` | `assets`, `derived` | §10 | `cli/import,assets,proxy`, `ffmpeg/probe,proxy` | `W-02.sh` | M1/M3 |
-| W-03 | F-TL-1,4,5 / F-PRJ-4 | `clip add`, `timeline show`, `validate` | `tracks.clips` | §2,3,4.1 | `core/timeline,validate` | `W-03.sh`, unit | M1 |
-| W-04 | F-TL-2,3 / F-PV-1〜6 | `preview *`, `serve`, `clip move/trim/split/delete` | `preview/*` | §11 | `ffmpeg/preview`, `server/*`, `web/*` | `W-04.sh` | M2 |
-| W-05 | F-TL-7 / F-FX-5 | `transition *`, `fade` | `transitions` | §4.2,4.3, 8.2 | `core/transitions`, `graph/video,audio` | `W-05.sh`, snapshot | M3 |
-| W-06 | F-FX-1 / N-11 | `text *`, `fonts list` | text clips, `text_presets` | §6 | `graph/text`, `ffmpeg/fonts` | `W-06.sh` | M3 |
-| W-07 | F-AU-1〜3 / F-TL-4 | `track *`, `audio *` | `audio`, `clips.audio` | §8 | `graph/audio` | `W-07.sh` | M3 |
-| W-08 | F-FX-2 | `overlay *`, `track move` | `clips.video.transform` | §5 | `graph/overlay` | `W-08.sh` | M4 |
-| W-09 | F-RD-1〜7 | `render`, `render verify/presets` | `render/last.json` | §9 | `ffmpeg/render` | `W-09.sh` | M1/M4 |
-| W-10 | F-PRJ-3,5 / F-HIS-3,4 | `status`, `log`, `undo`, `redo`, `checkout`, `tag`, `revert` | `.montash/history/*`（11 章） | — | `core/history/*` | `W-10.sh`, unit | M1/M4 |
-| W-11 | F-RD-1 / F-HIS-5,6 | `render --last`, `diff`, `show`, `blame`, `revert` | `meta.last_render`, `commits.jsonl` | §9 | `cli/diff,blame,revert` | `W-11.sh` | M4 |
-| W-12 | F-RD-2,8 | `render batch`, `--reframe` | `render_presets` | §9 | `ffmpeg/render` | `W-12.sh` | M4 |
-| W-13 | F-AST-6 | `assets relink` | `assets.hash_head` | — | `cli/assets` | `W-13.sh` | M4 |
-| W-14 | F-FX-6 / F-AST-5 | `subtitle *` | subtitle clips | §7 | `graph/subtitle` | `W-14.sh` | M4 |
-| W-15 | F-HIS-1,2,7 / N-13 | `commit`, `-m`, `status`, `log`, `show`, `diff`, `tag` | `ops.jsonl`, `commits.jsonl`, `objects/` | — | `core/history/store,commit,summary` | `W-15.sh`, unit（性質テスト） | M1 |
-| W-16 | F-PV-11〜13 / F-HIS-3,4 / F-PV-10,16 | `checkout`, `undo`, `redo`, `tag`（Web → `POST /api/cli`） | `HEAD`, `moves.jsonl` | §11（キャッシュ concat） | `server/cli-exec`, `web/history-timeline` | `W-16.sh`（Playwright） | M2/M4 |
-| W-17 | F-PV-14,15 / F-AST-7,8 | `import`, `assets set\|new-text\|set-text\|remove\|relink`, `proxy build`, `text add --asset`（Web → `POST /api/cli`, `/api/upload`） | `assets.*.label/tags/owned`, `assets/text/`, text clip `asset` | §6, §10 | `core/assets`, `server/upload`, `web/assets-panel` | `W-17.sh`（Playwright） | M2（閲覧）/M3（操作） |
-| 全般 | F-AI-1〜5 | `schema`, `batch`, `explain`, `--json`, `--dry-run` | — | §12 | `cli/output,errors,schema,batch` | unit | M0〜M4 |
+| 手順 | 要件 | コマンド（04） | データ（05） | ffmpeg（07） | 実装モジュール（08） | テスト | 状態 |
+|------|------|----------------|--------------|--------------|----------------------|--------|------|
+| W-01 | F-PRJ-1,2 / N-2 | `doctor`, `init`, `project show` | `settings` | — | `cli/commands/{doctor,init,project}.ts`, `ffmpeg/locate.ts`, `core/project.ts` | `tests/workflows/W-01.sh`, `unit/core/project.test.ts`, `unit/ffmpeg/locate.test.ts` | M0 ✅ |
+| W-02 | F-AST-1〜4 / F-PV-7 | `import`, `assets *`, `proxy *` | `assets`, `derived` | §10 | `cli/commands/{import,assets,proxy}.ts`, `core/assets.ts`, `ffmpeg/{probe,proxy}.ts` | `tests/workflows/W-02.sh`, `unit/ffmpeg/{probe,proxy-derived}.test.ts`, `unit/cli/assets-manage.test.ts` | M1/M3 ✅ |
+| W-03 | F-TL-1,4,5 / F-PRJ-4 | `clip add`, `timeline show`, `validate` | `tracks.clips` | §2,3,4.1 | `cli/commands/{clip,timeline,validate}.ts`, `core/{timeline,validate,time}.ts` | `tests/workflows/W-03.sh`, `unit/core/{timeline,validate,time}.test.ts`, `unit/cli/editing.test.ts` | M1 ✅ |
+| W-04 | F-TL-2,3 / F-PV-1〜6 | `preview *`, `serve`, `clip move/trim/split/delete` | `preview/*` | §11 | `cli/commands/{preview,serve,clip-edit}.ts`, `core/{clip-editing,ripple}.ts`, `ffmpeg/preview.ts`, `server/*`, `web/src/*` | `tests/workflows/W-04.sh`, `unit/ffmpeg/preview.test.ts`, `unit/core/{clip-editing,ripple}.test.ts`, `unit/cli/clip-edit.test.ts`, `unit/server/preview-*.test.ts` | M2 ✅ |
+| W-05 | F-TL-7 / F-FX-5 | `transition *`, `fade` | `transitions` | §4.2,4.3, 8.2 | `cli/commands/{transition,fade}.ts`, `ffmpeg/graph/{transitions,video,audio}.ts` | `tests/workflows/W-05.sh`, `unit/ffmpeg/{graph-build,graph-audio,transition-golden}.test.ts` | M3 ✅ |
+| W-06 | F-FX-1 / N-11 | `text *`, `fonts list` | text clips, `text_presets` | §6 | `cli/commands/{text,fonts}.ts`, `core/text-presets.ts`, `ffmpeg/{ass,text-prepare,fonts}.ts`, `ffmpeg/graph/text.ts` | `tests/workflows/W-06.sh`, `unit/ffmpeg/{ass,graph-text,text-render,fonts}.test.ts`, `unit/cli/text.test.ts` | M3 ✅ |
+| W-07 | F-AU-1〜3 / F-TL-4 | `track *`, `audio *` | `audio`, `clips.audio` | §8 | `cli/commands/{track,audio}.ts`, `ffmpeg/graph/audio.ts`, `ffmpeg/{loudnorm,audio-analysis}.ts` | `tests/workflows/W-07.sh`, `unit/ffmpeg/{graph-audio,audio-render}.test.ts`, `unit/cli/audio.test.ts` | M3 ✅ |
+| W-08 | F-FX-2 | `overlay *`, `track move` | `clips.video.transform` | §5 | `cli/commands/overlay.ts`, `ffmpeg/graph/overlay.ts` | `tests/workflows/W-08.sh`, `unit/ffmpeg/graph-overlay.test.ts`, `unit/cli/overlay.test.ts` | M3 ✅（M4 から前倒し） |
+| W-09 | F-RD-1〜7 | `render`, `render verify/presets` | `render/last.json` | §9 | `cli/commands/render.ts`, `ffmpeg/render.ts`, `ffmpeg/graph/builder.ts` | `tests/workflows/W-09.sh`, `unit/ffmpeg/graph-build.test.ts` | M1 ✅（コーデック個別指定・部分レンダーは M4） |
+| W-10 | F-PRJ-3,5 / F-HIS-3,4 | `status`, `log`, `undo`, `redo`, `checkout`, `tag` | `.montash/history/*`（11 章） | — | `cli/commands/{status,log,undo,redo,checkout,tag,show,diff,history}.ts`, `core/history/*` | `tests/workflows/W-10.sh`, `unit/core/history/*.test.ts`, `unit/cli/history-commands.test.ts` | M1 ✅（`revert` は M4） |
+| W-11 | F-RD-1 / F-HIS-5,6 | `render --last`, `diff`, `show`, `blame`, `revert` | `meta.last_render`, `commits.jsonl` | §9 | `cli/commands/{diff,show}.ts`（`blame`/`revert` は未実装） | `tests/workflows/W-11.sh`（未作成） | M4 🚧 |
+| W-12 | F-RD-2,8 | `render batch`, `--reframe` | `render_presets` | §9 | `ffmpeg/render.ts`（未実装） | `tests/workflows/W-12.sh`（未作成） | M4 🚧 |
+| W-13 | F-AST-6 | `assets relink` | `assets.hash_head` | — | `cli/commands/assets.ts`, `core/assets.ts` | `tests/workflows/W-13.sh`, `unit/cli/assets-manage.test.ts` | M3 ✅（M4 から前倒し） |
+| W-14 | F-FX-6 / F-AST-5 | `subtitle *` | subtitle clips | §7 | `cli/commands/subtitle.ts`, `ffmpeg/{ass,text-prepare}.ts`, `ffmpeg/graph/text.ts` | `tests/workflows/W-14.sh`, `unit/ffmpeg/ass-burn.test.ts`, `unit/cli/subtitle.test.ts` | M3 ✅（M4 から前倒し） |
+| W-15 | F-HIS-1,2,7 / N-13 | `commit`, `-m`, `status`, `log`, `show`, `diff`, `tag` | `ops.jsonl`, `commits.jsonl`, `objects/` | — | `cli/commands/commit.ts`, `cli/mutate.ts`, `core/history/{store,history,diff,hash,dag}.ts` | `tests/workflows/W-15.sh`, `unit/core/history/{store,history,property}.test.ts`, `unit/cli/mutate.test.ts` | M1 ✅ |
+| W-16 | F-PV-11〜13 / F-HIS-3,4 / F-PV-10,16 | `checkout`, `undo`, `redo`, `tag`（Web → `POST /api/cli`） | `HEAD`, `moves.jsonl` | §11（キャッシュ concat） | `server/{cli-exec,history}.ts`, `web/src/components/History/HistoryStrip.tsx` | `tests/workflows/W-16.sh` + `scripts/e2e-history.ts`（Playwright）, `unit/server/{cli-exec,history}.test.ts` | M2 ✅ |
+| W-17 | F-PV-14,15 / F-AST-7,8 | `import`, `assets set\|new-text\|set-text\|remove\|relink`, `proxy build`, `text add --asset` | `assets.*.label/tags/owned`, `assets/text/`, text clip `asset` | §6, §10 | `core/assets.ts`, `server/assets.ts`, `web/src/components/Assets/*` | `tests/workflows/W-17.sh`（`serve` + curl で Web と同じ API 経路を検証）, `unit/server/{assets-api,assets-derived,upload}.test.ts` | M3 ✅ |
+| 全般 | F-AI-1〜5 | `schema`, `--json`, `--dry-run`（`batch` / `explain` は未実装） | — | §12 | `cli/{output,errors,define-command,context}.ts`, `cli/commands/schema.ts` | `unit/cli/{output,define-command,time-input}.test.ts` | M0〜M3 ✅ |
+
+`tests/unit/**` はリポジトリ直下 `tests/` からの相対、実装モジュールは `src/` からの相対。プレビューの実ブラウザ検証は `scripts/e2e-preview.ts`（`W-04.sh` から呼ぶ。chromium があるときのみ）。
 
 ## 3. リスクと対策
 

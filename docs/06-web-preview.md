@@ -169,9 +169,11 @@ CLI 実行ログをコミットと op の **時系列タイムライン**とし�
 montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-preview] [--daemon] [--read-only] [--allow <cmd,...>] [--deny <cmd,...>]
 ```
 
-- 既定で `127.0.0.1` のみ。`--host 0.0.0.0` 時は起動ログに警告し、`--read-only` を推奨。
+- 既定で `127.0.0.1` のみ。`--host` が loopback 以外のときは起動ログに `W_REMOTE_HOST` を出し、**`--read-only` を強制**する（13 章 A-7。解除手段は設けていない）。
 - `--read-only`: `POST /api/cli` と `POST /api/upload` を無効化（405）。閲覧のみの旧動作。
-- `--allow/--deny` で許可コマンドを調整（既定は §3.3）。
+- `--allow/--deny` で許可コマンドを調整（既定は §3.3）。**未実装**（現状は §3.3 の固定リスト。04 章 §1.9）。
+- `--dev`: Web UI を Bun の HTML import 開発サーバ（HMR）で配信する。省略時は `web/dist`。
+- `--daemon` とその制御（`serve stop|status`）は未実装（04 章 §1.9）。
 - 監視対象: `project.json`、`.montash/history/**`、`.montash/preview/**`、`.montash/cache/**`、`.montash/render/progress.json`（chokidar; WSL `/mnt/*` はポーリング）。
 
 ### 3.2 HTTP API（読み取り）
@@ -181,15 +183,15 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 | `GET /api/project` | `project.json` 全体 + 計算値（`duration`, 各クリップの `end`） |
 | `GET /api/status` | `{ preview, proxy, render, watching, head: {op, commit, pending, detached, tip} }` |
 | `GET /api/history?all=1&since=<id>` | `{ head, ops[], commits[], tags{}, moves[] }`（11 章のモデルそのまま。`since` で差分取得） |
-| `GET /api/history/:id` | op / commit / tag の詳細（`show` 相当）。`?patch=1` で差分 |
-| `GET /api/history/diff?a=<id>&b=<id>` | `diff` 相当 |
-| `GET /api/blame/:elementId` | 要素を最後に変更した op / commit |
+| `GET /api/history/:id` | op / commit / tag の詳細（`show` 相当）。`?patch=1` で差分 — **未実装** |
+| `GET /api/history/diff?a=<id>&b=<id>` | `diff` 相当 — **未実装** |
+| `GET /api/blame/:elementId` | 要素を最後に変更した op / commit — **未実装**（CLI の `blame` も M4） |
 | `GET /api/assets` | アセット一覧 + `usage`（クリップ参照）+ `derived` 状態 |
 | `GET /api/assets/:id` | 詳細（probe 要約、usage、テキスト本文） |
 | `GET /api/assets/:id/thumbs.json` / `thumbs.jpg` / `waveform.json` / `proxy.mp4`（Range） / `file`（画像・テキスト原本、Range） | 派生物・原本 |
 | `GET /preview/timeline.mp4`（Range, `ETag`=project_hash） / `GET /preview/audio.m4a`（`--audio-only` 用） / `GET /preview/timeline.json` | 合成プレビュー。マニフェストに載っていないファイル名・シンボリックリンクは 404 |
-| `GET /api/cli-examples?select=<id>&t=<sec>` | コマンド例 |
-| `GET /api/fonts` | `fonts list` 相当 |
+| `GET /api/cli-examples?select=<id>&t=<sec>` | コマンド例 — **未実装**（Inspector が `defineCommand` の例をクライアント側で組み立てる） |
+| `GET /api/fonts` | `fonts list` 相当 — **未実装** |
 | `GET /api/cli/allowlist` | 現在 Web から実行可能なコマンド一覧（UI がボタンの有効／無効に使う） |
 
 ### 3.3 HTTP API（書き込み = CLI 実行）
@@ -212,7 +214,7 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 
 | 分類 | コマンド |
 |------|----------|
-| 履歴移動 | `checkout`, `undo`, `redo`, `tag`, `tag delete`, `revert`, `reset --hard`（confirm） |
+| 履歴移動 | `checkout`, `undo`, `redo`, `tag`, `tag delete`, `revert`, `reset --hard`（confirm）— `revert` / `reset --hard` は許可リストにあるが CLI 側が未実装（M4） |
 | 素材管理 | `import`, `assets set`, `assets set-text`, `assets new-text`, `assets remove`（confirm when `--force`）, `assets relink`, `proxy build` |
 | 補助 | `preview build`, `validate` |
 
@@ -222,7 +224,7 @@ montash serve [--port 7788] [--host 127.0.0.1] [--open] [--no-watch] [--no-auto-
 
 - `<project>/assets/incoming/<YYYYMMDD>/<original name>` に保存（同名は連番）。パスをプロジェクトルート配下に限定し、ファイル名をサニタイズ。
 - 保存後、自動で `POST /api/cli ["import", <path>, "--proxy", "--thumbs", "--waveform"]` 相当を実行し、結果を返す。
-- 上限 8 GB（`--max-upload` で変更）。進捗は WS `job.progress`。
+- 上限 **2 GB**（13 章 A-5。`MAX_UPLOAD_BYTES`。`--max-upload` での変更は未実装）。`Content-Length` の申告値と実ファイルサイズの両方で判定し、超過は 413。それ以上の素材はパス指定の `import` を案内する。
 
 ### 3.4 WebSocket（`/ws`）
 
