@@ -35,7 +35,14 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (isEditable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       const st = useStore.getState();
-      if (e.key === "[" && !st.status?.server.read_only) {
+      if (
+        e.key === " " &&
+        st.status?.preview.url &&
+        !(e.target instanceof HTMLElement && e.target.closest("button, video, select, a"))
+      ) {
+        e.preventDefault();
+        if (!e.repeat) st.setPlaying(!st.isPlaying);
+      } else if (e.key === "[" && !st.status?.server.read_only) {
         e.preventDefault();
         void undo();
       } else if (e.key === "]" && !st.status?.server.read_only) {

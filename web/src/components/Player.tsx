@@ -1,33 +1,46 @@
-/**
- * プレビューペイン（docs/06 §2.2）。プレビューが無い間はプレースホルダを表示する。
- * `/preview/timeline.mp4` の配信は後続（preview build 実装後）。
- */
-import { useStore } from "../store.ts";
+/** Preview generations retain the transport position and can remain playable during a rebuild. */
+import { useEffect, useRef } from "react";
+import { bindPlayback } from "../playback.ts";
+import { fpsOf, useStore } from "../store.ts";
 
 export function Player() {
-  const state = useStore((s) => s.status?.preview.state ?? "missing");
-  const hash = useStore((s) => s.projectHash);
-  if (state === "ready" || state === "stale") {
-    return (
-      <div className="player">
-        <video src={`/preview/timeline.mp4${hash ? `?v=${encodeURIComponent(hash)}` : ""}`} controls playsInline />
-        {state === "stale" ? (
-          <span className="badge warn" style={{ position: "absolute", top: 8, right: 8 }}>
-            プレビュー再生成中
-          </span>
-        ) : null}
-      </div>
-    );
-  }
+  const preview = useStore((s) => s.status?.preview);
+  const project = useStore((s) => s.project);
+  const video = useRef<HTMLVideoElement>(null);
+  const { num, den } = preview?.fps ?? fpsOf(project);
+  const url = preview?.url;
+  const duration = preview?.duration_f;
+  const state = preview?.state ?? "missing";
+  useEffect(() => {
+    if (!video.current || !url) {
+      useStore.getState().setPlaying(false);
+      return;
+    }
+    return bindPlayback(video.current, url, { num, den }, duration);
+  }, [url, num, den, duration]);
+
   return (
     <div className="player">
-      <div className="placeholder">
-        <div className="big">▶</div>
-        <div>preview: {state}</div>
-        <div className="mono" style={{ fontSize: 11 }}>
-          montash preview build
+      {url ? (
+        <video ref={video} aria-label="Timeline preview" controls playsInline />
+      ) : (
+        <div className="placeholder">
+          <div className="big">▶</div>
+          <div>preview: {state}</div>
+          <div className="mono" style={{ fontSize: 11 }}>
+            montash preview build
+          </div>
         </div>
-      </div>
+      )}
+      {state === "building" || state === "stale" || preview?.error ? (
+        <span role="status" className="badge warn" style={{ position: "absolute", top: 8, right: 8 }}>
+          {preview?.error
+            ? `プレビュー生成失敗: ${preview.error}`
+            : state === "building"
+              ? "プレビュー生成中"
+              : "プレビューの更新が必要です"}
+        </span>
+      ) : null}
     </div>
   );
 }
