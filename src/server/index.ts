@@ -3,7 +3,7 @@
  *
  * `Bun.serve({ hostname, port, routes, fetch, websocket })` を組み立てる。
  *   - `/`            開発: web/index.html の HTML import（HMR）／本番: web/dist/index.html を Bun.file で配信
- *   - `/api/*`       読み取り API（project / status / history / assets / cli/allowlist）
+ *   - `/api/*`       読み取り API（project / status / history / assets / specs / cli/allowlist）
  *   - `POST /api/cli` 許可リスト制の CLI 実行（cli-exec.ts）
  *   - `POST /api/upload` multipart 保存 → `import <path> --proxy`（assets.ts）
  *   - `/ws`          WebSocket push（server.publish("events", ...)）
@@ -30,6 +30,7 @@ import { CliExecutor, type CliExecutorOptions, type ExecResult, resolveCliComman
 import { computeProject, type SubtitleReader } from "./computed.ts";
 import { readHistoryView } from "./history.ts";
 import { PreviewCoordinator, servePreview } from "./preview.ts";
+import { collectSpecs, type SpecsResponse } from "./specs.ts";
 import { createWatcher, hashProjectFile, type Watcher, type WatchMode, watchTargets } from "./watcher.ts";
 
 export const SERVER_VERSION: string = pkg.version;
@@ -245,6 +246,12 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     log,
   );
 
+  let specsCache: SpecsResponse | null = null;
+  const specs = async (): Promise<SpecsResponse> => {
+    specsCache ??= await collectSpecs(SERVER_VERSION);
+    return specsCache;
+  };
+
   const status = async () => ({
     watching: watcher !== null,
     watch_mode: watcher?.mode ?? null,
@@ -279,6 +286,9 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
         return json(readHistoryView(projectDir).history);
       },
     },
+    // コマンド定義 + エフェクトのパラメータ定義（docs/06 §3.2, §3.6）。Inspector のフォームはこれで組む。
+    // 起動中は不変（プラグインのロードは起動時に済んでいる）なので 1 度だけ組み立てて使い回す
+    "/api/specs": { GET: async () => json(await specs()) },
     // `allowlist` は従来どおりの文字列配列。`entries` / `denied` は合成の内訳（docs/06 §3.3）
     "/api/cli/allowlist": {
       GET: () =>

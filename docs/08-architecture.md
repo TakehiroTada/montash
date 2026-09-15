@@ -124,7 +124,7 @@ cli-video-editor/
 ### 依存方向
 
 ```
-web/ ──(HTTP/WS)──▶ server/ ──▶ core/, ffmpeg/
+web/ ──(HTTP/WS)──▶ server/ ──▶ registry/, core/, ffmpeg/, cli/(define-command の toSchema のみ)
 cli/ ──▶ registry/, core/, ffmpeg/, server/(serve のみ)
 ffmpeg/ ──▶ registry/, core/(型のみ)
 registry/ ──▶ core/(型のみ)。組み込み定義は遅延 import で読む（循環回避）
@@ -136,6 +136,11 @@ core/ ──▶ registry/(種別の検査フックのみ。validate.ts → regis
 `registry.ts → help.ts → registry/commands.ts → registry.ts` の循環になる。組み込みの読み込みだけを
 `await import()` に閉じ込め、`getCommands()` を async にしている（`buildCli()` が async なのはこのため）。
 `registry/requirements.ts` は `ffmpeg/locate.ts` から読まれるので、何も import しない。
+
+`server/specs.ts`（`GET /api/specs`）だけが `server/ → cli/` を向く。`montash schema --json` と 1 文字でも
+食い違うと Web のフォームが CLI と別物になるため、`toSchema()` を複製せずそのまま使う。`define-command.ts` は
+コマンド定義と変換だけを持つ葉モジュールなので、`cli/commands/serve.ts → server/index.ts → cli/define-command.ts`
+は循環しない（組み込みコマンド配列の読み込みは `getCommands()` の遅延 import のまま）。
 
 `core/validate.ts` → `registry/generators.ts` は**唯一の core → registry**。ジェネレータ種別ごとの意味検査
 （`hold` の `params.from_clip` など）を仕様の隣（`defineGenerator().validate()`）に置くためで、

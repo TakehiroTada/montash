@@ -2,6 +2,7 @@
  * 読み取り API クライアント（docs/06 §3.2）。取得結果はストアに入れる。
  */
 import type { AssetView } from "./lib/assets.ts";
+import type { Specs } from "./lib/specs.ts";
 import { type HistoryLike, type ProjectLike, type StatusLike, useStore } from "./store.ts";
 
 const versions = new Map<string, number>();
@@ -49,6 +50,15 @@ export async function refreshAllowlist(): Promise<void> {
   if (r?.ok) useStore.getState().setAllowlist(r.data.allowlist);
 }
 
+/**
+ * コマンド・エフェクトの定義（docs/06 §3.2）。Inspector のフォームはこれで組む。
+ * 起動中は変わらないので、`refreshAll()` の 1 回だけ取りに行く（プロジェクト変更では再取得しない）。
+ */
+export async function refreshSpecs(): Promise<void> {
+  const r = await getJson<Specs>("/api/specs");
+  if (r?.ok) useStore.getState().setSpecs(r.data);
+}
+
 /** 素材一覧（usage / missing / derived 付き。docs/06 §3.2） */
 export async function refreshAssets(): Promise<void> {
   const r = await getJson<{ assets: AssetView[] }>("/api/assets");
@@ -59,5 +69,12 @@ export async function refreshAssets(): Promise<void> {
 }
 
 export async function refreshAll(): Promise<void> {
-  await Promise.all([refreshProject(), refreshStatus(), refreshHistory(), refreshAllowlist(), refreshAssets()]);
+  await Promise.all([
+    refreshProject(),
+    refreshStatus(),
+    refreshHistory(),
+    refreshAllowlist(),
+    refreshSpecs(),
+    refreshAssets(),
+  ]);
 }
