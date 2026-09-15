@@ -115,7 +115,191 @@ export const colorEffect: EffectSpec = defineEffect({
   },
 });
 
-const BUILTIN_VIDEO_EFFECTS: Readonly<Record<string, EffectSpec>> = { [colorEffect.name]: colorEffect };
+/**
+ * ガウスぼかし（F-FX-7）。`gblur` は FFmpeg 3.2 以降にあり、MIN_FFMPEG（4.4）を下回らない。
+ *
+ * `sigma=0` は「ぼかさない」なので、`color` が空のときにフィルタを足さないのと同じく**何も出さない**
+ * （無駄な 1 段を入れないことでフィルタグラフが読みやすく、`--dry-run` の差分も分かりやすい）。
+ */
+export const blurEffect: EffectSpec = defineEffect({
+  name: "blur",
+  target: "video",
+  summary: "gaussian blur (gblur)",
+  requires: ["gblur"],
+  params: {
+    sigma: { type: "number", describe: "0.0 .. 128.0 (0 = no blur)", default: 4, min: 0, max: 128 },
+    steps: {
+      type: "number",
+      describe: "1 .. 6 (repeat count; higher = closer to a true gaussian)",
+      default: 1,
+      min: 1,
+      max: 6,
+    },
+  },
+  build(params) {
+    const sigma = params.sigma as number;
+    if (sigma === 0) return [];
+    const steps = params.steps as number;
+    return [`gblur=sigma=${sigma}${steps === 1 ? "" : `:steps=${steps}`}`];
+  },
+});
+
+/**
+ * モザイク（F-FX-7）。**`pixelize` を使い、`scale` の縮小→拡大では代替しない。**
+ *
+ * 判断の根拠:
+ *   1. **エフェクトはフレームの大きさを変えてはいけない。** 挿入位置は `scale`/`pad` の**後ろ**（§3a）なので、
+ *      ここで大きさが変わるとトラック連結（`concat`）・`xfade`・overlay がすべて壊れる。
+ *      `scale=iw/n:ih/n` → `scale=iw*n:ih*n` の往復は、幅・高さが n で割り切れないときに
+ *      **元の大きさへ戻らない**（例: 640/7=91 → 91*7=637）。丸めを吸収するには元の大きさを知る必要があるが、
+ *      `build()` は純関数で、`fit` クリップ（= タイムライン解像度）か `native` クリップ（= 素材の大きさ）かを
+ *      区別できないため、戻す先を決められない。`pixelize` は大きさを変えないのでこの問題が原理的に起きない。
+ *   2. `pixelize` はブロック平均（`mode=avg`）で、`scale` の最近傍間引きより見た目が素直（間引きは
+ *      細い線が消えたり残ったりしてちらつく）。
+ *   3. 代償は **FFmpeg 5.1 以降が必要**なこと（MIN_FFMPEG は 4.4）。これは `requires` の宣言で
+ *      `doctor` が「`pixelize` が無い」と名指しで報告する — 黙って劣化するより、不足を正しく伝える方が良い。
+ */
+export const mosaicEffect: EffectSpec = defineEffect({
+  name: "mosaic",
+  target: "video",
+  summary: "pixelate in square blocks (pixelize; needs ffmpeg >= 5.1)",
+  requires: ["pixelize"],
+  params: {
+    size: { type: "number", describe: "block size in px, 2 .. 256", default: 16, min: 2, max: 256 },
+    mode: { type: "string", describe: "how each block is reduced", choices: ["avg", "min", "max"], default: "avg" },
+  },
+  build(params) {
+    const size = Math.round(params.size as number);
+    return [`pixelize=w=${size}:h=${size}:mode=${params.mode as string}`];
+  },
+});
+
+/**
+ * filtergraph の値に入れるパスのエスケープ（`'` で括る前提）。
+ * `ffmpeg/ass.ts` の `escapeFilterValue()` と同じ規則だが、**`registry/` は `ffmpeg/` を import しない**
+ * （依存方向。docs/08 §2）ので、ここに持つ。
+ */
+function escapeFilterPath(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:");
+}
+
+/**
+ * 3D LUT の適用（F-FX-4）。`lut3d` は FFmpeg 2.4 以降。
+ *
+ * **注意: 外部ファイルを参照する唯一の組み込みエフェクト。**
+ * `preview` のセグメントキャッシュ指紋は `filterComplex` 由来（docs/07 §11）なので、**LUT ファイルの
+ * パスが変われば無効化されるが、同じパスのまま中身を差し替えても無効化されない**（古いプレビューが残る）。
+ * 指紋に外部入力を混ぜる対応は本 PR では行わず、課題として docs/13 D-19 に起票してある。
+ * 回避策は `preview build --force`（またはファイル名を変える）。
+ *
+ * `build()` は純関数なので**ファイルの存在確認はしない**（`registry/` に I/O は持ち込まない）。
+ * 存在しない LUT はレンダー時に ffmpeg 側のエラーになる。
+ */
+export const lut3dEffect: EffectSpec = defineEffect({
+  name: "lut3d",
+  target: "video",
+  summary: "apply a 3D LUT file (.cube / .3dl / .dat / .m3d / .csp)",
+  requires: ["lut3d"],
+  params: {
+    file: { type: "string", describe: "path to the LUT file (.cube / .3dl / .dat / .m3d / .csp)", required: true },
+    interp: {
+      type: "string",
+      describe: "interpolation mode",
+      choices: ["nearest", "trilinear", "tetrahedral", "pyramid", "prism"],
+    },
+  },
+  build(params) {
+    const file = (params.file as string).trim();
+    if (file === "")
+      throw new MontashError("E_USAGE", "effect 'lut3d': file must not be empty", {
+        detail: { effect: "lut3d", param: "file" },
+      });
+    const parts = [`file='${escapeFilterPath(file)}'`];
+    if (typeof params.interp === "string") parts.push(`interp=${params.interp}`);
+    return [`lut3d=${parts.join(":")}`];
+  },
+});
+
+/** 反転（F-FX-3）。`hflip` / `vflip` は大きさを変えないので挿入位置の制約が無い */
+export const flipEffect: EffectSpec = defineEffect({
+  name: "flip",
+  target: "video",
+  summary: "flip horizontally / vertically (hflip, vflip)",
+  requires: ["hflip", "vflip"],
+  params: {
+    direction: {
+      type: "string",
+      describe: "which axis to flip on",
+      choices: ["horizontal", "vertical", "both"],
+      default: "horizontal",
+    },
+  },
+  build(params) {
+    switch (params.direction as string) {
+      case "vertical":
+        return ["vflip"];
+      case "both":
+        return ["hflip", "vflip"];
+      default:
+        return ["hflip"];
+    }
+  },
+});
+
+/**
+ * 90 度単位の回転（F-FX-3）。
+ *
+ * **90 / 270 は幅と高さが入れ替わる。** 挿入位置が `scale`/`pad` の**後ろ**（§3a）なので、そのまま
+ * `transpose` だけを流すと 640x360 のクリップが 360x640 になり、`concat`（全入力が同じ大きさである必要がある）
+ * や `xfade` が ffmpeg 側の分かりにくいエラーで落ちる。そこで既定（`fit: true`）では回転のあとに
+ * **タイムライン解像度へ letterbox して戻す**（`normalizeVideoClip` の `fit` と同じ `scale`+`pad`）。
+ *
+ * overlay の `native` クリップ（素材の大きさのまま合成するもの）では戻す先がタイムライン解像度ではないので、
+ * `fit: false` を指定して回転だけを掛ける（overlay は任意の大きさを受け付ける）。
+ *
+ * 180 は大きさが変わらないので `fit` は効かない。`transpose` を 2 回通すより `hflip,vflip` の方が安い。
+ * 余白の色は `pad` の既定（黒）。`settings.background` を変えている場合だけ色が食い違う（docs/07 §3a）。
+ */
+export const rotateEffect: EffectSpec = defineEffect({
+  name: "rotate",
+  target: "video",
+  summary: "rotate by 90 / 180 / 270 degrees (transpose)",
+  requires: ["transpose", "hflip", "vflip"],
+  params: {
+    angle: { type: "string", describe: "clockwise rotation in degrees", choices: ["90", "180", "270"], required: true },
+    fit: {
+      type: "boolean",
+      describe: "letterbox back to the timeline resolution after a 90/270 turn (off for native overlay clips)",
+      default: true,
+    },
+  },
+  build(params, ctx) {
+    const angle = params.angle as string;
+    if (angle === "180") return ["hflip", "vflip"];
+    // transpose=1: 時計回り 90 度 / transpose=2: 反時計回り 90 度（= 時計回り 270 度）
+    const out = [angle === "90" ? "transpose=1" : "transpose=2"];
+    if (params.fit === true) {
+      const { width, height } = ctx.resolution;
+      out.push(
+        `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=bicubic`,
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+        // `force_original_aspect_ratio` は DAR を保つために **SAR を動かす**（実測: 640x360 で 405:406）。
+        // `concat` は大きさだけでなく SAR も一致を要求するので、`setsar=1` で戻さないと繋がらない。
+        "setsar=1",
+      );
+    }
+    return out;
+  },
+});
+
+const BUILTIN_VIDEO_EFFECTS: Readonly<Record<string, EffectSpec>> = {
+  [colorEffect.name]: colorEffect,
+  [blurEffect.name]: blurEffect,
+  [mosaicEffect.name]: mosaicEffect,
+  [lut3dEffect.name]: lut3dEffect,
+  [flipEffect.name]: flipEffect,
+  [rotateEffect.name]: rotateEffect,
+};
 const BUILTIN_AUDIO_EFFECTS: Readonly<Record<string, EffectSpec>> = {};
 
 export const videoEffects: Registry<EffectSpec> = createRegistry<EffectSpec>({
