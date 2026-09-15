@@ -10,6 +10,7 @@ import {
 } from "../../../src/core/schema.ts";
 import { buildGraph } from "../../../src/ffmpeg/graph/builder.ts";
 import { serializeGraph } from "../../../src/ffmpeg/graph/serialize.ts";
+import { defineEffect, registerEffect } from "../../../src/registry/effects.ts";
 
 const RES = { width: 320, height: 180 };
 const source = (asset: Asset) => `/fixtures/${asset.path}`;
@@ -204,9 +205,10 @@ test("unsupported constructs still fail with E_NOT_IMPLEMENTED", () => {
   looped.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { loop: true }));
   expect(() => graphOf(looped)).toThrow(/looped clips/);
 
+  // 未登録のエフェクト種別はプラグイン不足として扱う（docs/13 D-15。「未実装」ではない）
   const effects = base();
   effects.tracks[0]!.clips.push(clip("c1", 0, 0, 30, { effects: [{ type: "blur", params: { sigma: 4 } }] }));
-  expect(() => graphOf(effects)).toThrow(/clip effects/);
+  expect(() => graphOf(effects)).toThrow(/unknown video effect 'blur'/);
 
   const lut = base();
   const c = clip("c1", 0, 0, 30);
@@ -218,4 +220,33 @@ test("unsupported constructs still fail with E_NOT_IMPLEMENTED", () => {
   surround.settings.channels = 6;
   surround.tracks[0]!.clips.push(clip("c1", 0, 0, 30));
   expect(() => graphOf(surround)).toThrow(/two audio channels/);
+});
+
+test("clip effects are expanded in array order, after color and before format", () => {
+  // 登録済みのエフェクトはフィルタチェーンに差し込まれる（docs/07 §3a、docs/13 D-15）
+  registerEffect(
+    defineEffect({
+      name: "test-gblur",
+      target: "video",
+      summary: "",
+      params: { sigma: { type: "number", describe: "", default: 2 } },
+      build: (p) => [`gblur=sigma=${p.sigma as number}`],
+    }),
+    "plugin",
+  );
+  registerEffect(defineEffect({ name: "test-hflip", target: "video", summary: "", build: () => ["hflip"] }), "plugin");
+
+  const project = base();
+  project.tracks[0]!.clips.push(
+    clip("c1", 0, 0, 30, {
+      video: { color: { saturation: 1.2 } },
+      effects: [{ type: "test-gblur", params: { sigma: 6 } }, { type: "test-hflip" }],
+    }),
+  );
+  const chain = graphOf(project).filterComplex;
+
+  // 色補正 → effects[]（配列順）→ format の順に並ぶ
+  const order = ["eq=saturation=1.2", "gblur=sigma=6", "hflip", "format=yuv420p"].map((f) => chain.indexOf(f));
+  expect(order.every((i) => i >= 0)).toBe(true);
+  expect([...order].sort((a, b) => a - b)).toEqual(order);
 });

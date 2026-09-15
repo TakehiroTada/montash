@@ -130,8 +130,14 @@ describe("buildCli()", () => {
 });
 
 describe("ffmpeg 機能要求の合成", () => {
-  test("登録が空なら従来と完全に同じ集合", () => {
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...REQUIRED_FILTERS]);
+  // 組み込みエフェクト（`registry/effects.ts` の color）が `eq` を宣言しているので、
+  // 拡張の登録が空でもこれだけは常に足される（docs/13 D-15）。組み込み由来なので
+  // `clearRegisteredRequirements()` では消えない。
+  const BUILTIN_EFFECT_FILTERS = ["eq"];
+  const baseFilters = [...REQUIRED_FILTERS, ...BUILTIN_EFFECT_FILTERS];
+
+  test("拡張の登録が空なら、組み込み由来のぶんだけが足された集合", () => {
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual(baseFilters);
     expect(requiredEncoders(REQUIRED_ENCODERS)).toEqual([...REQUIRED_ENCODERS]);
     expect(recommendedFilters(RECOMMENDED_FILTERS, requiredFilters(REQUIRED_FILTERS))).toEqual([
       ...RECOMMENDED_FILTERS,
@@ -140,14 +146,14 @@ describe("ffmpeg 機能要求の合成", () => {
 
   test("拡張が宣言したフィルタが必須集合の後ろに足される", () => {
     registerRequirements("plugin:glow", { filters: ["gblur"], encoders: ["libvpx"] });
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...REQUIRED_FILTERS, "gblur"]);
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...baseFilters, "gblur"]);
     expect(requiredEncoders(REQUIRED_ENCODERS)).toEqual([...REQUIRED_ENCODERS, "libvpx"]);
   });
 
   test("組み込みと重複する宣言は二重に足さない", () => {
-    registerRequirements("plugin:dup", { filters: ["xfade", "gblur"] });
+    registerRequirements("plugin:dup", { filters: ["xfade", "gblur", "eq"] });
     registerRequirements("plugin:dup2", { filters: ["gblur"] });
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...REQUIRED_FILTERS, "gblur"]);
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...baseFilters, "gblur"]);
   });
 
   test("必須に上がったフィルタは推奨から落とす（doctor が二重に報告しない）", () => {
@@ -161,6 +167,6 @@ describe("ffmpeg 機能要求の合成", () => {
     expect(requiredFilters(REQUIRED_FILTERS)).toContain("lut3d");
     // コマンドを外すと要求も消える
     clearRegisteredCommands();
-    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...REQUIRED_FILTERS]);
+    expect(requiredFilters(REQUIRED_FILTERS)).toEqual([...REQUIRED_FILTERS, "eq"]);
   });
 });

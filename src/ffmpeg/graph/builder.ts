@@ -75,7 +75,6 @@ function assertSupported(project: Project): void {
     for (const clip of track.clips) {
       if (!isMediaClip(clip)) unsupported("text, subtitle or generator clips");
       if (clip.loop) unsupported("looped clips");
-      if (clip.effects.length) unsupported("clip effects");
       if (clip.video?.lut) unsupported("3D LUTs");
     }
   }
@@ -311,6 +310,7 @@ function audioGroupStream(ctx: GraphContext, group: ClipGroup<Clip>, index: Tran
         fade: clip.audio?.fade,
         speed: clip.speed,
         pitchKeep: clip.pitch_keep,
+        effects: clip.effects,
       }),
     );
   });

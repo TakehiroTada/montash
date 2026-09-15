@@ -58,6 +58,38 @@
 | フェード | `fade=t=in|out:s={start_frame}:n={nb_frames}`（**フレーム指定**。`st/d` の秒指定は使わない） |
 | ホールド（hold generator） | 前クリップ最終フレームを `trim=start_frame={n-1}:end_frame={n},loop=loop=-1:size=1:start=0,trim=end_frame={duration_f}` |
 
+## 3a. クリップのエフェクト（レジストリ）
+
+クリップの `effects[]` は **エフェクトレジストリ**（`src/registry/effects.ts`）を通してフィルタ片へ展開する。エフェクトは **ピクセルを触らず、`params` から ffmpeg のフィルタ片を返す純関数**（`build()`）として定義する（docs/14、docs/13 D-15）。
+
+**挿入位置**（`normalizeVideoClip`）:
+
+```
+setpts → fps → trim → settb → crop → scale/pad → setsar
+  → 色補正（組み込みエフェクト color）
+  → effects[]（配列順）          ← ここ
+  → format → colorchannelmixer → speed → trim → fade
+```
+
+音声は `normalizeAudioClip` の `volume=…dB` のあと、`afade` の前（§8a）。
+
+| 供給元 | 登録のしかた |
+|--------|--------------|
+| `builtin` | `src/registry/effects.ts` の `BUILTIN_*_EFFECTS`。**組み込みも外部と同じ契約で書く** |
+| `project` | `project.effects` の宣言（Phase 1） |
+| `plugin` | プラグインローダが `registerEffect(spec, "plugin")` を呼ぶ（Phase 2） |
+
+**組み込みエフェクト**
+
+| 名前 | 対象 | ffmpeg | 備考 |
+|------|------|--------|------|
+| `color` | video | `eq=brightness=…:contrast=…:saturation=…:gamma=…` | `clip.video.color` の実体。指定されたキーだけを固定順に並べる |
+
+- エフェクトが宣言した `requires`（必要な ffmpeg フィルタ）は `registry/requirements.ts` 経由で `doctor` の検査対象に合成される。
+- 未登録の種別は `E_PLUGIN_MISSING`（「未実装」ではなく**プラグイン不足**として扱う）。
+- キーフレーム（`keyframes`）は `E_NOT_IMPLEMENTED`（F-FX-8）。
+- **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）を参照するエフェクトを足すときだけ、指紋計算に入力を加える必要がある（§11）。
+
 ## 4. トラック内の連結（映像）
 
 ### 4.1 トランジション無し（隣接）
@@ -221,6 +253,10 @@ libass 無しの環境のみ。テキストクリップごとに `drawtext=fontf
 1. パス 1: 音声グラフのみ（`-vn`）で `loudnorm=I={i}:TP={tp}:LRA={lra}:print_format=json -f null -` を実行し measured 値を取得。
 2. パス 2: `loudnorm=...:measured_I=..:measured_TP=..:measured_LRA=..:measured_thresh=..:offset=..:linear=true` を `[Aout]` の末尾に付与。
 3. `preview build` では 1 パス（`linear=false`）または省略（`settings.preview.normalize=false`）。
+
+### 8a. 音声クリップのエフェクト
+
+`normalizeAudioClip` のチェーンで `volume=…dB` の直後、`afade` の前に `effects[]` を配列順で差し込む。対象は `target: "audio"` のエフェクトのみで、映像とはレジストリが別（同名でも混ざらない）。
 
 ## 9. 出力段（レンダー）
 

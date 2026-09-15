@@ -269,6 +269,15 @@
 
 `asset` の代わりに `generator` を持つクリップ。`{ "generator": "color", "params": {"color": "#000000"}, "start_f": .., "duration_f": .. }`、`{ "generator": "hold", "params": {"from_clip": "c1", "at": "end"} }`。
 
+### 6.1b `effects`
+
+すべてのクリップ種別が `effects[]` を持てる（v3）。1 要素は `{ type, params, keyframes? }` で、`type` は**エフェクトレジストリ**に登録された名前（docs/07 §3a、docs/14）。
+
+- レンダー時に**配列順**でフィルタ片へ展開される。
+- 未登録の `type` は `E_PLUGIN_MISSING`。**読み込み・保存は通る**ので、プラグインが無い環境でもファイルは壊れない。
+- `params` の中身はエフェクトごとに違う（`record(string, unknown)`）。既定値の適用と範囲検査はレジストリの定義に従う。
+- `keyframes` は将来用（現状 `E_NOT_IMPLEMENTED`。F-FX-8）。
+
 ### 6.1a クリップ種別の判別（v3）
 
 すべてのクリップは **`type` を必ず持つ**。判別は `type` **だけ**で行い、フォールバックしない。

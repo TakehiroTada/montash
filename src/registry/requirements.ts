@@ -19,24 +19,37 @@ export interface FeatureRequirements {
   recommendedFilters?: readonly string[];
 }
 
-/** 登録は id で上書き・取り消しできる（同じ拡張の二重登録を避ける） */
+/**
+ * 登録は id で上書き・取り消しできる（同じ拡張の二重登録を避ける）。
+ *
+ * 枠を 2 つに分けている:
+ *   - `builtinRegistered`: 組み込み機能（組み込みエフェクトなど）が宣言したもの。**常に有効**
+ *   - `registered`: 拡張（プラグイン・宣言エフェクト）が宣言したもの。テストの `clear` で捨てられる
+ *
+ * 組み込みの要求がテストの後片付けで消えると `doctor` の検査が静かに弱くなるため、別枠にしてある。
+ */
+const builtinRegistered = new Map<string, FeatureRequirements>();
 const registered = new Map<string, FeatureRequirements>();
 
-export function registerRequirements(id: string, requires: FeatureRequirements): void {
-  registered.set(id, requires);
+export function registerRequirements(
+  id: string,
+  requires: FeatureRequirements,
+  source: "builtin" | "plugin" = "plugin",
+): void {
+  (source === "builtin" ? builtinRegistered : registered).set(id, requires);
 }
 
 export function unregisterRequirements(id: string): void {
   registered.delete(id);
 }
 
-/** テスト用。登録済みの要求をすべて捨てる */
+/** テスト用。**拡張由来**の要求をすべて捨てる（組み込みは残る） */
 export function clearRegisteredRequirements(): void {
   registered.clear();
 }
 
 export function registeredRequirements(): ReadonlyMap<string, FeatureRequirements> {
-  return registered;
+  return new Map([...builtinRegistered, ...registered]);
 }
 
 /**
@@ -49,7 +62,7 @@ function compose(
 ): string[] {
   const out = [...builtin];
   const seen = new Set(out);
-  for (const requires of registered.values()) {
+  for (const requires of [...builtinRegistered.values(), ...registered.values()]) {
     for (const name of pick(requires) ?? []) {
       if (seen.has(name)) continue;
       seen.add(name);
