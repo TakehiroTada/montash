@@ -252,6 +252,32 @@ export const TextClipSchema = z.looseObject({
 });
 export type TextClip = z.infer<typeof TextClipSchema>;
 
+/**
+ * 字幕クリップの `style`。
+ *
+ * **テキストクリップの `TextStyleSchema` から `pick` して作る**ので、同じ意味の指定が
+ * 2 つの語彙に分かれることが構造的に起きない（`outline` / `bg` / `bg_padding` / `shadow` /
+ * `position` / `align` / `bold` はテキストと同じ形・同じ意味）。
+ * 字幕にだけある `margin_bottom`（下端からの距離 px）は ASS の Style `MarginV` に入る。
+ *
+ * テキストにあって字幕に無いのは、字幕素材から作る Events では意味を持たないもの
+ * （`preset` / `alpha` / `line_spacing` / `wrap` / `italic`）。`looseObject` なので
+ * それらが書かれていても読み込み・保存は通る。
+ */
+export const SubtitleStyleSchema = TextStyleSchema.pick({
+  font: true,
+  size: true,
+  color: true,
+  bg: true,
+  bg_padding: true,
+  position: true,
+  align: true,
+  shadow: true,
+  outline: true,
+  bold: true,
+}).extend({ margin_bottom: z.number().optional() });
+export type SubtitleStyle = z.infer<typeof SubtitleStyleSchema>;
+
 /** 字幕クリップ（`kind: text` トラック） */
 export const SubtitleClipSchema = z.looseObject({
   id: z.string().min(1),
@@ -260,13 +286,7 @@ export const SubtitleClipSchema = z.looseObject({
   mode: z.enum(["burn", "soft"]).default("burn"),
   start_f: FrameSchema,
   offset_f: z.int().default(0),
-  style: z
-    .looseObject({
-      font: z.string().optional(),
-      size: z.number().positive().optional(),
-      margin_bottom: z.number().optional(),
-    })
-    .default({}),
+  style: SubtitleStyleSchema.default({}),
   lang: z.string().optional(),
   effects: z.array(EffectSchema).default([]),
 });

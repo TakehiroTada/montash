@@ -204,3 +204,70 @@ test("--dry-run は書き込まずに差分だけを返す", async () => {
   expect(res.op).toBeNull();
   expect((await clipsOf()).length).toBe(0);
 });
+
+// ---------------------------------------------------------------------------
+// スタイル指定（縁取り・背景ボックス・影・位置・太さ）
+// ---------------------------------------------------------------------------
+
+test("--outline / --outline-color / --shadow / --bold / --position がスタイルに入る", async () => {
+  await call(subtitleAdd, {
+    asset: "ja_srt",
+    outline: 3,
+    outlineColor: "#101010",
+    shadow: 2,
+    bold: true,
+    position: "bottom-center",
+  });
+  const [clip] = await clipsOf();
+  expect(clip?.style.outline).toEqual({ width: 3, color: "#101010" });
+  expect(clip?.style.shadow).toEqual({ x: 2, y: 2, color: "#000000" });
+  expect(clip?.style.bold).toBe(true);
+  expect(clip?.style.position).toBe("bottom-center");
+});
+
+test("--outline / --shadow は text add と同じ書式も受ける", async () => {
+  await call(subtitleAdd, { asset: "ja_srt", outline: "4,#0000FF", shadow: "2,3,#000000AA" });
+  const [clip] = await clipsOf();
+  expect(clip?.style.outline).toEqual({ width: 4, color: "#0000FF" });
+  expect(clip?.style.shadow).toEqual({ x: 2, y: 3, color: "#000000AA" });
+});
+
+test("--bg / --bg-padding は背景ボックスになり、none で外せる", async () => {
+  await call(subtitleAdd, { asset: "ja_srt", bg: "#000000B3", bgPadding: 10 });
+  expect((await clipsOf())[0]?.style.bg).toBe("#000000B3");
+  expect((await clipsOf())[0]?.style.bg_padding).toBe(10);
+  await call(subtitleSet, { id: "s1", bg: "none" });
+  expect((await clipsOf())[0]?.style.bg).toBeNull();
+});
+
+test("--outline / --shadow の none は縁取り・影を外す", async () => {
+  await call(subtitleAdd, { asset: "ja_srt", outline: 3, shadow: 2 });
+  await call(subtitleSet, { id: "s1", outline: "none", shadow: "none" });
+  const [clip] = await clipsOf();
+  expect(clip?.style.outline).toBeNull();
+  expect(clip?.style.shadow).toBeNull();
+});
+
+test("--outline-color は既存の縁取りの色だけを差し替える", async () => {
+  await call(subtitleAdd, { asset: "ja_srt", outline: 3 });
+  await call(subtitleSet, { id: "s1", outlineColor: "#FF0000" });
+  expect((await clipsOf())[0]?.style.outline).toEqual({ width: 3, color: "#FF0000" });
+});
+
+test("--outline-color だけでは幅が決まらないので E_USAGE", async () => {
+  await call(subtitleAdd, { asset: "ja_srt" });
+  expect(call(subtitleSet, { id: "s1", outlineColor: "#FF0000" })).rejects.toThrow(MontashError);
+});
+
+test("不正なスタイル値は E_USAGE で落ちる", async () => {
+  expect(call(subtitleAdd, { asset: "ja_srt", outline: "-1" })).rejects.toThrow(MontashError);
+  expect(call(subtitleAdd, { asset: "ja_srt", shadow: "x" })).rejects.toThrow(MontashError);
+  expect(call(subtitleAdd, { asset: "ja_srt", bg: "not-a-color" })).rejects.toThrow(MontashError);
+  expect(call(subtitleAdd, { asset: "ja_srt", position: "nowhere" })).rejects.toThrow(MontashError);
+  expect(call(subtitleAdd, { asset: "ja_srt", bgPadding: -1 })).rejects.toThrow(MontashError);
+});
+
+test("スタイルを何も指定しなければ style は空のまま（既定は変わらない）", async () => {
+  await call(subtitleAdd, { asset: "ja_srt", mode: "soft", lang: "ja" });
+  expect((await clipsOf())[0]?.style).toEqual({});
+});

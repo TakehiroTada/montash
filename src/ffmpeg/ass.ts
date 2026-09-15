@@ -20,7 +20,7 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, symlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { MontashError } from "../cli/errors.ts";
-import type { Fps, Project, Resolution, SubtitleClip, TextPosition, TextStyle } from "../core/schema.ts";
+import type { Fps, Project, Resolution, SubtitleClip, SubtitleStyle, TextPosition, TextStyle } from "../core/schema.ts";
 import { isSubtitleClip, isTextClip } from "../core/schema.ts";
 import { framesToMillis } from "../core/time.ts";
 import { resolveAssetPath } from "../core/validate.ts";
@@ -765,6 +765,41 @@ export function formatAssTime(ms: number): string {
   const m = Math.floor(cs / 6000) % 60;
   const s = Math.floor(cs / 100) % 60;
   return `${h}:${pad2(m)}:${pad2(s)}.${pad2(cs % 100)}`;
+}
+
+/** 字幕の既定位置（`style.position` 省略時）。下寄せ中央 = `\an2` */
+export const DEFAULT_SUBTITLE_POSITION = "bottom-center";
+
+/**
+ * 字幕クリップの `style` を ASS 用の `TextStyle` に写す（純関数）。
+ *
+ * 字幕の語彙はテキストクリップと同じ（`SubtitleStyleSchema` は `TextStyleSchema` からの `pick`）なので、
+ * ここは**そのまま渡すだけ**で、字幕用の別解釈は持たない。字幕だけの既定は 2 つ:
+ *
+ * - `position` の既定は `bottom-center`（テキストの既定は `center`）
+ * - `align` の既定は `position` から導く（`defaultAlignFor`）。`\an` の列を決めるのは `align` なので、
+ *   これがあって初めて `--position bottom-left` が位置レジストリの `\an` (=1) と一致する
+ *
+ * `margin_bottom` は Style の `MarginV` なので、`TextClipLike.marginV` として別に渡す（`subtitleMarginV`）。
+ */
+export function subtitleTextStyle(raw: SubtitleStyle, defaultFont?: string): TextStyle {
+  const position = raw.position ?? DEFAULT_SUBTITLE_POSITION;
+  const style: TextStyle = { position, align: raw.align ?? defaultAlignFor(position) };
+  const font = raw.font ?? defaultFont;
+  if (font !== undefined && font !== "") style.font = font;
+  if (raw.size !== undefined) style.size = raw.size;
+  if (raw.color !== undefined) style.color = raw.color;
+  if (raw.bg !== undefined) style.bg = raw.bg;
+  if (raw.bg_padding !== undefined) style.bg_padding = raw.bg_padding;
+  if (raw.outline !== undefined) style.outline = raw.outline;
+  if (raw.shadow !== undefined) style.shadow = raw.shadow;
+  if (raw.bold !== undefined) style.bold = raw.bold;
+  return style;
+}
+
+/** `style.margin_bottom`（下端からの距離 px）→ `TextClipLike.marginV`。未指定なら undefined */
+export function subtitleMarginV(raw: SubtitleStyle): number | undefined {
+  return typeof raw.margin_bottom === "number" ? raw.margin_bottom : undefined;
 }
 
 /** 字幕クリップを置かれている順に集める（テキストトラックのみ） */

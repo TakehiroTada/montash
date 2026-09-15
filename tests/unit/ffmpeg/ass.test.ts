@@ -2,7 +2,7 @@
  * ASS 生成の純関数テスト（docs/07 §6）。ffmpeg は起動しない（実機確認は ass-burn.test.ts）。
  */
 import { describe, expect, test } from "bun:test";
-import type { Fps, Resolution } from "../../../src/core/schema.ts";
+import { type Fps, type Resolution, SubtitleStyleSchema } from "../../../src/core/schema.ts";
 import {
   alignmentOf,
   assColor,
@@ -13,9 +13,12 @@ import {
   fontFamiliesOf,
   resolveCoordinate,
   scaleColorAlpha,
+  subtitleMarginV,
   subtitlesFilter,
+  subtitleTextStyle,
   type TextClipLike,
 } from "../../../src/ffmpeg/ass.ts";
+import { POSITION_ALIASES, POSITION_NAMES, positions } from "../../../src/registry/positions.ts";
 
 const HD: Resolution = { width: 1920, height: 1080 };
 const F2997: Fps = { num: 30000, den: 1001 };
@@ -384,5 +387,124 @@ describe("ヘルパ", () => {
       "subtitles=filename='/a b/x.ass':fontsdir='/f':original_size=1920x1080",
     );
     expect(subtitlesFilter({ assPath: "C:/x:y.ass" })).toBe("subtitles=filename='C\\:/x\\:y.ass'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 字幕のスタイル（docs/04 §12、docs/07 §7）
+// ---------------------------------------------------------------------------
+
+/** Style 行を Format の並びで分解する（Name を除いた 22 フィールド） */
+function styleFields(doc: string, name: string): string[] {
+  const line = doc.split("\n").find((l) => l.startsWith(`Style: ${name},`));
+  if (line === undefined) throw new Error(`no Style line for ${name}`);
+  return line.slice(`Style: ${name},`.length).split(",");
+}
+
+const FIELD = {
+  fontname: 0,
+  fontsize: 1,
+  primary: 2,
+  outlineColour: 4,
+  backColour: 5,
+  bold: 6,
+  borderStyle: 14,
+  outline: 15,
+  shadow: 16,
+  alignment: 17,
+  marginV: 20,
+} as const;
+
+/** 字幕クリップ 1 件を CLI と同じ経路（`subtitleTextStyle`）で ASS にする */
+function subtitleDoc(style: Record<string, unknown> = {}): string {
+  const parsed = SubtitleStyleSchema.parse(style);
+  const marginV = subtitleMarginV(parsed);
+  return buildAssDocument(
+    [
+      {
+        id: "s1_0",
+        start_f: 0,
+        duration_f: 30,
+        text: "こんにちは",
+        markup: "plain",
+        style: subtitleTextStyle(parsed, "Noto Sans CJK JP"),
+        ...(marginV !== undefined ? { marginV } : {}),
+        layer: 0,
+      },
+    ],
+    { resolution: HD, fps: F30, defaultFont: "Noto Sans CJK JP" },
+  );
+}
+
+describe("subtitleTextStyle", () => {
+  test("既定（スタイル指定なし）の ASS は従来と 1 文字も変わらない", () => {
+    const doc = subtitleDoc();
+    expect(doc).toMatchSnapshot();
+    // BorderStyle=1 / Outline=0 / Shadow=0 / Alignment=2 / MarginV=54（1080 の 5%）
+    expect(doc).toContain(
+      "Style: s1_0,Noto Sans CJK JP,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,96,96,54,1",
+    );
+    // 行内オーバーライドも付かない
+    expect(doc).toContain("Dialogue: 0,0:00:00.00,0:00:01.00,s1_0,,0,0,0,,こんにちは");
+  });
+
+  test("--font / --size / --color / --margin-bottom は従来どおり", () => {
+    const f = styleFields(
+      subtitleDoc({ font: "Hiragino Sans", size: 40, color: "#FFEE00", margin_bottom: 60 }),
+      "s1_0",
+    );
+    expect(f[FIELD.fontname]).toBe("Hiragino Sans");
+    expect(f[FIELD.fontsize]).toBe("40");
+    expect(f[FIELD.primary]).toBe("&H0000EEFF");
+    expect(f[FIELD.marginV]).toBe("60");
+  });
+
+  test("--outline / --outline-color は Outline と OutlineColour に入る", () => {
+    const f = styleFields(subtitleDoc({ outline: { width: 3, color: "#102030" } }), "s1_0");
+    expect(f[FIELD.borderStyle]).toBe("1");
+    expect(f[FIELD.outline]).toBe("3");
+    expect(f[FIELD.outlineColour]).toBe("&H00302010");
+    expect(f[FIELD.shadow]).toBe("0");
+  });
+
+  test("--bg は BorderStyle=4 の箱になり、padding が Outline に入る", () => {
+    const f = styleFields(subtitleDoc({ bg: "#000000B3", bg_padding: 10 }), "s1_0");
+    expect(f[FIELD.borderStyle]).toBe("4");
+    expect(f[FIELD.outline]).toBe("10");
+    // 箱を描かない libass でも太い縁取りとして見えるよう、色は両方に入る（アルファは反転）
+    expect(f[FIELD.outlineColour]).toBe("&H4C000000");
+    expect(f[FIELD.backColour]).toBe("&H4C000000");
+  });
+
+  test("--bg-padding を省くと既定の 16px になる", () => {
+    expect(styleFields(subtitleDoc({ bg: "#000000" }), "s1_0")[FIELD.outline]).toBe("16");
+  });
+
+  test("--shadow は Shadow に入る（x と y が同じなら行内タグは出ない）", () => {
+    const doc = subtitleDoc({ shadow: { x: 4, y: 4, color: "#000000" } });
+    expect(styleFields(doc, "s1_0")[FIELD.shadow]).toBe("4");
+    expect(doc).not.toContain("\\xshad");
+  });
+
+  test("--bold は Bold=-1", () => {
+    expect(styleFields(subtitleDoc({ bold: true }), "s1_0")[FIELD.bold]).toBe("-1");
+    expect(styleFields(subtitleDoc({ bold: false }), "s1_0")[FIELD.bold]).toBe("0");
+  });
+
+  test("--position は位置レジストリの \\an と一致する（別名も含む）", () => {
+    for (const name of [...POSITION_NAMES, ...POSITION_ALIASES]) {
+      const spec = positions.get(name);
+      const doc = subtitleDoc({ position: name });
+      expect([name, styleFields(doc, "s1_0")[FIELD.alignment]]).toEqual([name, String(spec?.an)]);
+    }
+  });
+
+  test("--align を明示すると \\an の列だけが変わる", () => {
+    expect(styleFields(subtitleDoc({ position: "bottom-left", align: "center" }), "s1_0")[FIELD.alignment]).toBe("2");
+    expect(styleFields(subtitleDoc({ position: "bottom-left" }), "s1_0")[FIELD.alignment]).toBe("1");
+  });
+
+  test("margin_bottom は Style の MarginV を上書きする", () => {
+    expect(styleFields(subtitleDoc({ position: "top-center", margin_bottom: 30 }), "s1_0")[FIELD.marginV]).toBe("30");
   });
 });

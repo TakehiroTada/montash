@@ -16,7 +16,7 @@ import { join } from "node:path";
 import type { Warning } from "../cli/errors.ts";
 import { MontashError } from "../cli/errors.ts";
 import { projectPaths } from "../core/project.ts";
-import type { Project, Resolution, SubtitleClip, TextStyle } from "../core/schema.ts";
+import type { Project, Resolution, SubtitleClip } from "../core/schema.ts";
 import { framesToMillis, framesToSecString } from "../core/time.ts";
 import { resolveAssetPath } from "../core/validate.ts";
 import {
@@ -30,6 +30,8 @@ import {
   resolveTextClips,
   shiftAssDocument,
   subtitleClipsOf,
+  subtitleMarginV,
+  subtitleTextStyle,
   type TextClipLike,
   writeAssFile,
 } from "./ass.ts";
@@ -80,18 +82,6 @@ export function effectiveEngine(setting: "libass" | "drawtext", detected: TextEn
 // 収集（テキストクリップ + burn 字幕）
 // ---------------------------------------------------------------------------
 
-/** 字幕クリップの `style`（`looseObject` なので `color` など追加キーも保持される） */
-function subtitleStyle(clip: SubtitleClip, defaultFont: string | undefined): TextStyle {
-  const raw = clip.style as Record<string, unknown>;
-  const style: TextStyle = { position: "bottom-center", align: "center" };
-  const font = typeof raw.font === "string" ? raw.font : defaultFont;
-  if (font !== undefined && font !== "") style.font = font;
-  if (typeof raw.size === "number") style.size = raw.size;
-  if (typeof raw.color === "string") style.color = raw.color;
-  if (typeof raw.outline === "object" && raw.outline !== null) style.outline = raw.outline as TextStyle["outline"];
-  return style;
-}
-
 /** `mode: burn` の SRT/VTT を ASS の Events に統合するためのテキストクリップに変換する（docs/07 §7） */
 async function burnCueClips(
   project: Project,
@@ -121,13 +111,14 @@ async function burnCueClips(
     });
     return [];
   }
-  const raw = clip.style as Record<string, unknown>;
+  const marginV = subtitleMarginV(clip.style);
   return cuesToTextClips(cues, {
     fps: project.settings.fps,
     idPrefix: clip.id,
     offsetF: clip.start_f + clip.offset_f,
-    style: subtitleStyle(clip, project.settings.default_font),
-    ...(typeof raw.margin_bottom === "number" ? { marginV: raw.margin_bottom } : {}),
+    // 字幕 style → ASS の TextStyle への写像は ass.ts の純関数に置いてある（テキストと同じ語彙）
+    style: subtitleTextStyle(clip.style, project.settings.default_font),
+    ...(marginV !== undefined ? { marginV } : {}),
     // 字幕はテロップより下のレイヤに置く（同時刻に重なったらテロップを上に）
     layer,
   });
