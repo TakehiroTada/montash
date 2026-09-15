@@ -124,7 +124,8 @@ test.skipIf(!hasLibass)(
   60000,
 );
 
-test.skipIf(!hasLibass)(
+// CJK フォントが無い環境では日本語も .notdef になり比較にならないので skip する
+test.skipIf(!hasLibass || cjkFamily === undefined)(
   "日本語が豆腐にならない（fontsdir の CJK フォールバックが効く）",
   async () => {
     const opts = { resolution: RES, fps: FPS, ...(cjkFamily !== undefined ? { defaultFont: cjkFamily } : {}) };

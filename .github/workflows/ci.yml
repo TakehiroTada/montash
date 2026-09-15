@@ -28,7 +28,8 @@ jobs:
       # ffmpeg はユニットテスト（probe / run / render）にも必要なので、テストより前に導入する
       - name: install ffmpeg (scripts/install-deps.sh)
         run: |
-          bash scripts/install-deps.sh --check || bash scripts/install-deps.sh --yes
+          # テロップの日本語検証（ass-burn）に CJK フォントが要るので --with-fonts で入れる
+          bash scripts/install-deps.sh --check --with-fonts || bash scripts/install-deps.sh --yes --with-fonts
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/share/montash/ffmpeg/bin" >> "$GITHUB_PATH"
       - name: doctor
