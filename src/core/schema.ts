@@ -213,6 +213,7 @@ export const ClipSchema = z.looseObject({
 export type Clip = z.infer<typeof ClipSchema>;
 
 export const TextPositionSchema = z.union([z.string(), z.looseObject({ x: PxOrPercent, y: PxOrPercent })]);
+export type TextPosition = z.infer<typeof TextPositionSchema>;
 
 export const TextStyleSchema = z.looseObject({
   preset: z.string().optional(),
@@ -231,6 +232,7 @@ export const TextStyleSchema = z.looseObject({
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
 });
+export type TextStyle = z.infer<typeof TextStyleSchema>;
 
 /** テキストクリップ（`kind: text` トラック） */
 export const TextClipSchema = z.looseObject({
@@ -353,6 +355,7 @@ export type AudioSettings = z.infer<typeof AudioSettingsSchema>;
 export const TextPresetSchema = TextStyleSchema.extend({
   fade: z.looseObject({ in_f: FrameSchema.default(0), out_f: FrameSchema.default(0) }).optional(),
 });
+export type TextPreset = z.infer<typeof TextPresetSchema>;
 export const RenderPresetSchema = z.looseObject({ base: z.string().optional() });
 export const MetaSchema = z.looseObject({
   last_render: z.unknown().optional(),

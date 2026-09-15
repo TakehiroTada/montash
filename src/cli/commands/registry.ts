@@ -34,6 +34,7 @@ import { serve } from "./serve.ts";
 import { show } from "./show.ts";
 import { status } from "./status.ts";
 import { tag, tagDelete, tagList } from "./tag.ts";
+import { textAdd, textList, textPresets, textRemove, textSet } from "./text.ts";
 import { timelineGaps, timelineShow } from "./timeline.ts";
 import { trackAdd, trackList, trackLock, trackMove, trackMute, trackRemove } from "./track.ts";
 import { undo } from "./undo.ts";
@@ -82,7 +83,13 @@ export const commands: ReadonlyArray<AnySpec> = [
   // タイムライン（docs/04 §7）
   spec(timelineShow),
   spec(timelineGaps),
-  // トランジション / テキスト / オーバーレイ / 音声 / 字幕             → M3/M4
+  // テキスト（docs/04 §9）
+  spec(textAdd),
+  spec(textSet),
+  spec(textRemove),
+  spec(textList),
+  spec(textPresets),
+  // トランジション / オーバーレイ / 音声 / 字幕                        → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
   spec(previewBuild),
