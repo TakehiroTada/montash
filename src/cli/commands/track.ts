@@ -79,6 +79,7 @@ export const trackList = defineCommand({
   path: "track list",
   summary: "list tracks in compositing order",
   workflows: ["W-08"],
+  examples: [{ cmd: "montash track list", note: "tracks in stacking order, with mute / lock state" }],
   async handler(ctx) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);
@@ -104,6 +105,7 @@ export const trackRemove = defineCommand({
   mutates: true,
   positionals: [{ name: "name", describe: "track ID", required: true }],
   options: { force: { type: "boolean", describe: "remove the track and its clips" } },
+  examples: [{ cmd: "montash track remove V2 --force", note: "delete the track together with the clips on it" }],
   async handler(ctx, args) {
     return runMutation(ctx, ({ project }) => {
       const warnings: Warning[] = [];
@@ -135,6 +137,7 @@ export const trackRemove = defineCommand({
 
 /** `mute` / `lock` は同じ形（`--off` で解除） */
 function toggleCommand(path: "track mute" | "track lock", field: "muted" | "locked", summary: string) {
+  const track = field === "muted" ? "A2" : "V1";
   return defineCommand({
     path,
     summary,
@@ -142,6 +145,10 @@ function toggleCommand(path: "track mute" | "track lock", field: "muted" | "lock
     mutates: true,
     positionals: [{ name: "name", describe: "track ID", required: true }],
     options: { off: { type: "boolean", describe: `turn ${field} off again` } },
+    examples: [
+      { cmd: `montash ${path} ${track}` },
+      { cmd: `montash ${path} ${track} --off`, note: `turn ${field} off again` },
+    ],
     async handler(ctx, args) {
       return runMutation(ctx, ({ project }) => {
         const track = requireTrack(project, String(args.name));
@@ -178,6 +185,7 @@ export const trackMove = defineCommand({
     above: { type: "string", describe: "move above this track" },
     below: { type: "string", describe: "move below this track" },
   },
+  examples: [{ cmd: "montash track move V2 --above V1", note: "V2 now draws on top of V1" }],
   async handler(ctx, args) {
     if (args.above === undefined && args.below === undefined) throw errors.usage("specify --above or --below");
     return runMutation(ctx, ({ project }) => {

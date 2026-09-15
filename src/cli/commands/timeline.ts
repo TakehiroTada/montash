@@ -23,6 +23,10 @@ export const timelineShow = defineCommand({
     to: { type: "string", describe: "range end", time: true },
     ascii: { type: "boolean", describe: "show a compact timeline" },
   },
+  examples: [
+    { cmd: "montash timeline show --ascii", note: "rough bar chart of every track" },
+    { cmd: "montash timeline show --from 10 --to 25", note: "only that time range" },
+  ],
   async handler(ctx, args) {
     const project = await loadProject(ctx.requireProjectDir());
     const warnings: Warning[] = [];

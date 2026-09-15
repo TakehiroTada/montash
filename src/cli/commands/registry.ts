@@ -31,6 +31,7 @@ import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
 import { fade } from "./fade.ts";
 import { fontsList } from "./fonts.ts";
+import { help } from "./help.ts";
 import { historyExport, historyImport, historyPrune, historyVerify } from "./history.ts";
 import { idsRebuild } from "./ids.ts";
 import { importAssets } from "./import.ts";
@@ -66,6 +67,7 @@ export const commands: ReadonlyArray<AnySpec> = [
   // 環境・メタ
   spec(doctor),
   spec(schema),
+  spec(help),
   // プロジェクト
   spec(init),
   spec(projectShow),

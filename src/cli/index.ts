@@ -106,7 +106,20 @@ export async function runLeaf(
   }
 }
 
-export function buildCli(argv: string[]) {
+/**
+ * yargs は `.help("help")` を使うと、位置引数の**末尾**が "help" のときに内蔵ヘルプへ横取りする
+ * （yargs-factory の helpCmds 判定）。montash は `help` を独自コマンドとして持つので、
+ * 位置引数が "help" ただ 1 つのときだけ空の位置引数を足して横取りを避ける。
+ * 空文字は help コマンド側の `.join(" ").trim()` で消えるため「引数なし」と同じ扱いになる。
+ * `montash help clip add` は末尾が "add" なので横取りされず、ここでも何もしない。
+ */
+export function guardHelpCommand(argv: readonly string[]): string[] {
+  const positionals = argv.filter((a) => !a.startsWith("-"));
+  return positionals.length === 1 && positionals[0] === "help" ? [...argv, ""] : [...argv];
+}
+
+export function buildCli(rawArgv: string[]) {
+  const argv = guardHelpCommand(rawArgv);
   const y = yargs(argv)
     .scriptName("montash")
     .locale("en") // メッセージを OS ロケールに依存させない（AI が読む）

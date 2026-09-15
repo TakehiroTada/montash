@@ -31,6 +31,14 @@ export const clipAdd = defineCommand({
     label: { type: "string", describe: "clip label" },
     "on-overlap": { type: "string", describe: "overlap policy (M1: error)", choices: ["error"], default: "error" },
   },
+  examples: [
+    {
+      cmd: "montash clip add --asset clip_a --track V1 --in 2 --out 14.5",
+      note: "place 00:02-00:14.5 of clip_a at the end of V1",
+    },
+    { cmd: "montash clip add --asset clip_b --at end" },
+    { cmd: "montash clip add --asset bgm --track A2 --at 0 --audio-only", note: "background music from the head" },
+  ],
   async handler(ctx, args) {
     if (args.out !== undefined && args.duration !== undefined) throw errors.usage("use either --out or --duration");
     if ([args.at, args.after, args.before].filter((v) => v !== undefined).length > 1)
@@ -128,6 +136,10 @@ export const clipList = defineCommand({
   summary: "list clips in track and timeline order",
   workflows: ["W-03", "W-04"],
   options: { track: { type: "string", describe: "track ID" }, asset: { type: "string", describe: "asset ID" } },
+  examples: [
+    { cmd: "montash clip list --track V1" },
+    { cmd: "montash clip list --asset clip_a --json", note: "every clip cut from one asset" },
+  ],
   async handler(ctx, args) {
     const project = await loadProject(ctx.requireProjectDir());
     const tracks = args.track ? [requireTrack(project, String(args.track))] : project.tracks;

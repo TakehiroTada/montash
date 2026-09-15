@@ -164,14 +164,13 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 
 | コマンド | 章 | 予定 |
 |----------|----|------|
-| `help <command>` | §2 | yargs の `--help` / `schema` で代替（実装予定なし。docs/13 D-11） |
 | `clip show` | §6 | `clip list --json` で代替中 |
 | `clip link` / `clip unlink` | §11 | `clip move/trim/split/set --unlink` は実装済み |
 | `snapshot save|restore|list|delete` | §15 | `tag` / `checkout` を使う。互換別名は後回し |
 | `batch` / `explain` | §16 | 未着手 |
 | `serve stop` / `serve status` | §13 | `--daemon` 自体は実装済み |
 
-**M4 で実装済みになったもの**（旧「未実装」から移動）: `render batch` / `render still` / `render gif` / `render audio`、`blame` / `revert` / `reset --hard`、`history prune|export|import`。
+**M4 で実装済みになったもの**（旧「未実装」から移動）: `render batch` / `render still` / `render gif` / `render audio`、`blame` / `revert` / `reset --hard`、`history prune|export|import`、`help`（docs/13 D-11）。
 
 **未実装のオプション**
 
@@ -179,7 +178,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 |----------|--------------------|------|
 | `import` | `--thumbs`, `--waveform` | `proxy build --thumbs/--waveform` は実装済み |
 | `assets show` | `--keyframes` | `--probe` は実装済み |
-| `clip add` | `--loop`, `--ripple` | `--on-overlap error|overwrite|push` は実装済み。`--ripple` は `clip move/trim/delete/set` にはある（docs/13 D-9） |
+| `clip add` | `--loop`, `--ripple`, `--on-overlap overwrite|push` | `clip add` の `--on-overlap` は `error` のみ（`overwrite` / `push` は `clip move/trim/set` 側に実装済み）。`--ripple` も `clip move/trim/delete/set` にはある（docs/13 D-9） |
 | `render` | `--from`, `--to`, `--skip-validate` | 区間レンダーは `render gif --from/--to` で可能。それ以外（`--last` `--vcodec` `--acodec` `--vbitrate` `--abitrate` `--pix-fmt` `--fps` `--two-pass` `--hwaccel` `--reframe`）は**すべて実装済み**、プリセットは 10 種 |
 | `serve` | `--allow`, `--deny`, `--max-upload` | 許可リストは 06 章 §3.3 の固定リスト。`--read-only` `--daemon` は実装済み |
 | `log` | `--since` | |
@@ -218,9 +217,23 @@ montash schema [<command>] [--format json|openai-tools|anthropic-tools]
 
 全コマンド（または指定コマンド）の引数定義・型・説明・例を JSON で出力。`--format *-tools` は LLM の関数呼び出し定義形式で出力。
 
-### `montash help [<command>] [--json]` — 未実装（§1.9）
+### `montash help [<command>...] [--json]`
 
-現状は yargs の `--help` と `montash schema [<command>] --json` を使う。
+```
+montash help                    # グループごとの全コマンド一覧
+montash help clip               # clip 配下の一覧
+montash help clip add           # 1 コマンドの詳細
+montash help clip add --json    # schema と同じ JSON
+```
+
+`schema` と同じ定義（`defineCommand`）を人間向けに整形する。`--json` の出力は `montash schema <command> --json` と同一。
+yargs の `--help` と違い、次の 3 点を出す。
+
+- **状態を変えるコマンドか**（`changes the project (recorded as an op...)` / `read-only`）
+- **由来する作業手順**（`workflow: W-03`）
+- **時間表記を受け取るオプション**（`--in <time>`）
+
+逆に全コマンド共通のグローバルオプションは並べず 1 行の案内に留める（`--help` で見られるため）。
 
 ---
 
