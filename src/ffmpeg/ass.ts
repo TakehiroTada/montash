@@ -24,6 +24,7 @@ import type { Fps, Project, Resolution, SubtitleClip, TextPosition, TextStyle } 
 import { isSubtitleClip, isTextClip } from "../core/schema.ts";
 import { framesToMillis } from "../core/time.ts";
 import { resolveAssetPath } from "../core/validate.ts";
+import { anOf, DEFAULT_POSITION, POSITION_NAMES, positions } from "../registry/positions.ts";
 import { type FontEntry, listFonts } from "./fonts.ts";
 
 // ---------------------------------------------------------------------------
@@ -82,20 +83,6 @@ export const DEFAULT_BG_PADDING = 16;
 export const DEFAULT_TEXT_COLOR = "#FFFFFF";
 /** プリセット位置の既定マージン（解像度に対する比率。W/H の 5%） */
 export const EDGE_MARGIN_RATIO = 0.05;
-
-/** `--position` のプリセット名 → `\an`（docs/04 §9） */
-export const POSITION_PRESETS: Readonly<Record<string, number>> = Object.freeze({
-  center: 5,
-  "middle-center": 5,
-  "middle-left": 4,
-  "middle-right": 6,
-  "top-left": 7,
-  "top-center": 8,
-  "top-right": 9,
-  "bottom-left": 1,
-  "bottom-center": 2,
-  "bottom-right": 3,
-});
 
 // ---------------------------------------------------------------------------
 // 小さなヘルパ（整数演算。float の途中結果に依存しない）
@@ -219,7 +206,7 @@ export function resolveCoordinate(value: number | string, extent: number): numbe
 
 function invalidPosition(value: string): MontashError {
   return new MontashError("E_USAGE", `invalid position ${JSON.stringify(value)}`, {
-    hint: `Use a preset (${Object.keys(POSITION_PRESETS).join(", ")}), "x,y" in px, or "x%,y%".`,
+    hint: `Use a preset (${POSITION_NAMES.join(", ")}), "x,y" in px, or "x%,y%".`,
     detail: { position: value },
   });
 }
@@ -242,28 +229,27 @@ export function defaultAlignFor(position: TextPosition | undefined): TextAlign {
  * - `{x,y}` → 上基準（`\an7/8/9`）+ `\pos(x,y)`。`%` は W/H から px に解決する
  */
 export function alignmentOf(position: TextPosition | undefined, align: TextAlign, res: Resolution): Alignment {
-  const column = align === "left" ? 1 : align === "right" ? 3 : 2;
   const marginH = Math.round(res.width * EDGE_MARGIN_RATIO);
   const marginV = Math.round(res.height * EDGE_MARGIN_RATIO);
 
   if (position === undefined || position === null || typeof position === "string") {
-    const name = String(position ?? "center").toLowerCase();
-    const preset = POSITION_PRESETS[name];
-    if (preset === undefined) throw invalidPosition(String(position));
+    const name = String(position ?? DEFAULT_POSITION).toLowerCase();
+    const spec = positions.get(name);
+    if (spec === undefined) throw invalidPosition(String(position));
     // 行だけプリセットから取り、列は align で決める（docs/07 §6.2「align は \an の列で表現」）
-    const rowBase = preset >= 7 ? 6 : preset >= 4 ? 3 : 0;
-    const an = rowBase + column;
-    const middle = rowBase === 3;
+    const an = anOf(spec.row, align);
+    const middle = spec.row === "middle";
     return {
       an,
-      ...(middle && column === 2 ? { pos: { x: Math.round(res.width / 2), y: Math.round(res.height / 2) } } : {}),
+      ...(middle && align === "center" ? { pos: { x: Math.round(res.width / 2), y: Math.round(res.height / 2) } } : {}),
       margins: { l: marginH, r: marginH, v: middle ? 0 : marginV },
     };
   }
 
   const x = resolveCoordinate(position.x, res.width);
   const y = resolveCoordinate(position.y, res.height);
-  return { an: 6 + column, pos: { x, y }, margins: { l: 0, r: 0, v: 0 } };
+  // 座標指定は左上基準（`\an7/8/9`）。列は align が決める
+  return { an: anOf("top", align), pos: { x, y }, margins: { l: 0, r: 0, v: 0 } };
 }
 
 // ---------------------------------------------------------------------------

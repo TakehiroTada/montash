@@ -24,8 +24,9 @@ import {
 import { BUILTIN_TEXT_PRESETS, requireTextPreset, resolveTextPresets } from "../../core/text-presets.ts";
 import { framesToSeconds } from "../../core/time.ts";
 import { assertPlacement, nextTrackId, requireTrack, trackEnd } from "../../core/timeline.ts";
-import { assColor, findFontEntry, POSITION_PRESETS, pickCjkFallback, suggestFamilies } from "../../ffmpeg/ass.ts";
+import { assColor, findFontEntry, pickCjkFallback, suggestFamilies } from "../../ffmpeg/ass.ts";
 import { type FontEntry, listFonts } from "../../ffmpeg/fonts.ts";
+import { isPositionName, POSITION_NAMES } from "../../registry/positions.ts";
 import type { CommandContext } from "../context.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError, type Warning } from "../errors.ts";
@@ -67,7 +68,7 @@ const STYLE_OPTIONS = {
   "bg-padding": { type: "number" as const, describe: "background box padding in px" },
   position: {
     type: "string" as const,
-    describe: `position preset (${Object.keys(POSITION_PRESETS).join(", ")}), "x,y" or "x%,y%"`,
+    describe: `position preset (${POSITION_NAMES.join(", ")}), "x,y" or "x%,y%"`,
   },
   align: { type: "string" as const, describe: "line alignment", choices: ["left", "center", "right"] as const },
   "line-spacing": { type: "number" as const, describe: "extra line spacing in px" },
@@ -92,7 +93,7 @@ const STYLE_OPTIONS = {
 /** `--position center` / `--position 960,540` / `--position 5%,85%` */
 export function parsePosition(raw: string): TextPosition {
   const text = raw.trim();
-  if (Object.hasOwn(POSITION_PRESETS, text.toLowerCase())) return text.toLowerCase();
+  if (isPositionName(text.toLowerCase())) return text.toLowerCase();
   const parts = text.split(",").map((p) => p.trim());
   if (parts.length === 2 && parts[0] !== "" && parts[1] !== "") {
     const coord = (v: string): number | string => {
@@ -102,10 +103,7 @@ export function parsePosition(raw: string): TextPosition {
     };
     return { x: coord(parts[0] as string), y: coord(parts[1] as string) };
   }
-  throw errors.usage(
-    `invalid position "${raw}"`,
-    `Use a preset (${Object.keys(POSITION_PRESETS).join(", ")}), "x,y" or "x%,y%".`,
-  );
+  throw errors.usage(`invalid position "${raw}"`, `Use a preset (${POSITION_NAMES.join(", ")}), "x,y" or "x%,y%".`);
 }
 
 /** `--shadow 2,2,#000000AA` */
