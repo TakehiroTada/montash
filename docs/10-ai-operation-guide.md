@@ -116,6 +116,10 @@
 | `E_BATCH_PARSE` | `detail.line` の行を直して `batch` をやり直す（1 行も実行されていない） |
 | `E_BATCH_FAILED` | `--atomic` なので**何も適用されていない**。`detail.lines` で失敗行と各行の hint を読み、その行だけ直して同じファイルを再実行する |
 | `E_BATCH_UNSUPPORTED` | その行はバッチの外で実行する（`checkout` / `commit` など）。一括適用を続けたいだけなら `--continue-on-error` |
+| `E_TRANSCRIBER_NOT_FOUND` | **AI は入れない**。`hint` の導入方法（`brew install whisper-cpp` など）を人間に提示して手順終了。場所が分かっているなら `--engine-path` で教えてもらう |
+| `E_TRANSCRIBER_MODEL_NOT_FOUND` | 同上。モデルの置き場（`~/.local/share/montash/whisper/`）と `--model` を提示する |
+| `E_TRANSCRIPT_EMPTY` | `--lang` が実際の言語と合っているかを確認し、`audio show` で音声があるかを見てから人間に報告 |
+| `E_TRANSCRIBER_FAILED` | `detail.stderr_tail` を読む（モデルとビルドの不一致が多い）。解決できなければ stderr を人間に見せる |
 | `W_DIRTY_WORKTREE` | `project.json` が手編集された。人間に確認して `commit --from-worktree -m "手編集"` か `checkout HEAD` |
 
 ## 6. 報告テンプレート
