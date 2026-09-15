@@ -1,9 +1,13 @@
 name: ci
 
+# 自動実行はしない（Actions の費用を抑えるため）。検証はローカルで `bun run verify` を実行する。
+# 必要になったら GitHub の Actions 画面から手動で実行できる（workflow_dispatch）。
+# 自動実行に戻すときは、下の push / pull_request のコメントを外す。
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
 
 # 同じブランチへの push が続いたら古い実行は打ち切る
 concurrency:
