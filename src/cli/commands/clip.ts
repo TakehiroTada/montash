@@ -1,14 +1,15 @@
 import { clipAssetId, timelineDurationF } from "../../core/assets.ts";
-import { assertIdAvailable, existingIds, nextId, readIds } from "../../core/ids.ts";
+import { addClip, assertSourceRange } from "../../core/clip-create.ts";
 import { loadProject } from "../../core/project.ts";
-import { ClipSchema, clipDurationF, clipEndF, type TrackClip } from "../../core/schema.ts";
+import { clipDurationF, clipEndF, type TrackClip } from "../../core/schema.ts";
 import { framesToSeconds } from "../../core/time.ts";
-import { assertPlacement, requireTrack, trackEnd } from "../../core/timeline.ts";
+import { requireTrack, trackEnd } from "../../core/timeline.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError, type Warning, warning } from "../errors.ts";
 import { runMutation } from "../mutate.ts";
 import { parseTimeInput, resolveAbsolute } from "../time-input.ts";
 import { requireAsset } from "./assets.ts";
+import { createIdAllocator } from "./clip-edit.ts";
 
 export const clipAdd = defineCommand({
   path: "clip add",
@@ -73,10 +74,7 @@ export const clipAdd = defineCommand({
         outF = length;
         warnings.push(warning("W_CLIP_SHORTER_THAN_REQUESTED", `clip shortened to asset end f:${length}`));
       }
-      if (outF <= inF || (length !== undefined && outF > length))
-        throw new MontashError("E_RANGE_OUT_OF_ASSET", `invalid source range f:${inF}..f:${outF}`, {
-          hint: `Choose 0 <= in < out${length === undefined ? "" : ` <= f:${length}`}.`,
-        });
+      assertSourceRange(inF, outF, length);
       let startF = time(String(args.at ?? "end"), trackEnd(track));
       if (args.after !== undefined || args.before !== undefined) {
         const ref = track.clips.find((c) => c.id === String(args.after ?? args.before));
@@ -84,51 +82,22 @@ export const clipAdd = defineCommand({
         startF = args.after !== undefined ? clipEndF(ref) : ref.start_f - (outF - inF);
       }
       if (startF < 0) throw errors.usage("placement starts before the timeline");
-      const linkedTrack =
-        !audioOnly && hasAudio && !args.videoOnly ? requireTrack(project, track.id.replace(/^V/, "A")) : null;
-      if (linkedTrack && linkedTrack.kind !== "audio") throw errors.usage("linked track must be audio");
-      assertPlacement(track, startF, startF + outF - inF);
-      if (linkedTrack) assertPlacement(linkedTrack, startF, startF + outF - inF);
-      if (args.id) assertIdAvailable(project, String(args.id));
-      const used = existingIds(project);
-      if (args.id) used.add(String(args.id));
-      let dryCounter = (await readIds(dir))?.counters.c ?? 1;
-      const allocate = async () => {
-        for (;;) {
-          const id = ctx.globals.dryRun ? `c${dryCounter++}` : await nextId(dir, "c");
-          if (!used.has(id)) {
-            used.add(id);
-            return id;
-          }
-        }
-      };
-      const clip = ClipSchema.parse({
-        id: args.id ?? (await allocate()),
-        asset: asset.id,
-        start_f: startF,
-        in_f: inF,
-        out_f: outF,
-        label: args.label,
-        ...(audioOnly ? { audio: {} } : { video: {} }),
-      });
-      const linked = linkedTrack
-        ? ClipSchema.parse({
-            id: await allocate(),
-            asset: asset.id,
-            start_f: startF,
-            in_f: inF,
-            out_f: outF,
-            link: clip.id,
-            audio: {},
-          })
-        : null;
-      if (linked && linkedTrack) {
-        clip.link = linked.id;
-        linkedTrack.clips.push(linked);
-        linkedTrack.clips.sort((a, b) => a.start_f - b.start_f);
-      }
-      track.clips.push(clip);
-      track.clips.sort((a, b) => a.start_f - b.start_f);
+      const allocate = await createIdAllocator(ctx, dir, project, args.id ? [String(args.id)] : []);
+      const { clip, linked } = await addClip(
+        project,
+        {
+          asset: asset.id,
+          track,
+          start_f: startF,
+          in_f: inF,
+          out_f: outF,
+          id: args.id === undefined ? undefined : String(args.id),
+          label: args.label === undefined ? undefined : String(args.label),
+          audioOnly,
+          linkAudio: !audioOnly && hasAudio && !args.videoOnly,
+        },
+        allocate,
+      );
       return {
         result: { clip, linked_clip: linked },
         summary: `add ${clip.id} (${asset.id}) on ${track.id} at f:${startF}`,

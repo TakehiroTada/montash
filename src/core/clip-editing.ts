@@ -232,6 +232,42 @@ export function removeClips(project: Project, ids: ReadonlySet<string>, warnings
   });
 }
 
+/**
+ * `--on-overlap overwrite`: `[from, to)` に掛かる既存クリップをトラックから削る（docs/04 §6）。
+ * `keep` のクリップ（編集対象そのもの）は触らない。区間が既存クリップの内側に丸ごと収まる場合は
+ * 真ん中を刳り抜くことになるので `E_NOT_IMPLEMENTED`。
+ */
+export function carveRange(
+  project: Project,
+  track: Track,
+  from: number,
+  to: number,
+  keep: ReadonlySet<string>,
+  warnings: Warning[],
+): void {
+  const removed = new Set<string>();
+  for (const clip of [...track.clips]) {
+    if (keep.has(clip.id)) continue;
+    const start = clip.start_f;
+    const end = clipEndF(clip);
+    if (end <= from || start >= to) continue;
+    if (start >= from && end <= to) {
+      removed.add(clip.id);
+    } else if (start < from && end > to) {
+      throw new MontashError("E_NOT_IMPLEMENTED", `--on-overlap overwrite cannot carve the middle of "${clip.id}"`, {
+        hint: `Split it first: \`montash clip split ${clip.id} --at f:${from}\`.`,
+        detail: { clip: clip.id, range_f: [from, to] },
+      });
+    } else if (start < from) {
+      setClipDuration(project, clip, from - start);
+    } else {
+      trimClipHead(clip, to - start);
+      clip.start_f = to;
+    }
+  }
+  removeClips(project, removed, warnings);
+}
+
 /** 全トラックのクリップを `start_f` 昇順に並べ直す（docs/05 §6: clips は start_f 昇順） */
 export function sortClips(project: Project): void {
   for (const track of project.tracks) {

@@ -10,12 +10,11 @@
  */
 
 import { timelineDurationF } from "../../core/assets.ts";
-import { findClip, removeClips, sortClips } from "../../core/clip-editing.ts";
-import { assertIdAvailable, existingIds, nextId, readIds } from "../../core/ids.ts";
+import { addClip, assertSourceRange } from "../../core/clip-create.ts";
+import { findClip, removeClips } from "../../core/clip-editing.ts";
 import { loadProject } from "../../core/project.ts";
 import {
   type Clip,
-  ClipSchema,
   clipDurationF,
   clipEndF,
   isMediaClip,
@@ -25,13 +24,14 @@ import {
   TrackSchema,
 } from "../../core/schema.ts";
 import { framesToSeconds } from "../../core/time.ts";
-import { assertPlacement, nextTrackId, requireTrack } from "../../core/timeline.ts";
+import { nextTrackId, requireTrack } from "../../core/timeline.ts";
 import { overlayPosition } from "../../ffmpeg/graph/overlay.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError, type Warning, warning } from "../errors.ts";
 import { runMutation } from "../mutate.ts";
 import { parseTimeInput, resolveAbsolute } from "../time-input.ts";
 import { requireAsset } from "./assets.ts";
+import { createIdAllocator } from "./clip-edit.ts";
 
 // ---------------------------------------------------------------------------
 // 引数の解釈
@@ -258,39 +258,31 @@ export const overlayAdd = defineCommand({
         outF = length;
         warnings.push(warning("W_CLIP_SHORTER_THAN_REQUESTED", `overlay shortened to asset end f:${length}`));
       }
-      if (outF <= inF || (asset.type !== "image" && length !== undefined && outF > length))
-        throw new MontashError("E_RANGE_OUT_OF_ASSET", `invalid source range f:${inF}..f:${outF}`, {
-          hint: `Choose 0 <= in < out${length === undefined ? "" : ` <= f:${length}`}.`,
-        });
+      // 画像は尺の上限が無いので、上限の検査対象から外す（hint は clip add と同じ文面）
+      assertSourceRange(inF, outF, asset.type === "image" ? undefined : length);
 
       const { track, added } = resolveOverlayTrack(project, args.track === undefined ? undefined : String(args.track));
-      assertPlacement(track, startF, startF + outF - inF);
-      if (args.id !== undefined) assertIdAvailable(project, String(args.id));
       // 採番カウンタが手編集の ID と衝突することがあるので、空いている ID まで進める（clip add と同じ）
-      const used = existingIds(project);
-      let dryCounter = (await readIds(dir))?.counters.c ?? 1;
-      let id = args.id === undefined ? "" : String(args.id);
-      while (id === "") {
-        const candidate = ctx.globals.dryRun ? `c${dryCounter++}` : await nextId(dir, "c");
-        if (!used.has(candidate)) id = candidate;
-      }
-
-      const clip = ClipSchema.parse({
-        id,
-        asset: asset.id,
-        start_f: startF,
-        in_f: inF,
-        out_f: outF,
-        label: args.label,
-        video: {},
-      });
+      const allocate = await createIdAllocator(ctx, dir, project, args.id === undefined ? [] : [String(args.id)]);
+      const { clip } = await addClip(
+        project,
+        {
+          asset: asset.id,
+          track,
+          start_f: startF,
+          in_f: inF,
+          out_f: outF,
+          id: args.id === undefined ? undefined : String(args.id),
+          label: args.label === undefined ? undefined : String(args.label),
+        },
+        allocate,
+      );
+      // `video.transform` が「オーバーレイである」ことの印（docs/05 §6.1）
       applyStyle(clip, args as StyleArgs, {
         res: project.settings.resolution,
         source: asset.type === "video" || asset.type === "image" ? asset.video : undefined,
         frames: (input) => time(input, undefined, true),
       });
-      track.clips.push(clip);
-      sortClips(project);
 
       const endF = clipEndF(clip);
       if (endF > Math.max(timeline, 1) && timeline > 0)

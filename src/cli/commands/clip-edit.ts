@@ -8,15 +8,14 @@ import { timelineDurationF } from "../../core/assets.ts";
 import {
   assertUnlocked,
   type ClipLocation,
+  carveRange,
   clampFades,
   findClip,
   linkedGroup,
   removeClips,
-  setClipDuration,
   sortClips,
   sourceLimitF,
   splitClipAt,
-  trimClipHead,
 } from "../../core/clip-editing.ts";
 import { assertIdAvailable, existingIds, nextId, readIds } from "../../core/ids.ts";
 import { parseRippleScope, type RippleScope, rippleTimeline } from "../../core/ripple.ts";
@@ -30,7 +29,7 @@ import {
   type Project,
   type TrackClip,
 } from "../../core/schema.ts";
-import { assertPlacement, requireTrack } from "../../core/timeline.ts";
+import { assertPlacement, counterpartTrackId, requireTrack } from "../../core/timeline.ts";
 import type { CommandContext } from "../context.ts";
 import { defineCommand, type OptionSpec, type PositionalSpec } from "../define-command.ts";
 import { errors, MontashError, type Warning, warning } from "../errors.ts";
@@ -107,44 +106,6 @@ export async function createIdAllocator(
       }
     }
   };
-}
-
-/** 映像クリップに対応する音声トラック（V1 → A1）／その逆を引く */
-function counterpartTrackId(trackId: string, fromKind: "video" | "audio" | "text"): string {
-  return fromKind === "video" ? trackId.replace(/^V/, "A") : trackId.replace(/^A/, "V");
-}
-
-/** `--on-overlap overwrite`: [from, to) に掛かる既存クリップを削る */
-function carveRange(
-  project: Project,
-  trackId: string,
-  from: number,
-  to: number,
-  keep: ReadonlySet<string>,
-  warnings: Warning[],
-): void {
-  const track = requireTrack(project, trackId);
-  const removed = new Set<string>();
-  for (const clip of [...track.clips]) {
-    if (keep.has(clip.id)) continue;
-    const start = clip.start_f;
-    const end = clipEndF(clip);
-    if (end <= from || start >= to) continue;
-    if (start >= from && end <= to) {
-      removed.add(clip.id);
-    } else if (start < from && end > to) {
-      throw new MontashError("E_NOT_IMPLEMENTED", `--on-overlap overwrite cannot carve the middle of "${clip.id}"`, {
-        hint: `Split it first: \`montash clip split ${clip.id} --at f:${from}\`.`,
-        detail: { clip: clip.id, range_f: [from, to] },
-      });
-    } else if (start < from) {
-      setClipDuration(project, clip, from - start);
-    } else {
-      trimClipHead(clip, to - start);
-      clip.start_f = to;
-    }
-  }
-  removeClips(project, removed, warnings);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +222,8 @@ export const clipMove = defineCommand({
           ),
         );
       } else if (onOverlap === "overwrite") {
-        for (const trackId of destinationIds) carveRange(project, trackId, start, end, ids, warnings);
+        for (const trackId of destinationIds)
+          carveRange(project, requireTrack(project, trackId), start, end, ids, warnings);
       }
       for (const trackId of destinationIds) assertPlacement(requireTrack(project, trackId), start, end);
 
