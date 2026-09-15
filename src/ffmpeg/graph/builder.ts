@@ -14,6 +14,7 @@ import {
   clipDurationF,
   clipEndF,
   type Ducking,
+  isGeneratorClip,
   isMediaClip,
   isOpaqueClip,
   isSubtitleClip,
@@ -22,6 +23,7 @@ import {
   type Track,
   type Transition,
 } from "../../core/schema.ts";
+import { assertGeneratorAvailable } from "../../registry/generators.ts";
 import {
   type AudioStream,
   delayAudio,
@@ -65,6 +67,8 @@ function assertSupported(project: Project): void {
     if (!track.clips.length || track.muted) continue;
     // 未知種別（プラグイン由来）はレンダーの時点で止める。読み込み・保存は通っている
     for (const clip of track.clips) {
+      // ジェネレータも同じ扱い: 未登録の種別はここで初めて E_PLUGIN_MISSING になる（計画 P1-4）
+      if (isGeneratorClip(clip)) assertGeneratorAvailable(clip.id, clip.generator);
       if (isOpaqueClip(clip)) pluginMissing(clip.id, String(clip.type));
     }
     // テキストトラックは映像合成の最後に ASS で焼く（§6）。ここでは置けるクリップ種別だけ確かめる

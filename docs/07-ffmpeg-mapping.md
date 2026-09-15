@@ -109,6 +109,19 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
 - キーフレーム（`keyframes`）は `E_NOT_IMPLEMENTED`（F-FX-8）。
 - **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）を参照するエフェクトはここが穴で、**パスが同じまま中身を差し替えても無効化されない**（`lut3d` が唯一の該当。§11、docs/13 D-19）。当面の回避策は `preview build --force`、またはファイル名を変えること。
 
+## 3b. ジェネレータ（レジストリ）
+
+生成クリップ（docs/05 §6.4）の `generator` は **ジェネレータレジストリ**（`src/registry/generators.ts`）を通す。エフェクトと同じく **組み込みも外部プラグインとまったく同じ契約**（`defineGenerator`）で書く。
+
+| 名前 | 供給元 | ffmpeg | 状態 |
+|------|--------|--------|------|
+| `color` | `builtin` | §2 の `color=c={color}:s={W}x{H}:r={num}/{den}` → `trim=end_frame` | フィルタグラフ側は未実装（`E_NOT_IMPLEMENTED`。docs/09 M3） |
+| `hold` | `builtin` | §3 の `trim=start_frame={n-1}:end_frame={n},loop=loop=-1:size=1:start=0,trim=end_frame={duration_f}` | 同上 |
+
+- 未登録の `generator` は `E_PLUGIN_MISSING`（「未実装」ではなく**プラグイン不足**）。**読み込み・保存は通り、レンダー時にだけ**止まる（docs/05 §6.4、F-EXT-4）。
+- `params` の必須・範囲の検査は `defineGenerator().validate()` フック（純関数）が持ち、`validate` コマンドから呼ばれる。`core/validate.ts` に種別名を直書きしないので、プラグインのジェネレータも同じ経路で検査される。
+- 組み込み 2 種は現状 `requires` を宣言しない。フィルタグラフ側が未実装で、`color` / `loop` フィルタが無くても今できることは減らないため（宣言はレンダーを実装する PR で足す）。`registerGenerator()` の仕組み自体は通っていて、プラグインが宣言すればそのまま `doctor` の検査対象になる。
+
 ## 4. トラック内の連結（映像）
 
 ### 4.1 トランジション無し（隣接）
@@ -134,6 +147,12 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
 - トランジション無しの境界が混在するトラックでは、xfade 連鎖を **区間ごとに切り**、区間同士を `concat` する。
 - `xfade` は両入力が同一解像度・fps・pix_fmt・一定フレームレートであること。§3 で保証。
 - `xfade` の `offset`/`duration` は秒でしか渡せない。§3 で全フレームの pts が `k * den/num` に量子化されているため、`sec()` のマイクロ秒丸め（< 1µs）でフレームの取り違えは起きないが、**M1 のゴールデンテスト（29.97fps）で「合成後フレーム数 = 期待値」を必ず検証する**（12 章 ADR-09）。
+
+**トランジションレジストリ**（`src/registry/transitions.ts`）: `transition=` に渡す名前は `resolveTransitionType()` を通す。
+
+- **別名**を正規名にする（`crossfade` → `fade`）。CLI の保存時とレンダー時の両方で解決するので、手で書かれた `project.json` でも効く（従来は `cli/commands/transition.ts` のベタ書きだったため CLI 経由でしか効かなかった）。
+- **登録されていない名前はそのまま `xfade` へ渡す**（素通し）。ffmpeg が持つ 50 種以上を本体に列挙すると二重管理になるうえ、今まで動いていた `--type` が通らなくなるため。登録済みの種類は「別名・パラメータ仕様・`requires` が付いているもの」という位置づけで、`doctor` の検査対象には `requires: ["xfade"]` として載る（`xfade` は元々必須なので必須集合は変わらない）。
+- `params` は `:key=value` として `xfade` に足す。仕様の無いキーは従来どおり `/^[A-Za-z0-9_.+*\/() -]*$/`、仕様のあるキーは型に応じて色（`#rrggbb`）や式を受け取る。式（`custom` の `expr`）は `,` や `:` を含むのでシングルクォートで包み、`'` と `\` は拒否する。
 
 ### 4.3 先頭／末尾フェード（`montash fade`）
 

@@ -126,9 +126,9 @@ cli-video-editor/
 ```
 web/ ──(HTTP/WS)──▶ server/ ──▶ core/, ffmpeg/
 cli/ ──▶ registry/, core/, ffmpeg/, server/(serve のみ)
-ffmpeg/ ──▶ registry/(requirements のみ), core/(型のみ)
+ffmpeg/ ──▶ registry/, core/(型のみ)
 registry/ ──▶ core/(型のみ)。組み込み定義は遅延 import で読む（循環回避）
-core/ ──▶ （外部依存なし。zod のみ）
+core/ ──▶ registry/(種別の検査フックのみ。validate.ts → registry/generators.ts)。ほかは外部依存なし（zod のみ）
 ```
 
 `registry/commands.ts` は `cli/commands/registry.ts`（組み込みコマンドの静的配列）を**静的に import しない**。
@@ -136,6 +136,10 @@ core/ ──▶ （外部依存なし。zod のみ）
 `registry.ts → help.ts → registry/commands.ts → registry.ts` の循環になる。組み込みの読み込みだけを
 `await import()` に閉じ込め、`getCommands()` を async にしている（`buildCli()` が async なのはこのため）。
 `registry/requirements.ts` は `ffmpeg/locate.ts` から読まれるので、何も import しない。
+
+`core/validate.ts` → `registry/generators.ts` は**唯一の core → registry**。ジェネレータ種別ごとの意味検査
+（`hold` の `params.from_clip` など）を仕様の隣（`defineGenerator().validate()`）に置くためで、
+`registry/` 側は `core/schema.ts` を**型としてしか**読まないので実行時の循環にはならない。
 
 `core/` は ffmpeg もファイルシステムも知らない純関数群にし、単体テストを厚くする。`ffmpeg/graph/builder.ts` も入力 `Project` → 出力 `string[]`（引数配列）の純関数として、スナップショットテストで守る。
 

@@ -6,6 +6,7 @@ import { clipEndF, GeneratorClipSchema, type Project } from "../../core/schema.t
 import { framesToSeconds, framesToTimecode } from "../../core/time.ts";
 import { assertPlacement, requireTrack } from "../../core/timeline.ts";
 import { findVideoGaps, type Gap } from "../../core/validate.ts";
+import { colorGenerator, holdGenerator } from "../../registry/generators.ts";
 import { defineCommand } from "../define-command.ts";
 import { errors, MontashError, type Warning } from "../errors.ts";
 import { runMutation } from "../mutate.ts";
@@ -91,7 +92,8 @@ export const timelineGaps = defineCommand({
   async handler(ctx, args) {
     const fill = args.fill === undefined ? null : String(args.fill);
     if (fill === "hold")
-      throw new MontashError("E_NOT_IMPLEMENTED", "--fill hold is not implemented yet", {
+      // `hold` はジェネレータレジストリには載っているが、フィルタグラフ側が未実装（docs/09 M3）
+      throw new MontashError("E_NOT_IMPLEMENTED", `--fill ${holdGenerator.name} is not implemented yet`, {
         hint: "Use --fill black or --fill close; hold clips arrive with the generator work (docs/09 M3).",
       });
 
@@ -121,7 +123,7 @@ export const timelineGaps = defineCommand({
           const clip = GeneratorClipSchema.parse({
             id: await allocate("c"),
             type: "generator",
-            generator: "color",
+            generator: colorGenerator.name,
             params: { color: project.settings.background },
             start_f: gap.from_f,
             duration_f: gap.to_f - gap.from_f,
