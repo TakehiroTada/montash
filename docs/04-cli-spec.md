@@ -176,7 +176,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `clip show` | §6 | `clip list --json` で代替中 |
 | `clip link` / `clip unlink` | §11 | `clip move/trim/split/set --unlink` は実装済み |
 | `snapshot save|restore|list|delete` | §15 | `tag` / `checkout` を使う。互換別名は後回し |
-| `batch` / `explain` | §16 | 未着手 |
+| `batch` | §16 | 未着手 |
 | `serve stop` / `serve status` | §13 | `--daemon` 自体は実装済み |
 
 **M4 で実装済みになったもの**（旧「未実装」から移動）: `render batch` / `render still` / `render gif` / `render audio`、`blame` / `revert` / `reset --hard`、`history prune|export|import`、`help`（docs/13 D-11）。
@@ -744,9 +744,28 @@ montash render -o <path> [--preset <name>] [--from <t>] [--to <t>]
 
 1 行 1 コマンドの JSON Lines（`{"args": ["clip","add","--asset","clip_a","--at","end"]}`）または素の bash 行を順次実行。`--atomic`（既定）は途中失敗で開始前状態へ巻き戻し、全体を 1 op として記録。`-m` を付ければそのままコミット。
 
-### `montash explain (<id> | timeline | render) [--json]` — 未実装（§1.9）
+### `montash explain (<id> | timeline | render) [--json]`
 
-対象を自然言語で説明する（例: 「c2 は clip_b の 0.0–20.0 秒を 12.5 秒から配置。前に t1（crossfade 0.5s）、後に t2。音声は c2a とリンク」）。`render` は生成される ffmpeg コマンドとフィルタグラフを注釈付きで表示。
+対象を自然言語（英語）で説明する。読み手は AI と人間の両方なので、**同じ内容を 2 つの形で返す**（F-AI-4）:
+
+- `result.explanation`: 1 読で分かる文の配列。「何を・どこから・どれだけ・どう加工して置かれているか」を順に述べる。
+- `result.facts`: 機械可読な事実（`_f` と秒・タイムコードを併記。§1.3a）。`result.notes` は注意（プラグイン不足・素材欠落・ロック）、`result.see_also` は次に叩くコマンド。
+
+`<id>` は **ID で指せるものすべて**: クリップ（映像・音声 / テキスト / 字幕 / 生成 / プラグイン未導入の `opaque`）、トランジション、トラック、アセット、ダッキング。クリップでは掛かっている効果とそのパラメータ（`effect list` 相当）も述べる。
+
+```
+$ montash explain c2
+c2 — media clip on track V1 (video)
+
+  c2 takes 0.000s..20.000s (f:0..f:600) of asset clip_b (video, 30.000s long) and places it on track V1 at 12.500s..32.500s (f:375..f:975), 600 frames long.
+  Its counterpart clip c2a is linked to it, so moves, trims and splits apply to both.
+  t1 (crossfade, 0.500s, handle mode, audio crossfade) runs into it from c1.
+  1 effect is applied, in order: color (saturation=1.2).
+```
+
+`timeline` はプロジェクト全体（尺・fps・解像度・トラック構成・トランジション・音声・ギャップ）を、`render` は生成される ffmpeg コマンドとフィルタグラフを**連鎖ごとに注釈付きで**表示する（`render --dry-run` と同じプランを組み立てる）。
+
+解釈できない要素（未導入プラグインの `opaque` クリップ、未登録の効果・ジェネレータ）は「読み書きはできるがレンダーできない」ことを `notes` に書く（F-EXT-4）。存在しない ID は形から種別を当てて `E_CLIP_NOT_FOUND` / `E_TRANSITION_NOT_FOUND` / `E_TRACK_NOT_FOUND` / `E_DUCKING_NOT_FOUND` / `E_ASSET_NOT_FOUND` を返し、`hint` に候補を出す。
 
 ---
 
@@ -765,4 +784,5 @@ montash render -o <path> [--preset <name>] [--from <t>] [--to <t>]
 | `serve`, `preview *` | W-02, W-04, W-16, W-17 | F-PV-1〜16 |
 | `render *` | W-09, W-11, W-12 | F-RD-1〜9 |
 | `status`, `log`, `show`, `diff`, `blame`, `commit`, `-m`, `checkout`, `undo`, `redo`, `revert`, `reset`, `tag`, `history *` | W-10, W-11, W-15, W-16 | F-PRJ-3, F-PRJ-5, F-HIS-1〜8, N-13 |
-| `schema`, `batch`, `explain` | 全般 | F-AI-1〜5 |
+| `schema`, `batch` | 全般 | F-AI-1〜5 |
+| `explain` | W-21 | F-AI-4, F-EXT-4 |
