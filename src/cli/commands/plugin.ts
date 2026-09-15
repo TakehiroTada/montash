@@ -73,6 +73,7 @@ export const pluginList = defineCommand({
                     ...p.registered.effects.map((e) => `effect:${e}`),
                     ...p.registered.generators.map((g) => `generator:${g}`),
                     ...p.registered.transitions.map((t) => `transition:${t}`),
+                    ...p.registered.commands.map((c) => `command:${c}`),
                   ].join(" ")}`,
               )
               .join("\n"),

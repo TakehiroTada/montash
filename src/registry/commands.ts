@@ -25,11 +25,15 @@ export interface RegisterCommandOptions {
   source?: CommandSource;
   /** このコマンドが必要とする ffmpeg 機能。`doctor` の検査対象に合成される */
   requires?: FeatureRequirements;
+  /** 供給元がプラグインならその ID（衝突を報告するときに「誰が取ったか」を言うため） */
+  plugin?: string;
 }
 
 export interface CommandRegistration {
   spec: AnyCommandSpec;
   source: CommandSource;
+  /** 供給元がプラグインならその ID */
+  plugin?: string;
 }
 
 const registered = new Map<string, CommandRegistration>();
@@ -41,7 +45,11 @@ const requirementsId = (path: string) => `command:${path}`;
  * `getCommands()` が `duplicate command path` で弾く）。
  */
 export function registerCommand(spec: AnyCommandSpec, opts: RegisterCommandOptions = {}): void {
-  registered.set(spec.path, { spec, source: opts.source ?? "plugin" });
+  registered.set(spec.path, {
+    spec,
+    source: opts.source ?? "plugin",
+    ...(opts.plugin !== undefined ? { plugin: opts.plugin } : {}),
+  });
   if (opts.requires) registerRequirements(requirementsId(spec.path), opts.requires);
 }
 
@@ -63,6 +71,17 @@ export function registeredCommands(): readonly CommandRegistration[] {
 async function builtinCommands(): Promise<readonly AnyCommandSpec[]> {
   const { commands } = await import("../cli/commands/registry.ts");
   return commands;
+}
+
+/**
+ * 組み込みコマンドのパス集合。プラグインが組み込みを乗っ取っていないかを**登録の時点で**
+ * 確かめるために使う（`getCommands()` まで待つと、どのプラグインが原因か分かりにくい）。
+ *
+ * `plugins/loader.ts` からはここを経由して読む。`cli/commands/registry.ts` を直接 import すると
+ * `registry.ts → plugin.ts → plugins/loader.ts` の循環になるため。
+ */
+export async function builtinCommandPaths(): Promise<ReadonlySet<string>> {
+  return new Set((await builtinCommands()).map((c) => c.path));
 }
 
 /**

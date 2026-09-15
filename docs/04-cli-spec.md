@@ -145,6 +145,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_PLUGIN_LOAD_FAILED` | プラグインの読み込み・登録中に例外 | どのプラグインか |
 | `E_PLUGIN_EXISTS` / `E_PLUGIN_NOT_FOUND` | 導入済み／未導入 | `--force`、`plugin list` |
 | `E_PLUGIN_CAPABILITY_REQUIRED` | 宣言していない能力（`analyze` など）を使おうとした | マニフェストに足すべき `capabilities` |
+| `E_PLUGIN_COMMAND_CONFLICT` | プラグインが組み込みコマンド（または他のプラグインが取ったパス）を名乗ろうとした | どのプラグインがどのパスを取ろうとしたか |
 | `E_SCHEMA_TOO_OLD` | `project.json` の `schema_version` が古い。v1.0 前なので移行は提供しない | `montash init` で作り直す |
 | `E_HISTORY_REF_NOT_FOUND` | op/commit/tag が無い | 類似 ID 候補 |
 | `E_TAG_EXISTS` / `E_TAG_NOT_FOUND` | タグ名 | — |
@@ -545,6 +546,10 @@ montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) -
 ### `montash plugin doctor [--json]` — W-19
 
 このプロジェクトが必要とするプラグイン（`project.plugins.requires[]`）と、解釈できない効果を照合して報告する。不足があれば終了コード 1。
+
+### プラグインが足すコマンド
+
+プラグインは効果・ジェネレータ・トランジションだけでなく、**CLI コマンドそのもの**を足せる（`host.commands.define()`。docs/14 §3.3）。登録されたコマンドは組み込みとまったく同じ `CommandSpec` として `getCommands()` に合成されるので、`montash schema` / `montash help` にも自動で載り、「実行はできるが AI からは見えない」が起きない。**コマンドは必ずプラグイン ID の末尾セグメントを名前空間として持つ**（`com.example.glow` なら `montash glow ...` の下だけ）。名前空間が組み込みの第 1 セグメント（`clip` / `render` など）と同じになる場合や、別のプラグインが既に取ったパスの場合は `E_PLUGIN_COMMAND_CONFLICT` で登録を拒否し、そのプラグインだけを読み込み失敗にする（組み込みは決して置き換わらない）。状態を変える（`mutates: true`）コマンドも通常の状態変更コマンドと同じ道を通る — 変更は op として履歴に残り、`--dry-run` / `-m` もそのまま効く。プラグインが `project.json` を直接書くことはない。どのコマンドがどのプラグイン由来かは `plugin list` の `registered.commands` で分かる。Web から実行できるのはマニフェストの `webAllow` と `serve --allow` が許した範囲だけ（docs/06）。
 
 ## エフェクト（W-18）
 
