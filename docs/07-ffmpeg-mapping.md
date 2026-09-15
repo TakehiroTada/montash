@@ -107,6 +107,7 @@ setpts → fps → trim → settb → crop → scale/pad → setsar
 - エフェクトが宣言した `requires`（必要な ffmpeg フィルタ）は `registry/requirements.ts` 経由で `doctor` の検査対象に合成される。
 - 未登録の種別は `E_PLUGIN_MISSING`（「未実装」ではなく**プラグイン不足**として扱う）。
 - キーフレーム（`keyframes`）は `E_NOT_IMPLEMENTED`（F-FX-8）。
+- **解析つきエフェクト（Level C）** は、レンダー前に `ffmpeg/effect-analysis.ts` が測定パスを走らせ、結果を `GraphOptions.effectAnalyses` として注入する（ducking / loudnorm と同じ形）。`graph/` は純関数のまま。
 - **`preview` のセグメントキャッシュは `filterComplex` 由来の指紋なので、エフェクトの増減・パラメータ変更で自動的に無効化される。** 外部ファイル（LUT 等）を参照するエフェクトはここが穴で、**パスが同じまま中身を差し替えても無効化されない**（`lut3d` が唯一の該当。§11、docs/13 D-19）。当面の回避策は `preview build --force`、またはファイル名を変えること。
 
 ## 3b. ジェネレータ（レジストリ）

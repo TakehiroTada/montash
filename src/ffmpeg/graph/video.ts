@@ -128,7 +128,9 @@ export function normalizeVideoClip(ctx: GraphContext, spec: VideoClipSpec, mode:
   filters.push("setsar=1");
   if (v?.color) filters.push(...colorFilters(v.color as Record<string, unknown>, ctx, frames));
   // クリップの effects[] は配列順に、色補正のあと・format 前へ差し込む（docs/07 §3a）
-  filters.push(...buildEffectFilters("video", clip.effects, effectContext(ctx, frames)));
+  filters.push(
+    ...buildEffectFilters("video", clip.effects, effectContext(ctx, frames), ctx.opts.effectAnalyses?.[clip.id]),
+  );
   filters.push(`format=${alpha ? "yuva420p" : "yuv420p"}`);
   if (opacity < 1) filters.push(`colorchannelmixer=aa=${opacity}`);
   filters.push(...speedFilters(ctx, clip.speed));

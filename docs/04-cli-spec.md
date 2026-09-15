@@ -144,6 +144,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_PLUGIN_INCOMPATIBLE` | プラグインが要求する API バージョンをホストが支えない | 受理できるバージョン範囲 |
 | `E_PLUGIN_LOAD_FAILED` | プラグインの読み込み・登録中に例外 | どのプラグインか |
 | `E_PLUGIN_EXISTS` / `E_PLUGIN_NOT_FOUND` | 導入済み／未導入 | `--force`、`plugin list` |
+| `E_PLUGIN_CAPABILITY_REQUIRED` | 宣言していない能力（`analyze` など）を使おうとした | マニフェストに足すべき `capabilities` |
 | `E_SCHEMA_TOO_OLD` | `project.json` の `schema_version` が古い。v1.0 前なので移行は提供しない | `montash init` で作り直す |
 | `E_HISTORY_REF_NOT_FOUND` | op/commit/tag が無い | 類似 ID 候補 |
 | `E_TAG_EXISTS` / `E_TAG_NOT_FOUND` | タグ名 | — |

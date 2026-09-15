@@ -127,6 +127,18 @@ function createHost(
     capabilities,
     effects: {
       define(spec) {
+        // Level C の宣言が無いプラグインは `analyze()` を持てない（docs/14 §4）。
+        // 黙って無視すると「動かない理由が分からない」ので、登録の時点で弾く。
+        if (spec.analyze && !capabilities.analyze) {
+          throw new MontashError(
+            "E_PLUGIN_CAPABILITY_REQUIRED",
+            `plugin "${manifest.id}" defines effect "${spec.name}" with analyze() but does not declare the "analyze" capability`,
+            {
+              hint: 'Add "capabilities": ["analyze"] to montash-plugin.json. It is shown to the user at install time.',
+              detail: { plugin: manifest.id, effect: spec.name, capability: "analyze" },
+            },
+          );
+        }
         registerEffect(spec, "plugin");
         registered.effects.push(`${spec.target}:${spec.name}`);
       },

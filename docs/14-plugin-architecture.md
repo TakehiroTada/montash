@@ -108,6 +108,36 @@ export default {
 
 Level C は `plugin install` 時に人間へ提示される。
 
+### 4.1 `analyze`（実装済み）
+
+レンダーの前に 1 度だけ走る測定パス。**loudnorm / ducking とまったく同じ「解析は外で実行し、結果を値で注入する」形**にしてあるので、`build()` の純粋性と `preview` のキャッシュ整合が保たれる。
+
+```js
+host.effects.define({
+  name: "autolevel",
+  target: "video",
+  async analyze(params, ctx) {
+    // ffmpeg の起動は**ホストが仲介する**。プラグインが渡せるのはフィルタ文字列だけで、
+    // 任意のコマンドを実行することはできない
+    const stderr = await ctx.probe("signalstats,metadata=print");
+    return { avg: parseAverage(stderr) };
+  },
+  build(params, ctx) {
+    if (!ctx.analysis) return [];          // 解析が無ければ既定の挙動に落とす
+    return [`eq=brightness=${correction(ctx.analysis)}`];
+  },
+});
+```
+
+- **`capabilities: ["analyze"]` を宣言していないプラグインは、`analyze()` を持つ効果を登録できない**（`E_PLUGIN_CAPABILITY_REQUIRED`）。黙って無視すると原因が分からなくなるため、登録の時点で弾く。
+- `ctx.probe(filter)` の ffmpeg 引数は**ホストが組み立てる**（入力・切り出し範囲・`-f null -`）。プラグインはフィルタ文字列しか渡せない。
+- **解析が要る効果が 1 つも無ければ、ffmpeg は 1 度も起動しない。**
+- クリップ内で同じ効果を 2 度掛けても解析は 1 回（結果を共有）。
+
+### 4.2 `process`（未実装）
+
+外部プロセスの起動。importer / exporter（Phase 3）で使う予定で、現状は宣言だけを受け付ける。
+
 ## 5. 探索と読み込み
 
 ```
