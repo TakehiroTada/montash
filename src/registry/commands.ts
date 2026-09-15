@@ -88,8 +88,26 @@ export async function builtinCommandPaths(): Promise<ReadonlySet<string>> {
  * 組み込み + 実行時登録の合成リスト。組み込みの並びは保ったまま、登録順に後ろへ足す。
  * 重複パスはここで検出する（yargs へ登録する前に落としたいので `buildCommandTree` を通す）。
  */
+/**
+ * 組み込みコマンドのうち、**オプションが実行時の登録内容で決まる**ものを作り直すためのフック。
+ *
+ * `effect add` / `effect set` の引数は「登録済みエフェクトのパラメータの和集合」なので、
+ * モジュール読み込み時に固めてしまうと**プラグインが登録したエフェクトのパラメータが載らない**
+ * （ドッグフーディングで実際に踏んだ: `effect add c2 denoise --amount 10` が
+ * `Unknown arguments: amount` になった）。プラグインのロードは `getCommands()` より前に
+ * 済んでいるので、ここで作り直せば schema / help / yargs の 3 者すべてに反映される。
+ */
+const rebuilders = new Map<string, () => AnyCommandSpec>();
+
+export function registerSpecRebuilder(path: string, rebuild: () => AnyCommandSpec): void {
+  rebuilders.set(path, rebuild);
+}
+
 export async function getCommands(): Promise<readonly AnyCommandSpec[]> {
-  const specs: AnyCommandSpec[] = [...(await builtinCommands())];
+  const specs: AnyCommandSpec[] = (await builtinCommands()).map((spec) => {
+    const rebuild = rebuilders.get(spec.path);
+    return rebuild ? rebuild() : spec;
+  });
   for (const reg of registered.values()) specs.push(reg.spec);
   buildCommandTree(specs); // duplicate command path の検出
   return specs;

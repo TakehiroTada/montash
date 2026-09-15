@@ -11,12 +11,14 @@
  * 実際にどれを受け取るかは効果ごとに `paramsFromArgs()` で絞り、範囲と型は
  * `resolveEffectParams()` が検査する。
  *
- * TODO(Phase 2): プラグインが後から登録したエフェクトのパラメータもオプションに載せるため、
- * ここの spec 組み立てを `registry/commands.ts` の実行時合成に寄せる。
+ * オプションの和集合は**実行時に組み立て直す**（`registerSpecRebuilder`）。モジュール読み込み時に
+ * 固めると、プラグインが登録したエフェクトのパラメータが載らない（`effect add c2 denoise --amount 10`
+ * が `Unknown arguments: amount` になる）。プラグインのロードは `getCommands()` より前に終わっている。
  */
 import { findClip } from "../../core/clip-editing.ts";
 import type { Project, TrackClip } from "../../core/schema.ts";
 import { loadedPlugins } from "../../plugins/loader.ts";
+import { registerSpecRebuilder } from "../../registry/commands.ts";
 import {
   collectParamOrigins,
   type EffectRef,
@@ -378,3 +380,28 @@ export const effectRemove = defineCommand<RemoveArgs>({
     });
   },
 });
+
+// ---------------------------------------------------------------------------
+// 実行時のオプション再構築
+//
+// プラグインのロードは `cli/index.ts` の `loadPluginsForCli()` で、`getCommands()` より前に済む。
+// そのタイミングで和集合を作り直すことで、schema / help / yargs の 3 者すべてに反映される。
+// ---------------------------------------------------------------------------
+
+registerSpecRebuilder(
+  effectAdd.path,
+  () =>
+    ({
+      ...effectAdd,
+      options: { index: indexOption, ...paramOptions() },
+    }) as never,
+);
+
+registerSpecRebuilder(
+  effectSet.path,
+  () =>
+    ({
+      ...effectSet,
+      options: { index: { ...indexOption, describe: "move the effect to this position" }, ...paramOptions() },
+    }) as never,
+);
