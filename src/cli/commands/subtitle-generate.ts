@@ -69,6 +69,7 @@ function optNumber(args: Args, name: string, positive = true): number | undefine
   if (!has(args, name)) return undefined;
   const n = Number(option(args, name));
   if (!Number.isFinite(n) || (positive && n <= 0)) throw errors.usage(`--${name} must be a positive number`);
+  if (!positive && n < 0) throw errors.usage(`--${name} must be zero or a positive number`);
   return n;
 }
 
@@ -218,6 +219,12 @@ export const subtitleGenerate = defineCommand({
       type: "number",
       describe: `max seconds a cue stays on screen (default ${SUBTITLE_FORMAT_DEFAULTS.maxDurationMs / 1000})`,
     },
+    pause: {
+      type: "number",
+      describe:
+        "split a cue where the speaker pauses this many seconds, even without a full stop " +
+        `(default ${SUBTITLE_FORMAT_DEFAULTS.pauseGapMs / 1000}; 0 to only split on punctuation)`,
+    },
   },
   examples: [
     { cmd: "montash subtitle generate --lang ja", note: "transcribe the timeline mix and burn the result in" },
@@ -266,6 +273,9 @@ export const subtitleGenerate = defineCommand({
         : {}),
       ...(optNumber(args, "max-duration") !== undefined
         ? { maxDurationMs: (optNumber(args, "max-duration") as number) * 1000 }
+        : {}),
+      ...(optNumber(args, "pause", false) !== undefined
+        ? { pauseGapMs: (optNumber(args, "pause", false) as number) * 1000 }
         : {}),
     };
 

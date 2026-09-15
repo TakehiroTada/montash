@@ -14,6 +14,9 @@ import {
   type FormattedCue,
   formatSrtTime,
   formatTranscript,
+  isUtteranceBoundary,
+  MIN_PAUSE_CHUNK_CHARS,
+  pauseRanges,
   retime,
   SUBTITLE_FORMAT_DEFAULTS,
   sentenceRanges,
@@ -195,6 +198,45 @@ describe("語の途中で切らない", () => {
     expect(Math.abs(lines[0]!.length - lines[1]!.length)).toBeLessThanOrEqual(2);
   });
 
+  test("接頭辞（お・ご）の直後では切らない（「よろしくお / 願いします」を防ぐ）", () => {
+    // D-21: 実素材（朝ミーティング）で割れた行。接頭辞の手前が語の頭になる
+    expect(breakScore("よろしくお願いします", 5)).toBeLessThan(0); // お | 願
+    expect(breakScore("よろしくお願いします", 4)).toBeGreaterThanOrEqual(6); // く | お願い
+    expect(wrapLines("Xでの拡散さんとかよろしくお願いします以上です", 20, 2)).toEqual([
+      "Xでの拡散さんとかよろしく",
+      "お願いします以上です",
+    ]);
+    expect(wrapLines("じゃあ、エビちゃんテックライブのお知らせとおはようございます。", 20, 2)).toEqual([
+      "じゃあ、エビちゃんテックライブの",
+      "お知らせとおはようございます。",
+    ]);
+  });
+
+  test("活用語尾・敬体の直前では切らない（「ござい / ます」を防ぐ）", () => {
+    expect(breakScore("ありがとうございます", 8)).toBeLessThan(0); // ござい | ます
+    expect(breakScore("そうですね", 2)).toBeLessThan(0); // そう | ですね
+    expect(breakScore("吉田さんが", 2)).toBeLessThan(0); // 吉田 | さん
+    // 「ちゃんと」は呼びかけの「ちゃん」ではない（後ろがひらがななので接尾辞と取り違えない）
+    expect(breakScore("調べてちゃんと言う", 3)).toBeGreaterThanOrEqual(0);
+  });
+
+  test("語幹と語尾の境目は切ってよい（切る場所を無くさない）", () => {
+    expect(breakScore("共有します", 2)).toBeGreaterThan(0); // 共有 | します
+    expect(breakScore("活用してもらう", 2)).toBeGreaterThan(0); // 活用 | して
+  });
+
+  test("どこも切れないときは助詞の貼り付きだけ緩める（語を割るよりまし）", () => {
+    // 「定例ミーティングがあります」を 13 字で折ると、カタカナ語を割るしかなくなる。
+    // 語の途中で割らずに助詞（が）の手前で折り返す
+    const lines = wrapLines("シノハルさんと内部監査の定例ミーティングがあります", 13, 2);
+    expect(lines.some((l) => l.includes("ミーティン") && !l.includes("ミーティング"))).toBe(false);
+  });
+
+  test("数の並びの読点は文の区切りではない（「週に 4、5 回」）", () => {
+    expect(breakScore("週に4、5回", 4)).toBeLessThan(0);
+    expect(breakScore("はい、5回", 3)).toBeGreaterThan(0);
+  });
+
   test("文字種の判定", () => {
     expect(charClass("漢")).toBe("kanji");
     expect(charClass("ア")).toBe("katakana");
@@ -227,6 +269,100 @@ describe("禁則処理", () => {
 
   test("行末に来てしまった開き括弧は次の行へ送る", () => {
     expect(applyKinsoku(["彼は「", "そうだ」と言った"])).toEqual(["彼は", "「そうだ」と言った"]);
+  });
+});
+
+describe("句点が無い区間は話者の間で切る（D-22）", () => {
+  /** 「間」を空けたトークン列。`gapMs` は直前のトークンとの無音 */
+  const paused = (pieces: ReadonlyArray<readonly [string, number]>, msPerChar = 120): TranscriptToken[] => {
+    let t = 0;
+    return pieces.map(([text, gapMs]) => {
+      t += gapMs;
+      const start = t;
+      t += [...text].length * msPerChar;
+      return { text, startMs: start, endMs: t };
+    });
+  };
+
+  /** 実素材（朝ミーティング 147.5〜181.05 秒）と同じ形: 句点が無く、2 文が地続きになる */
+  const REAL = paused([
+    ["テックライブのお知らせと", 0],
+    ["ありがとうございます", 250],
+    ["テックライブの33回目のお知らせです", 380],
+  ]);
+
+  test("間が空いたところで字幕が分かれる（1 字幕に 2 文を入れない）", () => {
+    const cues = formatTranscript(REAL, { pauseGapMs: 300 });
+    expect(cues.length).toBeGreaterThan(1);
+    expect(cues.map((c) => c.text.replace(/\n/g, ""))).toEqual([
+      "テックライブのお知らせとありがとうございます",
+      "テックライブの33回目のお知らせです",
+    ]);
+  });
+
+  test("間を見ないと 1 字幕にまとまってしまう（これが D-22 の症状）", () => {
+    const cues = formatTranscript(REAL, { pauseGapMs: 0 });
+    expect(cues).toHaveLength(1);
+    expect(cues[0]!.text.replace(/\n/g, "")).toBe(
+      "テックライブのお知らせとありがとうございますテックライブの33回目のお知らせです",
+    );
+  });
+
+  test("既定の間は 0.5 秒", () => {
+    expect(SUBTITLE_FORMAT_DEFAULTS.pauseGapMs).toBe(500);
+  });
+
+  test("間が空いていても語の途中では切らない（エンジンの時刻は語の中でも飛ぶ）", () => {
+    // 実素材で「33」と「回目」の間に 730ms あった。ここで切ると「33 / 回目のお知らせです」になる
+    const cues = formatTranscript(
+      paused([
+        ["テックライブの33", 0],
+        ["回目のお知らせです", 730],
+      ]),
+      {
+        pauseGapMs: 500,
+      },
+    );
+    expect(cues).toHaveLength(1);
+  });
+
+  test("文の終わりらしくないところでは切らない（句の途中で切らない）", () => {
+    // 「リーダーの仕事はもっと」で 600ms 空いても、文が終わっていないので切らない
+    const cues = formatTranscript(
+      paused([
+        ["リーダーの仕事はもっと", 0],
+        ["重要な課題があります", 600],
+      ]),
+      {
+        pauseGapMs: 500,
+      },
+    );
+    expect(cues).toHaveLength(1);
+  });
+
+  test("接続表現の手前は間があれば切れ目になる", () => {
+    expect(pauseRanges("終わりですじゃあ、次に進みます", [0, 15], [], 0)).toEqual([[0, 15]]);
+    expect(isUtteranceBoundary("終わりですじゃあ、次に進みます", 5)).toBe(true);
+    expect(isUtteranceBoundary("リーダーの仕事はもっと重要な", 11)).toBe(false);
+  });
+
+  test("短い断片は作らない（切りすぎない）", () => {
+    // 「はい」のあとに間があっても、両側が短いので切らない
+    const cues = formatTranscript(
+      paused([
+        ["はい", 0],
+        ["どうも", 900],
+      ]),
+      { pauseGapMs: 500 },
+    );
+    expect(cues).toHaveLength(1);
+    expect(MIN_PAUSE_CHUNK_CHARS).toBe(8);
+  });
+
+  test("間で切った字幕も最小表示時間を満たす", () => {
+    for (const cue of formatTranscript(REAL, { pauseGapMs: 300 })) {
+      expect(cue.endMs - cue.startMs).toBeGreaterThanOrEqual(1200);
+    }
   });
 });
 

@@ -666,7 +666,7 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ASS 素材（`.ass` / `.ssa`）を `burn` するときは素材自身の Style が勝つので、スタイル指定は `W_SUBTITLE_STYLE_IGNORED` で無視を知らせる。
 
-### `montash subtitle generate [--asset <id>] [--lang ja] [--vocabulary <語,語>] [--engine <name>] [--engine-path <p>] [--model <p>] [--threads N] [--timeout <s>] [-o <path.srt>] [--overwrite] [--no-add] [--mode burn|soft] [--track <t>] [--at <t>] [--font <family>] [--asset-id <id>] [--id <id>] [--max-chars 20] [--max-lines 2] [--min-duration 1.2] [--max-duration 5.5]` — W-22
+### `montash subtitle generate [--asset <id>] [--lang ja] [--vocabulary <語,語>] [--engine <name>] [--engine-path <p>] [--model <p>] [--threads N] [--timeout <s>] [-o <path.srt>] [--overwrite] [--no-add] [--mode burn|soft] [--track <t>] [--at <t>] [--font <family>] [--asset-id <id>] [--id <id>] [--max-chars 20] [--max-lines 2] [--min-duration 1.2] [--max-duration 5.5] [--pause 0.5]` — W-22
 
 音声を書き起こして字幕にする。1 コマンドで「音声の書き出し → 書き起こし → 整形 → SRT → `import` → `subtitle add`」までをやる。
 
@@ -678,8 +678,12 @@ ASS 素材（`.ass` / `.ssa`）を `burn` するときは素材自身の Style �
 - 入力は既定でタイムラインのミックス（`render audio` と同じ経路で 16kHz モノラル WAV を作る）。`--asset <id>` で素材 1 つだけにできる。
 - `--vocabulary "多面観察,総括次長"` はエンジンの `--prompt` に渡る。固有名詞の精度が大きく変わるので、分かっているなら必ず渡す。
 - **整形（トークン → 読める字幕）は montash 側が行う**（`src/core/subtitle-format.ts` の純関数）。
-  文（。！？）でまとめるのを最優先し、長い文は読点、それでも長ければ文字数で分ける。語の途中（カタカナ語・漢字の連なり・助詞の直前）では切らない。
+  文（。！？）でまとめるのを最優先し、長い文は読点、それでも長ければ文字数で分ける。語の途中（カタカナ語・漢字の連なり・助詞の直前・「お願い」のような接頭辞・「ございます」のような活用語尾）では切らない。
+  **字幕の切れ目（cue 境界）と 1 字幕の中の行折り返しは同じ語境界の判定（`breakScore()`）を使う**ので、片方だけ語が割れることはない。
   1 字幕 = 最大 `--max-lines` 行 × `--max-chars` 字（既定 2 × 20）、表示 `--min-duration`〜`--max-duration` 秒（既定 1.2〜5.5）、日本語の禁則処理、字幕どうしは重ねない。
+- エンジンが句点を出さない区間では **話者の間（トークン間の無音）** を文の切れ目として使う。`--pause <秒>`（既定 0.5、`0` で無効）以上の無音があり、
+  かつ本文もそこで切れそうなとき（敬体の語尾・呼びかけ・読点のあと、または接続表現の手前）だけ切る。時間だけ・言葉だけでは切らない
+  （エンジンの時刻は語の中でも飛ぶため。実測で「33 | 回目」の間に 730ms あった）。`--max-len` のようなエンジン側の設定には頼らない。
 - 出力は既定で `<project>/subtitles/<name>.<lang>.srt`。`--no-add` を付けると SRT を書くだけで `project.json` は変えない。
 - `result` は `srt` / `cues` / `tokens` / `engine` / `model` / `language` / `vocabulary` / `command`（エンジンの引数）/ `asset` / `clip`。
 - 見た目（サイズ・色・位置）の調整は `subtitle set` に任せる。

@@ -6,11 +6,15 @@
  * 実地で判明した「読める字幕」の条件を、ここに 1 か所へまとめる:
  *
  *   1. **文（。！？）でまとめるのを最優先**。文の途中で切ると読みにくい
- *   2. 長い文は読点（、）で分け、それでも長ければ文字数で分ける
- *   3. **語の途中で切らない**（カタカナ語・漢字の連なり・助詞の直前で切らない）
- *   4. 1 字幕 = 最大 `maxLines` 行 × `maxCharsPerLine` 字
- *   5. 日本語の**禁則処理**（行頭に句読点・閉じ括弧・小書き仮名・長音符を置かない）
- *   6. 表示時間は `minDurationMs`〜`maxDurationMs`、字幕どうしは重ならない
+ *   2. 句点が無くても、**話者の間（トークン間の無音）**が空いたところは文の切れ目として扱う
+ *   3. 長い文は読点（、）で分け、それでも長ければ文字数で分ける
+ *   4. **語の途中で切らない**（カタカナ語・漢字の連なり・助詞の直前・接頭辞と接尾辞の途中で切らない）
+ *   5. 1 字幕 = 最大 `maxLines` 行 × `maxCharsPerLine` 字
+ *   6. 日本語の**禁則処理**（行頭に句読点・閉じ括弧・小書き仮名・長音符を置かない）
+ *   7. 表示時間は `minDurationMs`〜`maxDurationMs`、字幕どうしは重ならない
+ *
+ * 字幕の切れ目（cue 境界）と 1 字幕の中の行折り返しは、**同じ `breakScore()` で判定する**。
+ * 語境界の知識を 2 か所に分けて持つと、片方だけ直して片方が割れる（D-21 がそれだった）。
  *
  * エンジン自体は montash に組み込まない（docs/14「やらないこと」）。ここが本体の価値なので、
  * 外部プロセスにも I/O にも依存しない純関数として書き、単体テストで固定する。
@@ -35,6 +39,11 @@ export interface SubtitleFormatOptions {
   maxDurationMs?: number;
   /** 字幕どうしの最小の間隔（ms。既定 40） */
   minGapMs?: number;
+  /**
+   * これ以上の無音（トークン間の間）があれば、句点が無くてもそこで字幕を切る（ms。既定 500）。
+   * 0 を渡すと間を見ない（句点だけで切る）。
+   */
+  pauseGapMs?: number;
 }
 
 /** 整形後の 1 字幕 */
@@ -53,7 +62,14 @@ export const SUBTITLE_FORMAT_DEFAULTS = {
   minDurationMs: 1200,
   maxDurationMs: 5500,
   minGapMs: 40,
+  pauseGapMs: 500,
 } as const;
+
+/**
+ * 間（ま）で字幕を切るときの下限の文字数。これより短い断片は作らない。
+ * 切りすぎると「で、」だけの字幕が量産されるので、両側がこの長さ以上のときだけ切る。
+ */
+export const MIN_PAUSE_CHUNK_CHARS = 8;
 
 // ---------------------------------------------------------------------------
 // 文字の分類と禁則
@@ -121,6 +137,45 @@ const PARTICLES = [
   "よ",
 ] as const;
 
+/**
+ * 直前の語に貼り付く**活用語尾・敬体**。この直前でも切らない。
+ *
+ * 実素材で「ありがとうござい / ます」のように割れたので、助詞（PARTICLES）と同じ扱いにする。
+ * 語幹と語尾の境目（「共有 / します」「活用 / してもらう」）は読めるので**入れない**。
+ * ここを広げすぎると、切れる場所が無くなってかえって悪いところで割れる（実素材で確認した）。
+ * 長いものから試すので配列の順序に意味がある。
+ */
+const SUFFIXES = [
+  "ませんでした",
+  "ましょう",
+  "ました",
+  "ません",
+  "まして",
+  "ます",
+  "でしょう",
+  "でした",
+  "ですね",
+  "です",
+  "ください",
+  "られる",
+  "れる",
+  "たい",
+  "ない",
+  "なく",
+] as const;
+
+/**
+ * 人に付く接尾辞。**前が漢字・カタカナ・英数字のときだけ**接尾辞とみなす。
+ * そうしないと「（調べて）ちゃんと」のようなひらがなの語頭を接尾辞と取り違える。
+ */
+const NAME_SUFFIXES = ["さん", "くん", "ちゃん", "様"] as const;
+
+/**
+ * 次の語に貼り付く接頭辞。**この直後では切らない**（「よろしくお / 願いします」を防ぐ）。
+ * 逆に、接頭辞の**手前**は語の頭なので好ましい区切りになる。
+ */
+const PREFIXES = ["お", "ご", "御"] as const;
+
 export type CharClass = "kanji" | "katakana" | "hiragana" | "latin" | "digit" | "punct" | "space" | "other";
 
 /** 文字の種別（語の連なりを壊さないための判定に使う） */
@@ -135,18 +190,127 @@ export function charClass(ch: string): CharClass {
   return "other";
 }
 
-function startsWithParticle(text: string, i: number): boolean {
+/** 接続表現（文の頭に立つ言い回し）。読点を伴うものだけを見るので助詞と取り違えない */
+const CONNECTIVES = [
+  "というわけで",
+  "とりあえず",
+  "ちなみに",
+  "ですので",
+  "それでは",
+  "それで",
+  "じゃあ",
+  "なので",
+  "あと",
+  "まあ",
+  "はい",
+  "じゃ",
+] as const;
+
+/**
+ * 文の終わりらしい語尾。句点が無いときに「ここまでで 1 文」と見なしてよい手がかり。
+ * 呼びかけ（「〜さん」「〜くん」）も、そのあとに間が空けば区切りとして扱う。
+ */
+const SENTENCE_LIKE_ENDINGS = [
+  "ませんでした",
+  "ましょう",
+  "ました",
+  "ません",
+  "ます",
+  "でしょう",
+  "でした",
+  "ですね",
+  "です",
+  "ください",
+  "さん",
+  "くん",
+  "ちゃん",
+] as const;
+
+/** `SENTENCE_LIKE_ENDINGS` のいちばん長いものの文字数（後方を見る窓の幅） */
+const MAX_SENTENCE_LIKE_ENDING = Math.max(...SENTENCE_LIKE_ENDINGS.map((s) => s.length));
+
+/** 語の頭（ここで切ると読める）の点数。間（ま）による格上げの下限にも使う */
+const WORD_HEAD_SCORE = 6;
+
+/** 間（ま）が空いていたら、句点と同じくらい good な区切りとして扱う */
+const PAUSE_SCORE = 10;
+
+/** `text[i]` から始まる語が「直前に貼り付く」ものか（助詞・活用語尾・接尾辞） */
+function attachesToPrevious(text: string, i: number): boolean {
   for (const p of PARTICLES) {
     if (text.startsWith(p, i)) return true;
   }
+  for (const s of SUFFIXES) {
+    if (text.startsWith(s, i)) return true;
+  }
+  const before = charClass(text[i - 1] ?? "");
+  if (before !== "hiragana" && before !== "space" && NAME_SUFFIXES.some((s) => text.startsWith(s, i))) return true;
   return false;
+}
+
+/** `text[i]` が「お願い」「ご説明」のような接頭辞 + 語の**接頭辞**か */
+function isPrefixAt(text: string, i: number): boolean {
+  const ch = text[i];
+  if (ch === undefined || !PREFIXES.includes(ch as (typeof PREFIXES)[number])) return false;
+  const after = text[i + 1];
+  if (after === undefined) return false;
+  const cls = charClass(after);
+  return cls === "kanji" || cls === "katakana";
+}
+
+function startsWithConnective(text: string, i: number): boolean {
+  for (const c of CONNECTIVES) {
+    // 「で、」のような助詞と紛れる形を避けるため、読点を伴うものだけを接続表現とみなす
+    if (text.startsWith(c, i) && COMMA.has(text[i + c.length] ?? "")) return true;
+  }
+  return false;
+}
+
+/** `breakScore()` に渡す文脈。文字ごとの「直前の無音（ms）」を添えると、間（ま）も判定に使う */
+export interface BreakContext {
+  /** `gaps[i]` = `text[i]` の直前にあった無音の長さ（ms）。トークンの内側は 0 */
+  gaps?: readonly number[] | undefined;
+  /** この長さ以上の無音は語の切れ目として格上げする（ms） */
+  pauseHintMs?: number | undefined;
+  /** 助詞・接尾辞の「貼り付き」を無視する（どこも切れないときの最後の手段） */
+  relaxed?: boolean | undefined;
 }
 
 /**
  * `i - 1` と `i` の間で切ってよいか、切るならどれだけ好ましいかを返す（純関数）。
  * 負の値は「切ってはいけない」。値が大きいほど好ましい区切り。
+ *
+ * **cue 境界（字幕の切れ目）と行折り返しの両方がこの 1 つの判定を使う。**
+ * `ctx.gaps` を渡すと、話者の間（ま）が空いたところを語の切れ目として格上げする。
  */
-export function breakScore(text: string, i: number): number {
+export function breakScore(text: string, i: number, ctx: BreakContext = {}): number {
+  const base = rawScore(text, i, ctx);
+  if (base < WORD_HEAD_SCORE) return base;
+  // 間（ま）が空いていて、文の切れ目らしければ句点と同じ扱いにする。
+  // 語の途中（`base < WORD_HEAD_SCORE`）は格上げしない: エンジンの時刻は語の中でも飛ぶ（「33 | 回目」）
+  const hint = ctx.pauseHintMs;
+  const gap = ctx.gaps?.[i];
+  if (hint !== undefined && hint > 0 && gap !== undefined && gap >= hint && isUtteranceBoundary(text, i))
+    return Math.max(base, PAUSE_SCORE);
+  return base;
+}
+
+/**
+ * 「ここで発話が切れた」と見てよい位置か（純関数）。
+ * 左が文の終わりらしく終わる（敬体の語尾・呼びかけ・読点・句点）か、右が接続表現で始まる。
+ * 間（ま）だけを根拠に切ると「リーダーの仕事はもっと | 重要な〜」のように句の途中で切れるので、
+ * 間（時間）と本文（言葉）の両方がそろったときだけ切れ目とみなす。
+ */
+export function isUtteranceBoundary(text: string, i: number): boolean {
+  if (i <= 0 || i > text.length) return false;
+  const prev = text[i - 1] as string;
+  if (SENTENCE_END.has(prev) || CLOSERS.has(prev) || COMMA.has(prev)) return true;
+  const left = text.slice(Math.max(0, i - MAX_SENTENCE_LIKE_ENDING), i);
+  if (SENTENCE_LIKE_ENDINGS.some((suffix) => left.endsWith(suffix))) return true;
+  return startsWithConnective(text, i);
+}
+
+function rawScore(text: string, i: number, ctx: BreakContext): number {
   if (i <= 0 || i >= text.length) return -1;
   const prev = text[i - 1] as string;
   const next = text[i] as string;
@@ -159,13 +323,20 @@ export function breakScore(text: string, i: number): number {
   if (a === "space" || b === "space") return 9;
   // 句読点・閉じ括弧の直後はいちばん好ましい
   if (SENTENCE_END.has(prev) || CLOSERS.has(prev)) return 10;
-  if (COMMA.has(prev)) return 8;
-  // 助詞は直前の語に貼り付く。その手前で切ると「事前 / が」のように読めなくなる
-  if (startsWithParticle(text, i)) return -1;
+  // 「週に 4、5 回」のような数の並びの読点は文の区切りではない
+  if (COMMA.has(prev)) return b === "digit" && charClass(text[i - 2] ?? "") === "digit" ? -1 : 8;
+  // 接頭辞は次の語に貼り付く。「よろしくお / 願いします」を防ぐ
+  if (isPrefixAt(text, i - 1)) return -1;
+  // 助詞・活用語尾は直前の語に貼り付く。その手前で切ると「事前 / が」のように読めなくなる
+  if (!ctx.relaxed && attachesToPrevious(text, i)) return -1;
+  // 接続表現（「じゃあ、」「なので、」）の手前は文の切れ目に近い
+  if (startsWithConnective(text, i)) return 7;
+  // 接頭辞のついた語（「お願い」「ご説明」）の手前は語の頭
+  if (isPrefixAt(text, i)) return WORD_HEAD_SCORE;
   // 語の途中（同じ種別が続いている）では切らない: カタカナ語・漢語・英数字
   if (a === b && (a === "kanji" || a === "katakana" || a === "latin" || a === "digit")) return -1;
   // ひらがな → 漢字・カタカナ・英数字 は語の頭になりやすい
-  if (a === "hiragana" && b !== "hiragana") return 6;
+  if (a === "hiragana" && b !== "hiragana") return WORD_HEAD_SCORE;
   if (a !== b) return 3;
   // ひらがな同士。最後の手段として許す
   return 1;
@@ -174,23 +345,31 @@ export function breakScore(text: string, i: number): number {
 /**
  * `[minCut, maxCut]` の範囲から、いちばん好ましい区切り位置を選ぶ（純関数）。
  * `softTarget` に近いほど好ましい（行の長さを揃えるため）。
- * どこも切れない場合は禁則だけ避けて `maxCut` 付近で切る。
+ * 語境界の候補が無ければ助詞の貼り付きだけ緩めて探し直し、それでも無ければ禁則だけ避けて割る。
  */
-export function findBreak(text: string, minCut: number, maxCut: number, softTarget: number): number {
+export function findBreak(
+  text: string,
+  minCut: number,
+  maxCut: number,
+  softTarget: number,
+  ctx: BreakContext = {},
+): number {
   const lo = Math.max(1, minCut);
   const hi = Math.min(maxCut, text.length - 1);
-  let best = -1;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (let i = lo; i <= hi; i++) {
-    const s = breakScore(text, i);
-    if (s < 0) continue;
-    const total = s * 100 - Math.abs(i - softTarget);
-    if (total > bestScore) {
-      bestScore = total;
-      best = i;
+  for (const relaxed of [false, true]) {
+    let best = -1;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let i = lo; i <= hi; i++) {
+      const s = breakScore(text, i, { ...ctx, relaxed });
+      if (s < 0) continue;
+      const total = s * 100 - Math.abs(i - softTarget);
+      if (total > bestScore) {
+        bestScore = total;
+        best = i;
+      }
     }
+    if (best > 0) return best;
   }
-  if (best > 0) return best;
   // 候補が無い（1 語が長すぎるカタカナ語など）。目標位置で割り、行頭禁則だけは避ける
   let i = Math.min(hi, Math.max(lo, softTarget));
   while (i > lo && NO_LINE_START.has(text[i] as string)) i--;
@@ -232,11 +411,39 @@ function commaRanges(text: string, [s, e]: Range): Range[] {
   return out;
 }
 
+/**
+ * 話者の間（ま）で区間を割る（純関数。D-22）。
+ *
+ * whisper は句点を出さないことがあり、そのときは文の切れ目が本文に現れない。
+ * 切る条件は 3 つそろったときだけ（実素材で確かめた。どれが欠けても誤爆する）:
+ *
+ *   1. トークン間の無音が `minGapMs` 以上
+ *   2. `breakScore()` が語の頭と見る位置（エンジンの時刻は語の中でも飛ぶ。実素材で「33 | 回目」に 730ms）
+ *   3. `isUtteranceBoundary()`（文の終わりらしい語尾、または接続表現の手前）
+ *
+ * さらに、両側が `MIN_PAUSE_CHUNK_CHARS` 以上になる切り方だけ採る（1 文字字幕を量産しないため）。
+ */
+export function pauseRanges(text: string, [s, e]: Range, gaps: readonly number[], minGapMs: number): Range[] {
+  if (minGapMs <= 0) return [[s, e]];
+  const out: Range[] = [];
+  let start = s;
+  for (let i = s + 1; i < e; i++) {
+    if ((gaps[i] ?? 0) < minGapMs) continue;
+    if (i - start < MIN_PAUSE_CHUNK_CHARS || e - i < MIN_PAUSE_CHUNK_CHARS) continue;
+    if (breakScore(text, i) < WORD_HEAD_SCORE) continue;
+    if (!isUtteranceBoundary(text, i)) continue;
+    out.push([start, i]);
+    start = i;
+  }
+  out.push([start, e]);
+  return out;
+}
+
 /** どうしても長い区間を文字数で割る（語の途中では切らない） */
-function splitByLength(text: string, [s, e]: Range, capacity: number, out: Range[]): void {
+function splitByLength(text: string, [s, e]: Range, capacity: number, out: Range[], ctx: BreakContext): void {
   let pos = s;
   while (e - pos > capacity) {
-    const cut = findBreak(text, pos + 1, pos + capacity, pos + capacity);
+    const cut = findBreak(text, pos + 1, pos + capacity, pos + capacity, ctx);
     if (cut <= pos) break;
     out.push([pos, cut]);
     pos = cut;
@@ -248,7 +455,7 @@ function splitByLength(text: string, [s, e]: Range, capacity: number, out: Range
  * 1 文を字幕 1 枚に収まる区間へ割る（純関数）。
  * 文 → 読点 → 文字数、の順に緩めていく。
  */
-export function chunkSentence(text: string, range: Range, capacity: number): Range[] {
+export function chunkSentence(text: string, range: Range, capacity: number, ctx: BreakContext = {}): Range[] {
   if (range[1] - range[0] <= capacity) return [range];
   const merged: Range[] = [];
   let cur: Range | null = null;
@@ -264,7 +471,7 @@ export function chunkSentence(text: string, range: Range, capacity: number): Ran
   const out: Range[] = [];
   for (const r of merged) {
     if (r[1] - r[0] <= capacity) out.push(r);
-    else splitByLength(text, r, capacity, out);
+    else splitByLength(text, r, capacity, out, ctx);
   }
   return out;
 }
@@ -303,6 +510,8 @@ export function applyKinsoku(lines: readonly string[]): string[] {
 /**
  * 1 字幕の本文を最大 `maxLines` 行 × `maxCharsPerLine` 字へ折る（純関数）。
  * 行の長さが揃うように区切り位置を選び、語の途中では切らない。
+ * 区切り位置の判定（`breakScore()`）は cue 境界と同じものを使う（D-21）。
+ * 話者の間（ま）は渡さない: 行の切れ目は時間の切れ目ではないので、語境界と行の釣り合いだけで決める。
  */
 export function wrapLines(text: string, maxCharsPerLine: number, maxLines: number): string[] {
   const body = text.trim();
@@ -357,22 +566,29 @@ export function cleanTokens(tokens: readonly TranscriptToken[]): TranscriptToken
   return out;
 }
 
-/** トークン列を 1 本の文字列と、文字ごとの時刻へ展開する */
-function expand(tokens: readonly TranscriptToken[]): { text: string; times: CharTime[] } {
+/**
+ * トークン列を 1 本の文字列と、文字ごとの時刻・直前の無音へ展開する。
+ * `gaps[i]` は `text[i]` の直前にあった無音（ms）。トークンの内側は 0（時刻を按分しているだけなので）。
+ */
+function expand(tokens: readonly TranscriptToken[]): { text: string; times: CharTime[]; gaps: number[] } {
   let text = "";
   const times: CharTime[] = [];
+  const gaps: number[] = [];
+  let prevEndMs: number | null = null;
   for (const t of tokens) {
     const chars = [...t.text];
     const span = Math.max(0, t.endMs - t.startMs);
     for (let k = 0; k < chars.length; k++) {
       text += chars[k];
+      gaps.push(k === 0 && prevEndMs !== null ? Math.max(0, t.startMs - prevEndMs) : 0);
       times.push({
         startMs: t.startMs + (span * k) / chars.length,
         endMs: t.startMs + (span * (k + 1)) / chars.length,
       });
     }
+    if (chars.length > 0) prevEndMs = t.endMs;
   }
-  return { text, times };
+  return { text, times, gaps };
 }
 
 /** 区間の前後から空白を落とす（空になったら null） */
@@ -403,19 +619,28 @@ export function formatTranscript(
   const minDurationMs = options.minDurationMs ?? SUBTITLE_FORMAT_DEFAULTS.minDurationMs;
   const maxDurationMs = options.maxDurationMs ?? SUBTITLE_FORMAT_DEFAULTS.maxDurationMs;
   const minGapMs = options.minGapMs ?? SUBTITLE_FORMAT_DEFAULTS.minGapMs;
+  const pauseGapMs = Math.max(0, options.pauseGapMs ?? SUBTITLE_FORMAT_DEFAULTS.pauseGapMs);
   if (maxCharsPerLine < 1 || maxLines < 1) throw new Error("maxCharsPerLine and maxLines must be >= 1");
   const capacity = maxCharsPerLine * maxLines;
 
-  const { text, times } = expand(cleanTokens(tokens));
+  const { text, times, gaps } = expand(cleanTokens(tokens));
   if (text.trim() === "") return [];
+
+  // 切る／切らないを決める「間」より短い無音でも、**どこで切るか**を選ぶときの手がかりにはなる。
+  // 実測（21 分の会議音声、5354 トークン境界）で無音の p95 が 280ms だったので、その少し上を取る。
+  const ctx: BreakContext = { gaps, pauseHintMs: Math.round(pauseGapMs * 0.6) };
 
   const ranges: Range[] = [];
   for (const sentence of sentenceRanges(text)) {
     const trimmed = trimRange(text, sentence);
     if (trimmed === null) continue;
-    for (const chunk of chunkSentence(text, trimmed, capacity)) {
-      const r = trimRange(text, chunk);
-      if (r !== null) ranges.push(r);
+    for (const segment of pauseRanges(text, trimmed, gaps, pauseGapMs)) {
+      const paused = trimRange(text, segment);
+      if (paused === null) continue;
+      for (const chunk of chunkSentence(text, paused, capacity, ctx)) {
+        const r = trimRange(text, chunk);
+        if (r !== null) ranges.push(r);
+      }
     }
   }
 
