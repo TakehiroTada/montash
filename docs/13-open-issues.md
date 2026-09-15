@@ -45,9 +45,9 @@
 | C-2 | **高** | `cli-video-editor/` が git 管理外 | 実装前に `git init`。仕様の変更も履歴に乗せる | done（GitHub: TakehiroTada/montash。仕様も履歴に載っている） |
 | C-3 | **高** | 開発機に ffmpeg 未導入 | `bash scripts/install-deps.sh` を実行（brew） | done（ffmpeg-full 9.0.1 = libass 入りを `~/.local/share/montash/ffmpeg` に導入。ADR-15） |
 | C-4 | 中 | WSL2 実機テスターがいない | 早期に 1 名確保、または CI の `windows-latest` + WSL で代替 | open |
-| C-5 | 中 | 仕様と実装の乖離: `montash schema` ↔ 04 章の CI 差分チェックが M5 予定 | M1 で `defineCommand` → 04 章の表を生成する簡易スクリプトを先に作る | open |
+| C-5 | 中 | 仕様と実装の乖離: `montash schema` ↔ 04 章の CI 差分チェックが M5 予定 | M1 で `defineCommand` → 04 章の表を生成する簡易スクリプトを先に作る | **done**（`bun run check:spec` = `scripts/check-spec-drift.ts` を `check` に組み込み。§1.9 が「未実装」と書いているのに実装されているもの、docs/04 が定義しているのに実装にも §1.9 にも無いものを検出する。表の生成まではしない） |
 | C-6 | 中 | AI に渡すコンテキスト量: 仕様全体は大きすぎる | AI 運用は **10 章 + `montash schema` 出力** だけで完結する設計を維持。10 章を独立して読める状態に保つ | open |
-| C-7 | 低 | `scripts/spikes/` の再実行を忘れる | Bun 更新 PR で `bun run all` を CI に含める | open |
+| C-7 | 低 | `scripts/spikes/` の再実行を忘れる | Bun 更新 PR で `bun run all` を CI に含める | **done**（CI は動かさない方針（D-6）なので、検証済み Bun バージョンを `scripts/spikes/.verified-bun` に記録し、現在の Bun と違えば `check` が知らせる形にした。`bun run spikes` が記録を更新する。失敗にはしない） |
 | C-8 | 中 | **LICENSE ファイルが無い**: `package.json` は `"license": "MIT"` と宣言しているが、リポジトリ直下に LICENSE ファイルが存在しない。OSS として配布・引用するときの根拠が不足し、利用者向けドキュメントサイト（`website/`）のライセンスページも「MIT を予定」としか書けない | 著作権者名と年を確定して `LICENSE`（MIT）を追加し、`website/src/content/docs/{ja,en}/license.md` を実ファイルの内容に合わせて更新する | done（MIT の `LICENSE` と `THIRD-PARTY-NOTICES.md` を追加し、サイトのライセンスページも実体に合わせて更新） |
 | C-9 | 低 | **ドキュメントサイトの CI・公開先が未定**: `website/`（Astro + Starlight）は Node 前提のツールチェーンのため、`node` を潰して実行する既存 CI ジョブには含めていない。公開先（GitHub Pages 等）も未定で `astro.config.mjs` の `site` / `base` が未設定 | 公開先を決めてから、`website/` 専用の CI ジョブ（`bun install && bun run build`）を別ワークフローとして追加するか判断する | open |
 | C-10 | 中 | **プラグイン API の互換性維持方針が未定**。`apiVersion` を導入すると、ホスト側の受理範囲・非推奨期間・破壊的変更の扱いを決める必要がある。決めないままプラグインが増えると、montash の更新でサードパーティが一斉に壊れる | 14 章に互換規則を書く（ホストは `apiVersion` の N と N-1 を受理、非推奨は 1 マイナー分の猶予、破壊時は `E_PLUGIN_INCOMPATIBLE` で導入を拒否して hint を出す）。Phase 2 着手前に確定 | **done**（`PLUGIN_API_VERSION` / `MIN_PLUGIN_API_VERSION` で受理範囲を持ち、範囲外は `E_PLUGIN_INCOMPATIBLE` で読み込まない。docs/14 §6） |
@@ -93,3 +93,4 @@ M1〜M3 の実装が動くようになってから、実際に触って見つか
 - 2026-09-15: **Phase 0（カーネル整備）完了**。D-14 / D-15 / D-16 / D-17 / D-18 を実装し（PR #35〜#39）、D-13 は「リリース前なので後方互換は不要」との判断で deferred に。これで拡張点レジストリ（effects / positions / commands / requirements）と、プラグイン不在でもプロジェクトが開ける前提（F-EXT-4）が揃った。次は Phase 1（W-18、`effect` コマンドと `project.effects` の宣言）。
 - 2026-09-15: **Phase 1 / Phase 2 完了**（PR #41〜#47）。`effect` コマンド群、組み込みエフェクト 6 種、generator / transition のレジストリ化、プラグインホストと `plugin` コマンド群、Level C の `analyze` まで。プラグインは montash を import せずホストが `register(host)` で API を渡す形に決め（単一バイナリの実測に基づく）、B-2 と C-10 も解決した。残るは Phase 3（importer / exporter、Web の spec 駆動フォーム、`serve --allow/--deny`）。
 - 2026-09-15: **Phase 3 完了**（PR #49〜#52）。入出力レジストリ、Web の spec 駆動フォーム（`GET /api/specs`）、`serve --allow/--deny` とプラグインの `webAllow`、commands プラグイン（名前空間強制）。これで計画（`docs/plans/2026-09-15-plugin-architecture.md`）の Phase 0〜3 がすべて終わった。残る既知の課題は D-3 / D-8 / D-9 / D-10 / D-19 / D-20 と B 群・C 群。
+- 2026-09-15: C-5 / C-7 を解消。仕様と実装の乖離は `bun run check:spec` が機械的に検出するようにし（#31 で手作業の突き合わせを誤った反省）、spikes の再実行忘れは「検証済み Bun バージョンとの差」で気づける形にした。どちらも `bun run check`（= `verify` の前半）に載っている。

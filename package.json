@@ -15,15 +15,17 @@
     "test": "bun test",
     "e2e:preview": "bun scripts/e2e-preview.ts",
     "typecheck": "bunx --bun tsc --noEmit",
-    "check": "bun run typecheck && bun run lint && bun test",
+    "check": "bun run typecheck && bun run lint && bun run check:spec && bun run check:spikes && bun test",
     "build:web": "bun build web/index.html --outdir web/dist --minify",
     "compile": "bun build --compile src/cli/index.ts --outfile dist/montash",
-    "spikes": "cd scripts/spikes && bun install && bun run all",
+    "spikes": "cd scripts/spikes && bun install && bun run all && cd ../.. && bun scripts/check-bun-spikes.ts update",
     "lint": "bunx --bun biome check .",
     "lint:fix": "bunx --bun biome check --write .",
     "format": "bunx --bun biome format --write .",
     "verify": "bun run check && bash tests/workflows/run-all.sh",
-    "licenses": "bun scripts/collect-licenses.ts"
+    "licenses": "bun scripts/collect-licenses.ts",
+    "check:spec": "bun scripts/check-spec-drift.ts",
+    "check:spikes": "bun scripts/check-bun-spikes.ts"
   },
   "dependencies": {
     "chokidar": "^4.0.3",

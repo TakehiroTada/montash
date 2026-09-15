@@ -6,7 +6,7 @@
  *   - プラグインが importer / exporter を足せる
  *   - I/O はホストが渡す `read()` / `probe()` に限られる（任意のパスは読めない）
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { exporterNames, registerExporter, resolvePresets } from "../../../src/ffmpeg/presets.ts";
 import {
   DEFAULT_IMPORTER,
