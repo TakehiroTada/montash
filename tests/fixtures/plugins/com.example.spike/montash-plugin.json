@@ -1,0 +1,8 @@
+{
+  "id": "com.example.spike",
+  "name": "Spike",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "test plugin used by W-19 and the unit tests",
+  "requires": { "filters": ["gblur"] }
+}

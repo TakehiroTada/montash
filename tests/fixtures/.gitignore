@@ -1,3 +1,6 @@
-# ffmpeg で生成するテスト素材（scripts/make-fixtures.sh / src/ffmpeg/fixtures.ts）。git 管理外
+# ffmpeg で生成する素材はコミットしない（scripts/make-fixtures.sh が作る）
 *
 !.gitignore
+# ただし手書きのテスト用プラグインは追跡する（W-19 が使う。生成物ではない）
+!plugins/
+!plugins/**
