@@ -269,6 +269,26 @@
 
 `asset` の代わりに `generator` を持つクリップ。`{ "generator": "color", "params": {"color": "#000000"}, "start_f": .., "duration_f": .. }`、`{ "generator": "hold", "params": {"from_clip": "c1", "at": "end"} }`。
 
+### 6.1a クリップ種別の判別（v3）
+
+すべてのクリップは **`type` を必ず持つ**。判別は `type` **だけ**で行い、フォールバックしない。
+
+| `type` | 意味 | 長さの決まり方 |
+|--------|------|----------------|
+| `media` | アセット参照（映像・音声） | `max(1, round((out_f - in_f) / speed))` |
+| `text` | テロップ | `duration_f` |
+| `subtitle` | 字幕ファイル | 素材が決める（単独では 0） |
+| `generator` | 生成クリップ | `duration_f` |
+| 上記以外 | **未知種別**（プラグインが供給する） | `duration_f` |
+
+未知種別は `id` / `type` / `start_f` / `duration_f` だけを検証し、**残りのフィールドはそのまま保持する**（`OpaqueClip`）。これにより、プラグインが無い環境でも project.json を**開けて保存できる**（F-EXT-4）。
+
+- `validate` は `W_UNKNOWN_CLIP_TYPE` の**警告**を出すだけで、エラーにはしない。
+- **レンダーしようとしたときにだけ** `E_PLUGIN_MISSING` で止まる。
+- 既知の `type` を持つのに中身が不正なクリップは、未知種別に逃げずそのままエラーになる。
+
+判別の実装は `src/shared/clip-kind.ts` の 1 か所にあり、CLI・サーバ・Web がこれを共有する。
+
 ## 7. `transitions`
 
 ```jsonc
@@ -370,10 +390,13 @@ git ライクな DAG モデル。詳細は **11 章** を正とする。要点:
 
 ## 13. バージョニングとマイグレーション
 
-- `schema_version` を整数で持つ。CLI は自身が対応する最大バージョンより新しいファイルを拒否（`E_SCHEMA_TOO_NEW`）。
-- 古いバージョンは読み込み時に自動マイグレーションし、マイグレーション自体を `actor: system` の op として記録し、`pre-migrate-v<N>` タグを付ける。
-- v1（秒 float）→ v2（整数フレーム）: `fps` を有理数化し、全時間フィールドを `round(t * num / den)` でフレーム化。丸めが発生したフィールドは op の `changes` に旧値を残す。
+- `schema_version` を整数で持つ。現行は **3**。
+- 自身が対応する最大バージョンより**新しい**ファイルは `E_SCHEMA_TOO_NEW` で拒否する。
+- **v1.0 前なので、古いバージョンの移行は提供しない。** 旧バージョンのファイルは `E_SCHEMA_TOO_OLD` で明快に落とし、`montash init` で作り直してもらう（曖昧な検証エラーにしない）。v1.0 以降にマイグレーションを導入するときは、変換自体を `actor: system` の op として記録し `pre-migrate-v<N>` タグを付ける方針とする。
 - 破壊的変更は `schema_version` を上げる。追加のみなら上げない（未知フィールドは保持）。
+- 変更履歴:
+  - v2: 時間表現を秒 float から整数フレームへ（ADR-09）
+  - **v3: 全クリップに `type` を必須化し、未知種別を保持できるようにした（下記 §6.1a、docs/13 D-14）**
 
 ## 14. 不変条件（validate が保証するもの）
 

@@ -59,10 +59,18 @@ function project(): Project {
   p.assets.bgm = AudioAssetSchema.parse({ id: "bgm", type: "audio", path: "bgm.wav", duration_f: DURATION_F });
   p.tracks.push(TrackSchema.parse({ id: "A2", kind: "audio" }));
   p.tracks[1]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "voice", start_f: 0, in_f: 0, out_f: DURATION_F, audio: {} }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "voice", start_f: 0, in_f: 0, out_f: DURATION_F, audio: {} }),
   );
   p.tracks[2]!.clips.push(
-    ClipSchema.parse({ id: "c2", asset: "bgm", start_f: 0, in_f: 0, out_f: DURATION_F, audio: { gain_db: -6 } }),
+    ClipSchema.parse({
+      id: "c2",
+      type: "media",
+      asset: "bgm",
+      start_f: 0,
+      in_f: 0,
+      out_f: DURATION_F,
+      audio: { gain_db: -6 },
+    }),
   );
   p.audio.normalize.enabled = false;
   return p;

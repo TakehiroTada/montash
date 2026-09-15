@@ -92,7 +92,7 @@ export async function makeAssetProject(): Promise<AssetFixture> {
         id: "V1",
         kind: "video",
         name: "V1",
-        clips: [{ id: "c1", asset: "clip_a", start_f: 0, in_f: 0, out_f: 90 }],
+        clips: [{ id: "c1", type: "media", asset: "clip_a", start_f: 0, in_f: 0, out_f: 90 }],
       },
       { id: "A1", kind: "audio", name: "A1", clips: [] },
     ],

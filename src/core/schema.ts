@@ -1,5 +1,5 @@
 /**
- * `project.json` の zod スキーマ（docs/05-project-format.md, schema_version 2）。
+ * `project.json` の zod スキーマ（docs/05-project-format.md, schema_version 3）。
  *
  * - 時間はすべて整数フレーム `_f`（プロジェクト fps 基準）、音声補正のみ整数サンプル `_smp`（ADR-09）。
  * - 未知フィールドは保持する（`looseObject`）。追加のみの変更では schema_version を上げない（docs/05 §13）。
@@ -7,7 +7,9 @@
  */
 import { z } from "zod";
 
-export const SCHEMA_VERSION = 2;
+import { type ClipKind, clipDurationFrames, clipKindOf, isKnownClipType } from "../shared/clip-kind.ts";
+
+export const SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // 基本型
@@ -197,6 +199,7 @@ export const EffectSchema = z.looseObject({
 /** 映像・音声クリップ（アセット参照）。`duration_f` は保存せず speed から算出する */
 export const ClipSchema = z.looseObject({
   id: z.string().min(1),
+  type: z.literal("media"),
   asset: z.string().min(1),
   start_f: FrameSchema,
   in_f: FrameSchema,
@@ -245,6 +248,7 @@ export const TextClipSchema = z.looseObject({
   markup: z.enum(["plain", "ass"]).default("plain"),
   style: TextStyleSchema.default({}),
   fade: z.looseObject({ in_f: FrameSchema.default(0), out_f: FrameSchema.default(0) }).default({ in_f: 0, out_f: 0 }),
+  effects: z.array(EffectSchema).default([]),
 });
 export type TextClip = z.infer<typeof TextClipSchema>;
 
@@ -264,22 +268,58 @@ export const SubtitleClipSchema = z.looseObject({
     })
     .default({}),
   lang: z.string().optional(),
+  effects: z.array(EffectSchema).default([]),
 });
 export type SubtitleClip = z.infer<typeof SubtitleClipSchema>;
 
 /** 生成クリップ（`asset` の代わりに `generator`） */
 export const GeneratorClipSchema = z.looseObject({
   id: z.string().min(1),
+  type: z.literal("generator"),
   generator: z.enum(["color", "hold"]),
   params: z.record(z.string(), z.unknown()).default({}),
   start_f: FrameSchema,
   duration_f: z.int().positive(),
   label: z.string().optional(),
+  effects: z.array(EffectSchema).default([]),
 });
 export type GeneratorClip = z.infer<typeof GeneratorClipSchema>;
 
+/**
+ * 本体が解釈できるクリップ（`type` で判別する。docs/13 D-14）。
+ * 判別キーが揃っているので、どの枝で失敗したかが zod のエラーから分かる。
+ */
+export const KnownClipSchema = z.discriminatedUnion("type", [
+  ClipSchema,
+  TextClipSchema,
+  SubtitleClipSchema,
+  GeneratorClipSchema,
+]);
+
+/**
+ * 本体が知らない種別のクリップ（プラグインが供給する、またはプラグイン不在）。
+ *
+ * タイムライン上の位置と長さだけを検証し、**残りのフィールドはそのまま保持する**。
+ * これにより「プラグインが無い環境でも project.json を開けて保存できる」（F-EXT-4）。
+ * レンダーしようとしたときにだけ `E_PLUGIN_MISSING` で失敗する。
+ */
+export const OpaqueClipSchema = z.looseObject({
+  id: z.string().min(1),
+  // 既知の種別はここに落ちてはいけない（落ちると本来のエラーが隠れる）
+  type: z
+    .string()
+    .min(1)
+    .refine((t) => !isKnownClipType(t), {
+      message: "known clip type must match its own schema",
+    }),
+  start_f: FrameSchema,
+  duration_f: z.int().positive(),
+  effects: z.array(EffectSchema).default([]),
+});
+export type OpaqueClip = z.infer<typeof OpaqueClipSchema>;
+
 /** トラック上に置けるクリップの総和型。判別は clipKind() */
-export const TrackClipSchema = z.union([TextClipSchema, SubtitleClipSchema, GeneratorClipSchema, ClipSchema]);
+export const TrackClipSchema = z.union([KnownClipSchema, OpaqueClipSchema]);
 export type TrackClip = z.infer<typeof TrackClipSchema>;
 
 // ---------------------------------------------------------------------------
@@ -392,14 +432,15 @@ export type ProjectInput = z.input<typeof ProjectSchema>;
 // 派生値ヘルパ（保存しない値を算出する。docs/05 §6.1）
 // ---------------------------------------------------------------------------
 
-export type ClipKind = "media" | "text" | "subtitle" | "generator";
+export type { ClipKind };
 
-/** トラック上のクリップの種別を判定する */
+/** トラック上のクリップの種別を判定する（規則は `shared/clip-kind.ts` が正） */
 export function clipKind(clip: TrackClip): ClipKind {
-  if ("type" in clip && clip.type === "text") return "text";
-  if ("type" in clip && clip.type === "subtitle") return "subtitle";
-  if ("generator" in clip) return "generator";
-  return "media";
+  return clipKindOf(clip);
+}
+
+export function isOpaqueClip(clip: TrackClip): clip is OpaqueClip {
+  return clipKind(clip) === "opaque";
 }
 
 export function isMediaClip(clip: TrackClip): clip is Clip {
@@ -421,12 +462,7 @@ export function isGeneratorClip(clip: TrackClip): clip is GeneratorClip {
  * 字幕: 長さを持たない（字幕ファイル全体）ため 0 を返す。
  */
 export function clipDurationF(clip: TrackClip): number {
-  if (isMediaClip(clip)) {
-    const speed = clip.speed > 0 ? clip.speed : 1;
-    return Math.max(1, Math.round((clip.out_f - clip.in_f) / speed));
-  }
-  if (isSubtitleClip(clip)) return 0;
-  return clip.duration_f;
+  return clipDurationFrames(clip);
 }
 
 /** クリップの終了フレーム（exclusive） */

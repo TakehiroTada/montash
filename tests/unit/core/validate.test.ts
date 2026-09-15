@@ -50,6 +50,7 @@ function clip(
 ): Clip {
   return {
     id,
+    type: "media",
     asset: assetId,
     start_f,
     in_f,
@@ -74,6 +75,7 @@ function textClip(id: string, start_f: number, duration_f: number, extra: Partia
     markup: "plain",
     style: {},
     fade: { in_f: 0, out_f: 0 },
+    effects: [],
     ...extra,
   };
 }
@@ -300,8 +302,8 @@ describe("§14.7 / §14.8 track kinds and asset types", () => {
         textClip("x1", 0, 30, { asset: "clip_a" }),
         textClip("x2", 30, 30, { asset: "script" }),
         textClip("x3", 60, 30, { asset: "missing" }),
-        { id: "s1", type: "subtitle", asset: "script", mode: "burn", start_f: 0, offset_f: 0, style: {} },
-        { id: "s2", type: "subtitle", asset: "ja", mode: "burn", start_f: 0, offset_f: 0, style: {} },
+        { id: "s1", type: "subtitle", asset: "script", mode: "burn", start_f: 0, offset_f: 0, style: {}, effects: [] },
+        { id: "s2", type: "subtitle", asset: "ja", mode: "burn", start_f: 0, offset_f: 0, style: {}, effects: [] },
       ),
     );
     const r = validateProject(p);

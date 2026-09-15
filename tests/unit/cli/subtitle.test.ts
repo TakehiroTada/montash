@@ -63,7 +63,9 @@ async function setup() {
   project.assets.a = AssetSchema.parse({ id: "a", type: "video", path: "a.mp4", duration_s: 5, duration_f: 150 });
   project.assets.ja_srt = AssetSchema.parse({ id: "ja_srt", type: "subtitle", path: "ja.srt", format: "srt" });
   project.assets.styled = AssetSchema.parse({ id: "styled", type: "subtitle", path: "styled.ass", format: "ass" });
-  project.tracks[0]!.clips.push(ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 150 }));
+  project.tracks[0]!.clips.push(
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 150 }),
+  );
   await initProjectDir(dir, project, { force: true });
   await writeFile(join(dir, "ja.srt"), SRT, "utf8");
   await writeFile(join(dir, "styled.ass"), "[Events]\n", "utf8");
@@ -166,7 +168,7 @@ test("subtitle set は mode / lang / asset を差し替える", async () => {
   // 触っていないスタイルは残る
   expect(res.result.clip.style.size).toBe(40);
 
-  const swapped = (await call(subtitleSet, { id: "s1", asset: "styled" })) as any;
+  const swapped = (await call(subtitleSet, { id: "s1", type: "media", asset: "styled" })) as any;
   expect(swapped.result.clip.asset).toBe("styled");
   expect(swapped.result.clip.format).toBe("ass");
 });

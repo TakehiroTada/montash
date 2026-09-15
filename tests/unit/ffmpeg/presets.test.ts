@@ -51,6 +51,7 @@ function base(): Project {
   });
   project.tracks[0]?.clips.push({
     id: "c1",
+    type: "media",
     asset: "a",
     start_f: 0,
     in_f: 0,

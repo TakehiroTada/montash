@@ -43,7 +43,9 @@ async function tmp(): Promise<string> {
 function base(): Project {
   const project = createProject({ name: "text", fps: { num: 30, den: 1 }, resolution: { width: 640, height: 360 } });
   project.assets.a = VideoAssetSchema.parse({ id: "a", type: "video", path: "a.mp4", duration_f: 300 });
-  project.tracks[0]!.clips.push(ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 150 }));
+  project.tracks[0]!.clips.push(
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 150 }),
+  );
   return project;
 }
 

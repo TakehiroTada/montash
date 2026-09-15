@@ -242,10 +242,12 @@ describe("assets remove", () => {
         duration_f: 300,
       };
       p.tracks![0]!.clips = [
-        { id: "c1", asset: "clip_a", start_f: 0, in_f: 0, out_f: 30, link: "c2" },
-        { id: "c3", asset: "clip_a", start_f: 30, in_f: 60, out_f: 90, link: null },
+        { id: "c1", type: "media", asset: "clip_a", start_f: 0, in_f: 0, out_f: 30, link: "c2" },
+        { id: "c3", type: "media", asset: "clip_a", start_f: 30, in_f: 60, out_f: 90, link: null },
       ];
-      p.tracks![1]!.clips = [{ id: "c2", asset: "narration", start_f: 0, in_f: 0, out_f: 30, link: "c1" }];
+      p.tracks![1]!.clips = [
+        { id: "c2", type: "media", asset: "narration", start_f: 0, in_f: 0, out_f: 30, link: "c1" },
+      ];
       p.transitions = [{ id: "x1", track: "V1", from: "c1", to: "c3", type: "fade", duration_f: 10 }];
     });
   }

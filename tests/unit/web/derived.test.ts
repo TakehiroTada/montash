@@ -115,9 +115,9 @@ describe("waveformColumns", () => {
 
 describe("thumbSourceAt", () => {
   const tracks: TrackLike[] = [
-    { id: "V1", kind: "video", clips: [{ id: "c1", asset: "a", start_f: 0, in_f: 60, out_f: 120 }] },
-    { id: "V2", kind: "video", clips: [{ id: "c2", asset: "logo", start_f: 10, in_f: 0, out_f: 20 }] },
-    { id: "A1", kind: "audio", clips: [{ id: "c3", asset: "bgm", start_f: 0, in_f: 0, out_f: 300 }] },
+    { id: "V1", kind: "video", clips: [{ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 60, out_f: 120 }] },
+    { id: "V2", kind: "video", clips: [{ id: "c2", type: "media", asset: "logo", start_f: 10, in_f: 0, out_f: 20 }] },
+    { id: "A1", kind: "audio", clips: [{ id: "c3", type: "media", asset: "bgm", start_f: 0, in_f: 0, out_f: 300 }] },
   ];
 
   test("prefers the topmost video track and maps to the source frame", () => {
@@ -129,7 +129,11 @@ describe("thumbSourceAt", () => {
 
   test("accounts for speed and skips muted tracks, audio tracks and gaps", () => {
     const fast: TrackLike[] = [
-      { id: "V1", kind: "video", clips: [{ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 120, speed: 2 }] },
+      {
+        id: "V1",
+        kind: "video",
+        clips: [{ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 120, speed: 2 }],
+      },
     ];
     expect(thumbSourceAt(fast, 10)?.sourceF).toBe(20);
     expect(thumbSourceAt([{ ...tracks[1]!, muted: true }], 15)).toBeNull();

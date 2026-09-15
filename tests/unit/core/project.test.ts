@@ -67,7 +67,7 @@ describe("createProject", () => {
       resolution: { width: 1920, height: 1080 },
       now: new Date("2026-09-14T01:23:45.678Z"),
     });
-    expect(p.schema_version).toBe(2);
+    expect(p.schema_version).toBe(3);
     expect(p.name).toBe("vlog");
     expect(p.created_at).toBe("2026-09-14T01:23:45Z");
     expect(p.updated_at).toBe(p.created_at);
@@ -109,7 +109,7 @@ describe("save / load round trip", () => {
     await saveProject(dir, p, { now: new Date("2026-01-02T00:00:00Z") });
     expect(p.updated_at).toBe("2026-01-02T00:00:00Z");
     const text = readFileSync(join(dir, "project.json"), "utf8");
-    expect(text.startsWith('{\n  "schema_version": 2,\n')).toBe(true);
+    expect(text.startsWith('{\n  "schema_version": 3,\n')).toBe(true);
     expect(text.endsWith("\n")).toBe(true);
     expect(existsSync(join(dir, "project.json.tmp"))).toBe(false);
     const loaded = await loadProject(dir);

@@ -30,7 +30,7 @@ assert_file_exists "$proj/.montash/ids.json"
 assert_file_exists "$proj/.gitignore"
 assert_dir_exists "$proj/assets"
 assert_dir_exists "$proj/out"
-assert_json "$(cat "$proj/project.json")" '.schema_version' '2' "project.json schema_version == 2"
+assert_json "$(cat "$proj/project.json")" '.schema_version' '3' "project.json schema_version == 3"
 assert_json "$(cat "$proj/.montash/ids.json")" '.counters.c' '1' "ids.json counters start at 1"
 
 section "W-01 step 4: project show"

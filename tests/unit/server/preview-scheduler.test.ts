@@ -15,7 +15,9 @@ async function setup(auto = true) {
   });
   project.settings.preview.debounce_ms = 30;
   project.settings.preview.auto_build = auto;
-  project.tracks[0]!.clips.push(ClipSchema.parse({ id: "c1", asset: "unused", start_f: 0, in_f: 0, out_f: 90 }));
+  project.tracks[0]!.clips.push(
+    ClipSchema.parse({ id: "c1", type: "media", asset: "unused", start_f: 0, in_f: 0, out_f: 90 }),
+  );
   await saveProject(dir, project);
   const worker = join(dir, "worker.ts");
   await writeFile(

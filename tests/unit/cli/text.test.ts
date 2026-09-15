@@ -276,7 +276,7 @@ test("text set は自分自身と重なったとみなさない", async () => {
 
 test("text set は --asset でも本文を差し替えられる", async () => {
   await call(textAdd, { text: "inline", at: "f:0", duration: "f:30" });
-  await call(textSet, { id: "x1", asset: "title_main" });
+  await call(textSet, { id: "x1", type: "media", asset: "title_main" });
   expect((await clipsOf())[0]?.asset).toBe("title_main");
   await call(textSet, { id: "x1", text: "inline again" });
   expect((await clipsOf())[0]?.asset).toBeNull();

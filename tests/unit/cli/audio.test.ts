@@ -91,13 +91,13 @@ async function setup() {
   project.assets.bgm = AssetSchema.parse({ id: "bgm", type: "audio", path: "bgm.wav", duration_f: 60 });
   project.tracks.push(TrackSchema.parse({ id: "A2", kind: "audio" }));
   project.tracks[0]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 60, link: "c2", video: {} }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 60, link: "c2", video: {} }),
   );
   project.tracks[1]!.clips.push(
-    ClipSchema.parse({ id: "c2", asset: "a", start_f: 0, in_f: 0, out_f: 60, link: "c1", audio: {} }),
+    ClipSchema.parse({ id: "c2", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 60, link: "c1", audio: {} }),
   );
   project.tracks[2]!.clips.push(
-    ClipSchema.parse({ id: "c3", asset: "bgm", start_f: 0, in_f: 0, out_f: 60, audio: {} }),
+    ClipSchema.parse({ id: "c3", type: "media", asset: "bgm", start_f: 0, in_f: 0, out_f: 60, audio: {} }),
   );
   await initProjectDir(dir, project);
   await recordInitialOp(dir, project, ctx(["init"]) as never);

@@ -91,29 +91,44 @@ describe("AssetSchema", () => {
 
 describe("ClipSchema", () => {
   test("accepts a media clip and fills defaults", () => {
-    const c = ClipSchema.parse({ id: "c1", asset: "clip_a", start_f: 0, in_f: 60, out_f: 435 });
+    const c = ClipSchema.parse({ id: "c1", type: "media", asset: "clip_a", start_f: 0, in_f: 60, out_f: 435 });
     expect(c.speed).toBe(1);
     expect(c.link).toBeNull();
     expect(c.loop).toBe(false);
     expect(c.effects).toEqual([]);
   });
   test("rejects non-integer or negative _f", () => {
-    expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: 0.5, in_f: 0, out_f: 10 }).success).toBe(false);
-    expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: -1, in_f: 0, out_f: 10 }).success).toBe(false);
-    expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: "10" }).success).toBe(false);
-  });
-  test("rejects non-positive speed", () => {
-    expect(ClipSchema.safeParse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 10, speed: 0 }).success).toBe(
+    expect(
+      ClipSchema.safeParse({ id: "c1", type: "media", asset: "a", start_f: 0.5, in_f: 0, out_f: 10 }).success,
+    ).toBe(false);
+    expect(ClipSchema.safeParse({ id: "c1", type: "media", asset: "a", start_f: -1, in_f: 0, out_f: 10 }).success).toBe(
       false,
     );
+    expect(
+      ClipSchema.safeParse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: "10" }).success,
+    ).toBe(false);
+  });
+  test("rejects non-positive speed", () => {
+    expect(
+      ClipSchema.safeParse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 10, speed: 0 }).success,
+    ).toBe(false);
   });
   test("audio offset_smp may be negative", () => {
-    const c = ClipSchema.parse({ id: "c1a", asset: "a", start_f: 0, in_f: 0, out_f: 10, audio: { offset_smp: -960 } });
+    const c = ClipSchema.parse({
+      id: "c1a",
+      type: "media",
+      asset: "a",
+      start_f: 0,
+      in_f: 0,
+      out_f: 10,
+      audio: { offset_smp: -960 },
+    });
     expect(c.audio?.offset_smp).toBe(-960);
   });
   test("video transform accepts px and percent", () => {
     const c = ClipSchema.parse({
       id: "c2",
+      type: "media",
       asset: "logo",
       start_f: 0,
       in_f: 0,
@@ -124,6 +139,7 @@ describe("ClipSchema", () => {
     expect(
       ClipSchema.safeParse({
         id: "c2",
+        type: "media",
         asset: "logo",
         start_f: 0,
         in_f: 0,
@@ -136,11 +152,12 @@ describe("ClipSchema", () => {
 
 describe("TrackClipSchema union + clipKind", () => {
   test("distinguishes media / text / subtitle / generator", () => {
-    const media = TrackClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 10 });
+    const media = TrackClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 10 });
     const text = TrackClipSchema.parse({ id: "x1", type: "text", start_f: 0, duration_f: 90, text: "hi" });
     const sub = TrackClipSchema.parse({ id: "s1", type: "subtitle", asset: "ja", start_f: 0 });
     const gen = TrackClipSchema.parse({
       id: "c9",
+      type: "generator",
       generator: "color",
       params: { color: "#000" },
       start_f: 0,
@@ -156,12 +173,12 @@ describe("TrackClipSchema union + clipKind", () => {
     expect(TextClipSchema.safeParse({ id: "x1", type: "text", start_f: 0, duration_f: 0 }).success).toBe(false);
   });
   test("clipDurationF / clipEndF", () => {
-    const c = ClipSchema.parse({ id: "c1", asset: "a", start_f: 100, in_f: 60, out_f: 435 });
+    const c = ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 100, in_f: 60, out_f: 435 });
     expect(clipDurationF(c)).toBe(375);
     expect(clipEndF(c)).toBe(475);
-    const fast = ClipSchema.parse({ id: "c2", asset: "a", start_f: 0, in_f: 0, out_f: 10, speed: 4 });
+    const fast = ClipSchema.parse({ id: "c2", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 10, speed: 4 });
     expect(clipDurationF(fast)).toBe(3); // round(10/4)=3 (2.5 → 3)
-    const tiny = ClipSchema.parse({ id: "c3", asset: "a", start_f: 0, in_f: 0, out_f: 1, speed: 100 });
+    const tiny = ClipSchema.parse({ id: "c3", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 1, speed: 100 });
     expect(clipDurationF(tiny)).toBe(1); // max(1, ...)
     const text = TextClipSchema.parse({ id: "x1", type: "text", start_f: 10, duration_f: 90 });
     expect(clipEndF(text)).toBe(100);
@@ -215,7 +232,7 @@ describe("ProjectSchema", () => {
   });
   test("minimal project gets audio / presets / meta defaults", () => {
     const parsed = ProjectSchema.parse({
-      schema_version: 2,
+      schema_version: 3,
       name: "m",
       created_at: "2026-09-14T00:00:00Z",
       updated_at: "2026-09-14T00:00:00Z",

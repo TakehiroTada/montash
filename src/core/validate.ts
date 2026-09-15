@@ -218,6 +218,17 @@ function checkClips(project: Project, _trackById: Map<string, Track>, c: Collect
       const path = `/tracks/${ti}/clips/${ci}`;
       const kind = clipKind(clip);
 
+      // 本体が知らない種別（プラグイン由来）。保持はするが、レンダーは通らないことを知らせる（F-EXT-4）
+      if (kind === "opaque") {
+        c.warn({
+          code: "W_UNKNOWN_CLIP_TYPE",
+          message: `clip "${clip.id}" has unknown type "${String((clip as { type: unknown }).type)}"`,
+          path,
+          hint: "The clip is kept as-is. Install the plugin that provides this type before rendering.",
+        });
+        return;
+      }
+
       // kind に合わないクリップ種別（§14.7）
       const allowed =
         track.kind === "text" ? kind === "text" || kind === "subtitle" : kind === "media" || kind === "generator";
@@ -300,7 +311,8 @@ function checkClips(project: Project, _trackById: Map<string, Track>, c: Collect
             path: `${path}/asset`,
           });
       } else if (kind === "generator" && "generator" in clip && clip.generator === "hold") {
-        const from = clip.params.from_clip;
+        const params = (clip as { params?: Record<string, unknown> }).params ?? {};
+        const from = params.from_clip;
         if (typeof from !== "string")
           c.error({
             code: "E_CLIP_NOT_FOUND",

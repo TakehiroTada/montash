@@ -64,7 +64,9 @@ async function setup(name: string, fps: Fps, fixture: string): Promise<{ dir: st
     path: "a.mp4",
     duration_f: Math.floor((5 * fps.num) / fps.den) - 1,
   });
-  project.tracks[0]!.clips.push(ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: TOTAL_F }));
+  project.tracks[0]!.clips.push(
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: TOTAL_F }),
+  );
   return { dir, project };
 }
 
@@ -219,7 +221,14 @@ test.skipIf(!hasLibass)(
     // テロップは f:60..90 なので 2 本目のセグメントのローカル f:0..30 に現れる必要がある
     // （シフトを忘れるとローカル f:60..90 = タイムライン f:120..150 にずれて出る）。
     const { dir, project } = await setup("preview", { num: 30, den: 1 }, fixtures.a!);
-    project.tracks[0]!.clips[0] = ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 149 });
+    project.tracks[0]!.clips[0] = ClipSchema.parse({
+      id: "c1",
+      type: "media",
+      asset: "a",
+      start_f: 0,
+      in_f: 0,
+      out_f: 149,
+    });
 
     const plain = await buildPreview(project, dir, { height: 180 });
     expect(plain.status.duration_f).toBe(149);

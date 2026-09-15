@@ -23,7 +23,7 @@ import {
 const FPS = { num: 30, den: 1 };
 const FPS_2997 = { num: 30000, den: 1001 };
 
-const media: ClipLike = { id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 1 };
+const media: ClipLike = { id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 1 };
 const text: ClipLike = { id: "x1", type: "text", start_f: 0, duration_f: 75, text: "夏の旅 2026" };
 const subtitle: ClipLike = { id: "s1", type: "subtitle", asset: "ja", start_f: 0, offset_f: 0 };
 
@@ -32,7 +32,12 @@ describe("clipKindOf", () => {
     expect(clipKindOf(media)).toBe("media");
     expect(clipKindOf(text)).toBe("text");
     expect(clipKindOf(subtitle)).toBe("subtitle");
-    expect(clipKindOf({ id: "g1", generator: "color", start_f: 0, duration_f: 30 })).toBe("generator");
+    expect(clipKindOf({ id: "g1", type: "generator", generator: "color", start_f: 0, duration_f: 30 })).toBe(
+      "generator",
+    );
+    // `type` を持たない／未知の種別は opaque（プラグイン由来。docs/13 D-14）
+    expect(clipKindOf({ id: "p1", type: "shape", start_f: 0, duration_f: 30 })).toBe("opaque");
+    expect(clipKindOf({ id: "old", asset: "a", start_f: 0, in_f: 0, out_f: 30 })).toBe("opaque");
   });
 });
 
@@ -48,7 +53,7 @@ describe("clipDuration", () => {
     expect(clipDuration(text)).toBe(75);
     expect(clipEnd({ ...text, start_f: 30 })).toBe(105);
     // 生成クリップも同じ持ち方
-    expect(clipDuration({ id: "g1", generator: "color", start_f: 0, duration_f: 60 })).toBe(60);
+    expect(clipDuration({ id: "g1", type: "generator", generator: "color", start_f: 0, duration_f: 60 })).toBe(60);
   });
 
   test("subtitle clips have no local length (computed が要る)", () => {

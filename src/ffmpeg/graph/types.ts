@@ -217,6 +217,17 @@ export class GraphContext {
   }
 }
 
+/**
+ * 本体が知らないクリップ種別（プラグイン由来）に当たったとき。docs/13 D-14、F-EXT-4。
+ * **読み込み・保存は通す**。レンダーしようとしたときにだけここで止める。
+ */
+export function pluginMissing(clipId: string, type: string): never {
+  throw new MontashError("E_PLUGIN_MISSING", `clip "${clipId}" has unknown type "${type}"`, {
+    hint: `No registered plugin provides clip type "${type}". Install it, or remove the clip with \`montash clip delete ${clipId}\`.`,
+    detail: { clip: clipId, clip_type: type },
+  });
+}
+
 export function unsupported(what: string): never {
   throw new MontashError("E_NOT_IMPLEMENTED", `the filter graph does not support ${what} yet`, {
     hint: "Text tracks, looped clips, LUTs and keyframed effects arrive in later milestones.",

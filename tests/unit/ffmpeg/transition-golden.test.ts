@@ -45,12 +45,12 @@ async function setup(name: string, fps: Fps, fixture: string, durationF: number)
   const duration_f = Math.floor((5 * fps.num) / fps.den) - 1;
   project.assets.a = VideoAssetSchema.parse({ id: "a", type: "video", path: "a.mp4", duration_f });
   project.tracks[0]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, ...C1, link: "c2" }),
-    ClipSchema.parse({ id: "c3", asset: "a", start_f: 40, ...C2, link: "c4" }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, ...C1, link: "c2" }),
+    ClipSchema.parse({ id: "c3", type: "media", asset: "a", start_f: 40, ...C2, link: "c4" }),
   );
   project.tracks[1]!.clips.push(
-    ClipSchema.parse({ id: "c2", asset: "a", start_f: 0, ...C1, link: "c1" }),
-    ClipSchema.parse({ id: "c4", asset: "a", start_f: 40, ...C2, link: "c3" }),
+    ClipSchema.parse({ id: "c2", type: "media", asset: "a", start_f: 0, ...C1, link: "c1" }),
+    ClipSchema.parse({ id: "c4", type: "media", asset: "a", start_f: 40, ...C2, link: "c3" }),
   );
   project.transitions.push(
     TransitionSchema.parse({ id: "t1", track: "V1", from: "c1", to: "c3", type: "fade", duration_f: durationF }),

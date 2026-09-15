@@ -37,6 +37,7 @@ function randomMutation(p: Project, rand: () => number, seq: { n: number }): voi
     const start = Math.floor(rand() * 1000);
     track.clips.push({
       id: `c${++seq.n}`,
+      type: "media",
       asset: "a",
       start_f: start,
       duration_f: 1 + Math.floor(rand() * 100),

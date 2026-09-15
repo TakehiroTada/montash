@@ -69,6 +69,7 @@ async function setup() {
   // V1 に 60 フレームのベースクリップを置く（タイムライン尺 = 60）
   project.tracks[0]!.clips.push({
     id: "c1",
+    type: "media",
     asset: "a",
     start_f: 0,
     in_f: 0,

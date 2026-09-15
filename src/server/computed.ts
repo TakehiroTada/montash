@@ -13,9 +13,11 @@
  */
 import type { Fps } from "../core/schema.ts";
 import { millisToFrames, parseSubtitleCues } from "../ffmpeg/ass.ts";
+import { type ClipKind, clipKindOf } from "../shared/clip-kind.ts";
 
 /** クリップの種別。`src/core/schema.ts` の `clipKind()` と同じ判定 */
-export type ComputedClipKind = "media" | "text" | "subtitle" | "generator";
+/** 未知種別（プラグイン由来）は "opaque"。Web は「プラグイン不足」として描く */
+export type ComputedClipKind = ClipKind;
 
 /** 正規化したクリップ 1 件。`end_f` は exclusive（`start_f + duration_f`） */
 export interface ComputedClip {
@@ -77,12 +79,9 @@ export function clipLabelText(text: string, max = LABEL_MAX_CHARS): string {
   return chars.length <= max ? flat : `${chars.slice(0, max).join("")}…`;
 }
 
-/** project.json 上のクリップの種別を判定する（`core/schema.ts` の `clipKind()` と同じ規則） */
+/** project.json 上のクリップの種別を判定する（規則は `shared/clip-kind.ts` が正） */
 export function computedClipKind(clip: Record<string, unknown>): ComputedClipKind {
-  if (clip.type === "text") return "text";
-  if (clip.type === "subtitle") return "subtitle";
-  if ("generator" in clip) return "generator";
-  return "media";
+  return clipKindOf(clip);
 }
 
 /**
