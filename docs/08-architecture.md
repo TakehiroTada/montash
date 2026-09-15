@@ -34,7 +34,7 @@ cli-video-editor/
 │   └── spikes/                 # Bun 互換性の再検証スクリプト（watch / serve / yargs / frontend / compile）
 ├── src/
 │   ├── cli/                    # コマンド定義（04 章と 1:1）
-│   │   ├── index.ts            # エントリ（yargs 構築、グローバルオプション、出力整形）
+│   │   ├── index.ts            # エントリ（yargs 構築、グローバルオプション、出力整形）。buildCli() は async（registry/commands.ts の getCommands() を await する）
 │   │   ├── define-command.ts   # defineCommand(): yargs 登録・zod 検証・schema 出力・CLI 例テンプレートを 1 定義から
 │   │   ├── commands/
 │   │   │   ├── doctor.ts  init.ts  project.ts  validate.ts  diff.ts
@@ -44,6 +44,7 @@ cli-video-editor/
 │   │   │   ├── serve.ts  preview.ts
 │   │   │   ├── render.ts
 │   │   │   ├── status.ts  log.ts  show.ts  diff.ts  blame.ts  commit.ts  checkout.ts  undo.ts  redo.ts  revert.ts  reset.ts  tag.ts  history.ts
+│   │   │   ├── registry.ts     # 組み込みコマンドの一覧（この配列を直接読むのは registry/commands.ts だけ）
 │   │   │   └── batch.ts  explain.ts  schema.ts
 │   │   ├── output.ts           # 人間向け／JSON 出力（時間は _f / 秒 / tc を併記）、終了コード
 │   │   ├── errors.ts           # MontashError(code, message, hint, detail)
@@ -66,6 +67,9 @@ cli-video-editor/
 │   │   ├── ripple.ts           # 全トラック／単一トラックのリップル規則（04 章 §6a）。純関数
 │   │   ├── ids.ts              # ID 生成（.montash/ids.json のカウンタ。履歴対象外）・rebuild・セレクタ解決
 │   │   └── presets.ts          # text/render 組み込みプリセット
+│   ├── registry/               # 拡張点レジストリ（組み込みも同じ経路を通す。14 章）
+│   │   ├── commands.ts         # getCommands(): 組み込みコマンド + 実行時登録の合成。cli / schema / help の 3 者が通る唯一の経路
+│   │   └── requirements.ts     # 拡張が宣言する ffmpeg 機能要求（filters / encoders）を組み込みの必須集合に合成。doctor が検査
 │   ├── ffmpeg/                 # ffmpeg 連携（07 章と 1:1）
 │   │   ├── locate.ts           # バイナリ探索（--ffmpeg-path / MONTASH_FFMPEG → PATH → ~/.local/share/montash/ffmpeg/bin）、機能検出（必須/推奨。ADR-15）
 │   │   ├── probe.ts            # ffprobe ラッパ
@@ -121,10 +125,17 @@ cli-video-editor/
 
 ```
 web/ ──(HTTP/WS)──▶ server/ ──▶ core/, ffmpeg/
-cli/ ──▶ core/, ffmpeg/, server/(serve のみ)
-ffmpeg/ ──▶ core/(型のみ)
+cli/ ──▶ registry/, core/, ffmpeg/, server/(serve のみ)
+ffmpeg/ ──▶ registry/(requirements のみ), core/(型のみ)
+registry/ ──▶ core/(型のみ)。組み込み定義は遅延 import で読む（循環回避）
 core/ ──▶ （外部依存なし。zod のみ）
 ```
+
+`registry/commands.ts` は `cli/commands/registry.ts`（組み込みコマンドの静的配列）を**静的に import しない**。
+組み込み配列は `schema` / `help` のコマンド定義を含むため、静的に結ぶと
+`registry.ts → help.ts → registry/commands.ts → registry.ts` の循環になる。組み込みの読み込みだけを
+`await import()` に閉じ込め、`getCommands()` を async にしている（`buildCli()` が async なのはこのため）。
+`registry/requirements.ts` は `ffmpeg/locate.ts` から読まれるので、何も import しない。
 
 `core/` は ffmpeg もファイルシステムも知らない純関数群にし、単体テストを厚くする。`ffmpeg/graph/builder.ts` も入力 `Project` → 出力 `string[]`（引数配列）の純関数として、スナップショットテストで守る。
 
@@ -261,6 +272,29 @@ server/index.ts
 - ドキュメント `04-cli-spec.md` の自動生成チェック（CI で差分検出）
 
 を一元的に導出し、仕様と実装のズレを防ぐ。
+
+### 定義リストの合成（13 章 D-18）
+
+上の 3 つの導出先は、いずれも `registry/commands.ts` の **`getCommands()` という 1 本の経路**からコマンド定義を受け取る。
+
+```
+cli/commands/registry.ts（組み込みの静的配列）
+        │  await import()（循環回避）
+        ▼
+registry/commands.ts  getCommands() = 組み込み + registerCommand() で実行時登録された分
+        ├──▶ cli/index.ts  buildCli()  → registerCommands(yargs, ...)   実行
+        ├──▶ cli/commands/schema.ts    → montash schema（AI のツール定義）
+        └──▶ cli/commands/help.ts      → montash help
+```
+
+`getCommands()` は合成結果を `buildCommandTree()` に通すので、組み込みと衝突するパスは
+`duplicate command path` で弾かれる。3 者が同じリストを見るため、実行時に足したコマンドが
+「実行はできるが `schema` / `help` に出ない（= AI のツール定義から漏れる）」ことが起きない。
+
+ffmpeg の機能要求も同じ形で合成する。`ffmpeg/locate.ts` の `REQUIRED_FILTERS` / `RECOMMENDED_FILTERS` は
+「組み込みが必要とする最小集合」で、拡張は `registry/requirements.ts` の `registerRequirements()` で
+自分が必要とするフィルタ・エンコーダを宣言する。`montash doctor` はその合成結果を検査するので、
+拡張を入れた環境では不足がそのまま診断に出る。登録が空のときは定数そのままで、従来と同じ判定になる。
 
 ## 6. テスト戦略
 

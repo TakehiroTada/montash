@@ -2,6 +2,7 @@
  * `montash schema [<command>] [--format json|anthropic-tools|openai-tools]`（docs/04 §2）
  * コマンド定義を機械可読に出力する。AI のツール定義として使える。
  */
+import { getCommands } from "../../registry/commands.ts";
 import { type CommandSpec, defineCommand, toSchema, toToolDefinition } from "../define-command.ts";
 import { errors } from "../errors.ts";
 
@@ -38,8 +39,8 @@ export const schema = defineCommand<Args>({
     { cmd: 'montash schema "clip trim" --json' },
   ],
   async handler(_ctx, args) {
-    // 循環 import を避けるため遅延 import
-    const { commands } = await import("./registry.ts");
+    // 組み込み + 実行時登録の合成（docs/13 D-18）。registry.ts を直接読まない
+    const commands = await getCommands();
     let specs: ReadonlyArray<CommandSpec<Record<string, unknown>>> = commands;
     if (args.command) {
       const wanted = args.command.trim();
