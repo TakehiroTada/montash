@@ -65,7 +65,12 @@ CLI の実行ログを **操作（op）** として自動記録し、AI がそ�
 ```
 
 - `checkout` / `undo` / `redo` 自体は **op を作らない**（HEAD の移動であり、状態を新しく作らないため）。ただし `ops.jsonl` とは別に `.montash/history/moves.jsonl` に移動ログを追記し、監査可能にする。
-- `batch --atomic` は 1 op（`command` に `["batch", ...]`、`changes` に全差分）。
+- `batch --atomic`（既定）は 1 op（`command` に `["batch", ...]`、`changes` に全差分、`summary` は「batch <入力>: N command(s) — 各行の要約…」）。
+  実行中は各行の op を積まないので、途中で失敗したときは **HEAD が開始前から動いていない**。巻き戻しは
+  `checkout HEAD` で開始時の object を `project.json` に書き戻すだけで済む（専用のロールバック機構は持たない）。
+  この移動も `moves.jsonl` に残るので「バッチが失敗して戻った」ことを後から追える。
+- `batch --continue-on-error` / `--no-atomic` は部分適用が残るので、**各行が通常どおり op を積む**
+  （どこまで進んだかを op 単位で戻せるようにするため）。
 - `--dry-run`、読み取り系コマンドは op を作らない。
 
 ### 3.3 commit
