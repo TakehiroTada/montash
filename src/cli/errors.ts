@@ -57,7 +57,13 @@ export class MontashError extends Error {
 function defaultExitCode(code: string): ExitCode {
   if (code.startsWith("E_FFMPEG") || code === "E_BUN_TOO_OLD") return ExitCode.EXTERNAL;
   if (code === "E_USAGE" || code === "E_INVALID_TIME" || code === "E_UNKNOWN_COMMAND") return ExitCode.USAGE;
-  if (code.endsWith("_MISSING") || code === "E_OUTPUT_EXISTS" || code === "E_PATH_OUTSIDE_PROJECT" || code === "E_IO")
+  // `E_PLUGIN_MISSING` は「ファイルが無い」ではなく状態の不整合なので I/O 扱いにしない
+  if (
+    (code.endsWith("_MISSING") && code !== "E_PLUGIN_MISSING") ||
+    code === "E_OUTPUT_EXISTS" ||
+    code === "E_PATH_OUTSIDE_PROJECT" ||
+    code === "E_IO"
+  )
     return ExitCode.IO;
   if (code === "E_VALIDATION_FAILED" || code === "E_STRICT") return ExitCode.VALIDATION;
   return ExitCode.GENERAL;

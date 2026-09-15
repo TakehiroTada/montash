@@ -33,6 +33,7 @@ import { clipDelete, clipMove, clipSet, clipSplit, clipTrim } from "./clip-edit.
 import { commit } from "./commit.ts";
 import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
+import { effectAdd, effectList, effectPresets, effectRemove, effectSet } from "./effect.ts";
 import { fade } from "./fade.ts";
 import { fontsList } from "./fonts.ts";
 import { help } from "./help.ts";
@@ -112,6 +113,12 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(transitionRemove),
   spec(transitionList),
   spec(fade),
+  // エフェクト（docs/04 §effect、W-18）
+  spec(effectAdd),
+  spec(effectSet),
+  spec(effectRemove),
+  spec(effectList),
+  spec(effectPresets),
   // テキスト（docs/04 §9）
   spec(textAdd),
   spec(textSet),

@@ -222,3 +222,68 @@ export function buildEffectFilters(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// CLI オプションの導出
+//
+// AviUtl の「トラックバーを登録すると UI が出る」に相当する部分。パラメータ定義 1 つから
+// CLI オプション・`schema`・`help`・（Phase 3 で）Web のフォームを導出する。
+// ---------------------------------------------------------------------------
+
+/** パラメータ名 → どのエフェクトが宣言しているか */
+export interface ParamOrigin {
+  name: string;
+  spec: EffectParamSpec;
+  /** このパラメータを持つエフェクト名（複数あり得る） */
+  effects: string[];
+  /** 型が食い違うエフェクトが混在している（その場合は string で受けて実行時に解釈する） */
+  conflicting: boolean;
+}
+
+/**
+ * 登録済みエフェクトのパラメータを名前で束ねる。
+ *
+ * `effect add <clip> <name> --sigma 12` のように「効果ごとに違う引数」を yargs（静的定義）で
+ * 受けるため、**全エフェクトのパラメータの和集合**をオプションとして宣言する。
+ * 同名で型が食い違う場合は string に寄せ、値の解釈は `resolveEffectParams()` に任せる。
+ */
+export function collectParamOrigins(target: EffectTarget): ParamOrigin[] {
+  const byName = new Map<string, ParamOrigin>();
+  for (const entry of effectRegistry(target).entries()) {
+    for (const [name, spec] of Object.entries(entry.value.params ?? {})) {
+      const found = byName.get(name);
+      if (!found) {
+        byName.set(name, { name, spec, effects: [entry.name], conflicting: false });
+        continue;
+      }
+      found.effects.push(entry.name);
+      if (found.spec.type !== spec.type) found.conflicting = true;
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** 文字列で来た値を、パラメータ定義の型に合わせて解釈する（CLI からの入力用） */
+export function coerceParamValue(spec: EffectParamSpec, raw: unknown): unknown {
+  if (typeof raw !== "string") return raw;
+  if (spec.type === "number") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : raw;
+  }
+  if (spec.type === "boolean") {
+    if (raw === "true" || raw === "") return true;
+    if (raw === "false") return false;
+  }
+  return raw;
+}
+
+/** そのエフェクトが受け取るパラメータだけを、CLI の argv から抜き出して型変換する */
+export function paramsFromArgs(spec: EffectSpec, args: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, p] of Object.entries(spec.params ?? {})) {
+    const value = args[name];
+    if (value === undefined) continue;
+    out[name] = coerceParamValue(p, value);
+  }
+  return out;
+}
