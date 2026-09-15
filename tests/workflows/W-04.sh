@@ -177,7 +177,7 @@ assert_exit 2 "--to before --from is a usage error"
 
 section "W-04 fine tuning"
 if has_command "clip trim"; then
-  out=$(montash -C "$pproj" clip trim c1 --out -f:10 --ripple --json)
+  out=$(montash -C "$pproj" clip trim c1 --out=-f:10 --ripple --json)
   assert_exit 0 "trim the first cut"
   out=$(montash -C "$pproj" preview status --json)
   assert_json "$out" '.result.state' 'stale' "trimming marks the preview stale"
