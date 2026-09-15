@@ -35,7 +35,7 @@ async function setup(clips: Array<{ id: string; start_f: number; in_f: number; o
   await copyFile(fixture, join(dir, "a.mp4"));
   const project = createProject({ name: "preview", fps: { num: 30, den: 1 }, resolution: { width: 640, height: 360 } });
   project.assets.a = VideoAssetSchema.parse({ id: "a", type: "video", path: "a.mp4", duration_f: 150 });
-  for (const c of clips) project.tracks[0]!.clips.push(ClipSchema.parse({ asset: "a", ...c }));
+  for (const c of clips) project.tracks[0]!.clips.push(ClipSchema.parse({ type: "media", asset: "a", ...c }));
   return { project, dir };
 }
 const single = () => setup([{ id: "c1", start_f: 0, in_f: 3, out_f: 20 }]);
@@ -44,22 +44,24 @@ const previewDir = (dir: string) => projectPaths(dir).previewDir;
 test("segment boundaries land on clip edges and merge spans shorter than the minimum", () => {
   const project = createProject({ name: "b", fps: { num: 30, den: 1 }, resolution: { width: 640, height: 360 } });
   project.tracks[0]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
     // 10 フレームしかない区間は境界にせず後ろへ統合する
-    ClipSchema.parse({ id: "c2", asset: "a", start_f: 70, in_f: 0, out_f: 10 }),
-    ClipSchema.parse({ id: "c3", asset: "a", start_f: 80, in_f: 0, out_f: 80 }),
+    ClipSchema.parse({ id: "c2", type: "media", asset: "a", start_f: 70, in_f: 0, out_f: 10 }),
+    ClipSchema.parse({ id: "c3", type: "media", asset: "a", start_f: 80, in_f: 0, out_f: 80 }),
   );
   expect(segmentBoundaries(project, 160)).toEqual([0, 70, 160]);
   // 音声トラックのクリップは映像セグメントを割らない
-  project.tracks[1]!.clips.push(ClipSchema.parse({ id: "c4", asset: "a", start_f: 100, in_f: 0, out_f: 20 }));
+  project.tracks[1]!.clips.push(
+    ClipSchema.parse({ id: "c4", type: "media", asset: "a", start_f: 100, in_f: 0, out_f: 20 }),
+  );
   expect(segmentBoundaries(project, 160)).toEqual([0, 70, 160]);
 });
 
 test("a track fade window is never split across segments", () => {
   const project = createProject({ name: "f", fps: { num: 30, den: 1 }, resolution: { width: 640, height: 360 } });
   project.tracks[0]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
-    ClipSchema.parse({ id: "c3", asset: "a", start_f: 70, in_f: 0, out_f: 90 }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
+    ClipSchema.parse({ id: "c3", type: "media", asset: "a", start_f: 70, in_f: 0, out_f: 90 }),
   );
   expect(segmentBoundaries(project, 160)).toEqual([0, 70, 160]);
   // フェードイン 100 フレームの窓（0..100）の内側にある f:70 は境界にできない
@@ -127,7 +129,9 @@ test("splits the timeline into cached segments and re-encodes only what changed"
   expect((await readPreviewStatus(project, dir, { height: 90 })).state).toBe("ready");
 
   // 音声クリップを足すと映像セグメントは全部キャッシュのまま、音声だけ 1 パスで作り直す
-  project.tracks[1]!.clips.push(ClipSchema.parse({ id: "c3", asset: "a", start_f: 0, in_f: 0, out_f: 140 }));
+  project.tracks[1]!.clips.push(
+    ClipSchema.parse({ id: "c3", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 140 }),
+  );
   const third = await buildPreview(project, dir, { bins, height: 90 });
   expect(third.built_segments).toBe(0);
   expect(third.cached_segments).toBe(2);
@@ -224,10 +228,12 @@ test("concatenating segments at 29.97fps keeps the exact frame count", async () 
   });
   project.assets.a = VideoAssetSchema.parse({ id: "a", type: "video", path: "a.mp4", duration_f: 149 });
   project.tracks[0]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
-    ClipSchema.parse({ id: "c2", asset: "a", start_f: 70, in_f: 70, out_f: 140 }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
+    ClipSchema.parse({ id: "c2", type: "media", asset: "a", start_f: 70, in_f: 70, out_f: 140 }),
   );
-  project.tracks[1]!.clips.push(ClipSchema.parse({ id: "c3", asset: "a", start_f: 0, in_f: 0, out_f: 140 }));
+  project.tracks[1]!.clips.push(
+    ClipSchema.parse({ id: "c3", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 140 }),
+  );
   const built = await buildPreview(project, dir, { bins, height: 90 });
   // verifyRender が nb_read_frames == 140、fps、音声尺を厳密に確認している
   expect(built.built_segments).toBe(2);

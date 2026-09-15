@@ -99,6 +99,7 @@ describe("runMutation", () => {
         // 存在しないアセットを参照するクリップ → E_ASSET_NOT_FOUND 系の validation error
         project.tracks[0]!.clips.push({
           id: "c1",
+          type: "media",
           asset: "nope",
           start_f: 0,
           in_f: 0,

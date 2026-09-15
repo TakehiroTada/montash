@@ -120,6 +120,7 @@ export const timelineGaps = defineCommand({
           const track = pickVideoTrack(project, gap, args.track);
           const clip = GeneratorClipSchema.parse({
             id: await allocate("c"),
+            type: "generator",
             generator: "color",
             params: { color: project.settings.background },
             start_f: gap.from_f,

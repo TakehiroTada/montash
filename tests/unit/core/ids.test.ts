@@ -35,6 +35,7 @@ function withClips(project: Project): Project {
   project.tracks[0]!.clips.push(
     {
       id: "c1",
+      type: "media",
       asset: "clip_a",
       start_f: 0,
       in_f: 0,
@@ -47,6 +48,7 @@ function withClips(project: Project): Project {
     },
     {
       id: "c7",
+      type: "media",
       asset: "clip_a",
       start_f: 100,
       in_f: 0,
@@ -300,6 +302,7 @@ describe("existingIds", () => {
     for (let i = 1; i <= 5000; i++) {
       project.tracks[0]!.clips.push({
         id: `c${i}`,
+        type: "media",
         asset: "clip_a",
         start_f: i * 10,
         in_f: 0,

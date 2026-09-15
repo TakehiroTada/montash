@@ -22,7 +22,7 @@ function base(fps = { num: 30, den: 1 }): Project {
 }
 
 function clip(id: string, start: number, inF: number, outF: number, extra: Record<string, unknown> = {}) {
-  return ClipSchema.parse({ id, asset: "a", start_f: start, in_f: inF, out_f: outF, ...extra });
+  return ClipSchema.parse({ id, type: "media", asset: "a", start_f: start, in_f: inF, out_f: outF, ...extra });
 }
 
 function graphOf(project: Project, opts: Parameters<typeof buildGraph>[1] = { resolution: RES, source }) {

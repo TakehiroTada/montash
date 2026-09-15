@@ -9,6 +9,7 @@ import { type Actor, History, type Op } from "../../../../src/core/history/index
 
 export interface Clip {
   id: string;
+  type: "media";
   asset: string;
   start_f: number;
   duration_f: number;
@@ -28,7 +29,11 @@ export function sampleProject(): Project {
     schema_version: 2,
     settings: { fps: { num: 30, den: 1 } },
     tracks: [
-      { id: "V1", kind: "video", clips: [{ id: "c1", asset: "a", start_f: 0, duration_f: 300, in_f: 0, out_f: 300 }] },
+      {
+        id: "V1",
+        kind: "video",
+        clips: [{ id: "c1", type: "media", asset: "a", start_f: 0, duration_f: 300, in_f: 0, out_f: 300 }],
+      },
       { id: "A1", kind: "audio", clips: [] },
     ],
   };
@@ -81,5 +86,5 @@ export async function init(h: History, project: Project = sampleProject()): Prom
 let clipSeq = 1;
 export function newClip(start_f: number, duration_f = 60): Clip {
   clipSeq++;
-  return { id: `c${clipSeq}`, asset: "a", start_f, duration_f, in_f: 0, out_f: duration_f };
+  return { id: `c${clipSeq}`, type: "media", asset: "a", start_f, duration_f, in_f: 0, out_f: duration_f };
 }

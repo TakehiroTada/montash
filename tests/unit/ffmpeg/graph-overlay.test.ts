@@ -28,7 +28,9 @@ function base(): Project {
     path: "logo.png",
     video: { width: 256, height: 128, pix_fmt: "rgba", has_alpha: true },
   });
-  project.tracks[0]!.clips.push(ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 120 }));
+  project.tracks[0]!.clips.push(
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 120 }),
+  );
   return project;
 }
 
@@ -46,6 +48,7 @@ test("one overlay scales, keeps alpha and is enabled by base frame numbers", () 
   const project = base();
   overlayOn(project, "V2", {
     id: "c2",
+    type: "media",
     asset: "logo",
     start_f: 0,
     in_f: 0,
@@ -66,6 +69,7 @@ test("two overlays on separate tracks stack in array order", () => {
   const project = base();
   overlayOn(project, "V2", {
     id: "c2",
+    type: "media",
     asset: "logo",
     start_f: 0,
     in_f: 0,
@@ -74,6 +78,7 @@ test("two overlays on separate tracks stack in array order", () => {
   });
   overlayOn(project, "V3", {
     id: "c3",
+    type: "media",
     asset: "a",
     start_f: 30,
     in_f: 60,
@@ -96,6 +101,7 @@ test("percent coordinates resolve against the output resolution", () => {
   const project = base();
   overlayOn(project, "V2", {
     id: "c2",
+    type: "media",
     asset: "logo",
     start_f: 0,
     in_f: 0,
@@ -112,6 +118,7 @@ test("pixel coordinates pass through unchanged", () => {
   const project = base();
   overlayOn(project, "V2", {
     id: "c2",
+    type: "media",
     asset: "logo",
     start_f: 0,
     in_f: 0,
@@ -128,6 +135,7 @@ test("an alpha PNG overlay keeps yuva420p through keep_alpha", () => {
   const project = base();
   overlayOn(project, "V2", {
     id: "c2",
+    type: "media",
     asset: "logo",
     start_f: 0,
     in_f: 0,

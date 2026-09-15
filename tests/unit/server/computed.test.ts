@@ -29,12 +29,16 @@ function projectWithText(dir: string): Record<string, unknown> {
   const srt = join(dir, "ja.srt");
   writeFileSync(srt, SRT);
   return {
-    schema_version: 2,
+    schema_version: 3,
     name: "computed-test",
     settings: { fps: FPS, resolution: { width: 1280, height: 720 } },
     assets: { ja: { id: "ja", path: srt, type: "subtitle", format: "srt" } },
     tracks: [
-      { id: "V1", kind: "video", clips: [{ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 1 }] },
+      {
+        id: "V1",
+        kind: "video",
+        clips: [{ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 1 }],
+      },
       {
         id: "T1",
         kind: "text",
@@ -146,8 +150,8 @@ describe("computeProject (pure)", () => {
           id: "V1",
           kind: "video",
           clips: [
-            { id: "g1", generator: "color", start_f: 10, duration_f: 60, label: "black" },
-            { id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 2 },
+            { id: "g1", type: "generator", generator: "color", start_f: 10, duration_f: 60, label: "black" },
+            { id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 90, speed: 2 },
           ],
         },
       ],

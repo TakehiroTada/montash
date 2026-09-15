@@ -10,6 +10,8 @@
  * 無いとき（古いサーバ・テスト用の素の project.json）だけ手元で算出する。
  */
 
+import { type ClipKind, clipDurationFrames, clipKindOf as sharedClipKind } from "../../../src/shared/clip-kind.ts";
+
 export interface Fps {
   num: number;
   den: number;
@@ -73,14 +75,11 @@ export function fpsOf(p: ProjectLike | null): Fps {
 // クリップの区間
 // ---------------------------------------------------------------------------
 
-export type ClipKind = "media" | "text" | "subtitle" | "generator";
+export type { ClipKind };
 
-/** クリップの種別（`src/core/schema.ts` の `clipKind()` と同じ規則） */
+/** クリップの種別（規則は `src/shared/clip-kind.ts` が正。CLI・サーバと同一の 1 実装） */
 export function clipKindOf(c: ClipLike): ClipKind {
-  if (c.type === "text") return "text";
-  if (c.type === "subtitle") return "subtitle";
-  if ("generator" in c) return "generator";
-  return "media";
+  return sharedClipKind(c);
 }
 
 /**
@@ -90,16 +89,7 @@ export function clipKindOf(c: ClipLike): ClipKind {
  * 字幕は素材が尺を決めるため単独では算出できず 0 を返す（`computed` が要る）。
  */
 export function clipDuration(c: ClipLike): number {
-  const kind = clipKindOf(c);
-  if (kind === "subtitle") return 0;
-  if (kind === "text" || kind === "generator") {
-    const d = c.duration_f;
-    return typeof d === "number" && Number.isFinite(d) ? Math.max(1, Math.round(d)) : 1;
-  }
-  const inF = c.in_f ?? 0;
-  const outF = c.out_f ?? inF;
-  const speed = c.speed && c.speed > 0 ? c.speed : 1;
-  return Math.max(1, Math.round((outF - inF) / speed));
+  return clipDurationFrames(c);
 }
 
 export function clipEnd(c: ClipLike): number {

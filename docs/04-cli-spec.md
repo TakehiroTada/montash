@@ -138,6 +138,8 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_INVALID_TIME` | 時間表記の解釈失敗 | 受理形式一覧 |
 | `E_NOTHING_TO_UNDO` / `E_NOTHING_TO_REDO` | 履歴端 | — |
 | `E_NOTHING_TO_COMMIT` | pending op 無し | `--allow-empty` |
+| `E_PLUGIN_MISSING` | クリップが未知の種別を持ち、供給するプラグインが無い。**読み込み・保存は通り、レンダー時のみ**（docs/05 §6.1a） | 該当プラグインの導入、または `clip delete` |
+| `E_SCHEMA_TOO_OLD` | `project.json` の `schema_version` が古い。v1.0 前なので移行は提供しない | `montash init` で作り直す |
 | `E_HISTORY_REF_NOT_FOUND` | op/commit/tag が無い | 類似 ID 候補 |
 | `E_TAG_EXISTS` / `E_TAG_NOT_FOUND` | タグ名 | — |
 | `E_REVERT_CONFLICT` | 逆差分の対象が既に無い | 対象一覧、`checkout` の提案 |

@@ -15,6 +15,7 @@ import {
   clipEndF,
   type Ducking,
   isMediaClip,
+  isOpaqueClip,
   isSubtitleClip,
   isTextClip,
   type Project,
@@ -48,6 +49,7 @@ import {
   GraphContext,
   type GraphOptions,
   type GraphRange,
+  pluginMissing,
   type Stream,
   unsupported,
 } from "./types.ts";
@@ -61,6 +63,10 @@ function assertSupported(project: Project): void {
   if (![1, 2].includes(project.settings.channels)) unsupported("more than two audio channels");
   for (const track of project.tracks) {
     if (!track.clips.length || track.muted) continue;
+    // 未知種別（プラグイン由来）はレンダーの時点で止める。読み込み・保存は通っている
+    for (const clip of track.clips) {
+      if (isOpaqueClip(clip)) pluginMissing(clip.id, String(clip.type));
+    }
     // テキストトラックは映像合成の最後に ASS で焼く（§6）。ここでは置けるクリップ種別だけ確かめる
     if (track.kind === "text") {
       for (const clip of track.clips) if (!isTextClip(clip) && !isSubtitleClip(clip)) unsupported("generator clips");

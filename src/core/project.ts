@@ -193,13 +193,22 @@ export function parseProject(raw: unknown, source = PROJECT_FILE): Project {
       },
     );
   }
+  // v1.0 前なので旧バージョンの移行は提供しない。曖昧な検証エラーにせず、ここで明快に落とす
+  if (typeof version === "number" && version < SCHEMA_VERSION) {
+    throw new MontashError(
+      "E_SCHEMA_TOO_OLD",
+      `${source} has schema_version ${version}; this montash requires ${SCHEMA_VERSION}`,
+      {
+        hint: "montash is still pre-1.0 and does not migrate old projects. Create a new project with `montash init`.",
+        detail: { source, schema_version: version, required: SCHEMA_VERSION },
+      },
+    );
+  }
+
   const parsed = ProjectSchema.safeParse(raw);
   if (!parsed.success) {
     const issues = formatZodIssues(parsed.error);
-    const hint =
-      typeof version === "number" && version < SCHEMA_VERSION
-        ? `schema_version ${version} is older than ${SCHEMA_VERSION}; automatic migration is not implemented yet.`
-        : "Fix the listed fields, or restore a snapshot with `montash checkout`.";
+    const hint = "Fix the listed fields, or restore a snapshot with `montash checkout`.";
     throw new MontashError(
       "E_PROJECT_INVALID",
       `${source} does not match schema v${SCHEMA_VERSION}: ${issues[0]?.path ?? ""} ${issues[0]?.message ?? ""}`.trim(),

@@ -23,6 +23,8 @@ export function clipAssetId(clip: TrackClip): string | null {
     case "text":
       return (clip as { asset: string | null }).asset;
     case "generator":
+    case "opaque":
+      // 未知種別は asset を参照しているかもしれないが、解釈はプラグインに委ねる
       return null;
   }
 }

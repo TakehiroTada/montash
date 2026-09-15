@@ -77,6 +77,7 @@ export function addPair(
   const audioId = `c${2 * n}`;
   const video = ClipSchema.parse({
     id: videoId,
+    type: "media",
     asset: "a",
     start_f: at,
     in_f: inF,
@@ -86,6 +87,7 @@ export function addPair(
   });
   const audio = ClipSchema.parse({
     id: audioId,
+    type: "media",
     asset: "a",
     start_f: at,
     in_f: inF,
@@ -102,6 +104,7 @@ export function addPair(
 export function addBgm(project: Project, id: string, start: number, durationF: number): Clip {
   const clip = ClipSchema.parse({
     id,
+    type: "media",
     asset: "bgm",
     start_f: start,
     in_f: 0,

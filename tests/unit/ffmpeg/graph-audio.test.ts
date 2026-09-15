@@ -30,13 +30,13 @@ function base(): Project {
   project.assets.bgm = AudioAssetSchema.parse({ id: "bgm", type: "audio", path: "bgm.wav", duration_f: 300 });
   project.tracks.push(TrackSchema.parse({ id: "A2", kind: "audio" }));
   project.tracks[0]!.clips.push(
-    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 90, link: "c2", video: {} }),
+    ClipSchema.parse({ id: "c1", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 90, link: "c2", video: {} }),
   );
   project.tracks[1]!.clips.push(
-    ClipSchema.parse({ id: "c2", asset: "a", start_f: 0, in_f: 0, out_f: 90, link: "c1", audio: {} }),
+    ClipSchema.parse({ id: "c2", type: "media", asset: "a", start_f: 0, in_f: 0, out_f: 90, link: "c1", audio: {} }),
   );
   project.tracks[2]!.clips.push(
-    ClipSchema.parse({ id: "c3", asset: "bgm", start_f: 0, in_f: 0, out_f: 90, audio: {} }),
+    ClipSchema.parse({ id: "c3", type: "media", asset: "bgm", start_f: 0, in_f: 0, out_f: 90, audio: {} }),
   );
   return project;
 }
@@ -170,7 +170,15 @@ test("several audio tracks are mixed with normalize=0 and fitted to the timeline
   const project = base();
   project.tracks.push(TrackSchema.parse({ id: "A3", kind: "audio" }));
   project.tracks[3]!.clips.push(
-    ClipSchema.parse({ id: "c4", asset: "bgm", start_f: 30, in_f: 0, out_f: 60, audio: { gain_db: -6 } }),
+    ClipSchema.parse({
+      id: "c4",
+      type: "media",
+      asset: "bgm",
+      start_f: 30,
+      in_f: 0,
+      out_f: 60,
+      audio: { gain_db: -6 },
+    }),
   );
   const graph = graphOf(project);
   expect(graph.filterComplex).toContain("amix=inputs=3:normalize=0:dropout_transition=0");

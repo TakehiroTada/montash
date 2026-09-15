@@ -102,6 +102,7 @@ export async function addClip(project: Project, input: AddClipInput, allocate: I
 
   const clip = ClipSchema.parse({
     id: input.id ?? (await allocate()),
+    type: "media",
     asset: input.asset,
     start_f: startF,
     in_f: input.in_f,
@@ -113,6 +114,7 @@ export async function addClip(project: Project, input: AddClipInput, allocate: I
   const linked = linkedTrack
     ? ClipSchema.parse({
         id: await allocate(),
+        type: "media",
         asset: input.asset,
         start_f: startF,
         in_f: input.in_f,
