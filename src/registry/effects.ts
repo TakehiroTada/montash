@@ -338,6 +338,157 @@ export const rotateEffect: EffectSpec = defineEffect({
   },
 });
 
+// ---------------------------------------------------------------------------
+// 組み込みエフェクト（音声）
+//
+// 挿入位置は `normalizeAudioClip` の `volume=…dB` のあと・`afade` の前（docs/07 §8a）。
+// 映像側と同じ契約で書く（`defineEffect` + 純関数の `build()`）。
+// ---------------------------------------------------------------------------
+
+/** 小数を ffmpeg に渡す文字列にする（指数表記を避け、末尾の 0 を落とす）。`ffmpeg/graph/audio.ts` の `num()` と同じ規則だが、**`registry/` は `ffmpeg/` を import しない**（依存方向。docs/08 §2）ので、ここに持つ */
+function numValue(v: number): string {
+  return String(Number(v.toFixed(6)));
+}
+
+/** dB → 線形振幅（`10^(dB/20)`）。`acompressor` の threshold / makeup はこの単位（docs/07 §8.3 の `sidechaincompress` と同じ） */
+function dbToAmplitude(db: number): number {
+  return 10 ** (db / 20);
+}
+
+/**
+ * ノイズ除去（マイクの環境ノイズ）。`afftdn`（FFT スペクトル減算）+ 任意の `highpass`。
+ *
+ * **`arnndn` を既定にしない判断**: `arnndn` は RNN の**学習済みモデルファイル（`.rnnn`）が必須**で、
+ * ffmpeg にも montash にも同梱されない（別配布）。既定値を決められない必須パラメータを持つ組み込みは
+ * 「追加した瞬間に動く」という組み込みの前提を壊すので採らない。`anlmdn` はモデル不要だが
+ * 桁違いに重く、`s`（強さ）/ `p` / `r` は物理単位が無くて実用的な既定を決めにくい。
+ * `afftdn` は **nr / nf が dB という測れる単位**で、既定のまま効き、実測でも効果が確認できる:
+ * 無音部のノイズフロアが **-64.9dB → -74.3dB（9.4dB 低減）**（amount 10 / floor -50 / highpass 80）。
+ *
+ * `highpass` を同居させているのは、マイク収録のノイズ低減が実務上「低域のゴロつき（空調・机の振動）を
+ * 切る」までを含む 1 手順だから。`0` で無効（`eq` エフェクトでも同じ `highpass` は掛けられる）。
+ *
+ * `nt=w`（白色雑音）は固定。`vinyl` / `shellac` はレコード修復用で、`custom` は `band_noise` の
+ * 帯域テーブルが別途要る — どれもマイクの環境ノイズには当たらない。
+ */
+export const denoiseEffect: EffectSpec = defineEffect({
+  name: "denoise",
+  target: "audio",
+  summary: "reduce microphone / room noise (afftdn, optional highpass)",
+  requires: ["afftdn", "highpass"],
+  params: {
+    amount: {
+      type: "number",
+      describe: "noise reduction in dB (afftdn nr), 0.01 .. 97",
+      default: 12,
+      min: 0.01,
+      max: 97,
+    },
+    floor: {
+      type: "number",
+      describe: "noise floor in dB (afftdn nf), -80 .. -20",
+      default: -50,
+      min: -80,
+      max: -20,
+    },
+    highpass: { type: "number", describe: "cut rumble below this Hz (0 = off)", default: 80, min: 0, max: 300 },
+  },
+  build(params) {
+    const highpass = params.highpass as number;
+    return [
+      ...(highpass > 0 ? [`highpass=f=${numValue(highpass)}`] : []),
+      `afftdn=nr=${numValue(params.amount as number)}:nf=${numValue(params.floor as number)}:nt=w`,
+    ];
+  },
+});
+
+/**
+ * トーン調整（ナレーションの明瞭度）。`highpass` / `lowpass` / `equalizer` の 3 段。
+ *
+ * **`color` と同じ「指定されたものだけを出す」規則**にしてある（既定値を持たず、何も指定が無ければ
+ * フィルタを 1 つも足さない）。音の素通しを既定にするのは、トーン調整に「万人向けの既定カーブ」が
+ * 無いから — 素材によって切るべき帯域が違う。
+ *
+ * `equalizer`（ピーキング EQ）は **`frequency` と `gain` が対**で意味を持つので、片方だけの指定は
+ * 黙って無視せず `E_USAGE` にする（`--gain 3` だけ書いて何も変わらない、が一番デバッグしづらい）。
+ * 幅は Q 値（`t=q`）で、既定 1 はおよそ 1.4 オクターブ。ナレーションなら 200Hz 付近を -3dB で
+ * 濁りを取り、3kHz 付近を +3dB で子音を立てる、といった使い方になる。
+ *
+ * `lowpass` の上限は 20000Hz だが、**サンプルレートによってはナイキスト周波数を超える**。
+ * 超えた指定は ffmpeg 側でクリップされるだけで害は無いので、ここでは弾かない（`build()` は純関数で、
+ * `ctx.sampleRate` は見えるが、弾くと「48k では通るが 44.1k では落ちる」プロジェクトができてしまう）。
+ */
+export const audioEqEffect: EffectSpec = defineEffect({
+  name: "eq",
+  target: "audio",
+  summary: "tone shaping: highpass / lowpass / one peaking band (highpass, lowpass, equalizer)",
+  requires: ["highpass", "lowpass", "equalizer"],
+  params: {
+    highpass: { type: "number", describe: "cut below this Hz (0 = off)", min: 0, max: 2000 },
+    lowpass: { type: "number", describe: "cut above this Hz (0 = off)", min: 1000, max: 20000 },
+    frequency: { type: "number", describe: "centre of the peaking band in Hz (needs gain)", min: 20, max: 20000 },
+    gain: { type: "number", describe: "gain of the peaking band in dB (needs frequency)", min: -30, max: 30 },
+    width: { type: "number", describe: "Q of the peaking band (higher = narrower)", default: 1, min: 0.1, max: 10 },
+  },
+  build(params) {
+    const out: string[] = [];
+    const highpass = params.highpass as number | undefined;
+    const lowpass = params.lowpass as number | undefined;
+    const frequency = params.frequency as number | undefined;
+    const gain = params.gain as number | undefined;
+    if (typeof highpass === "number" && highpass > 0) out.push(`highpass=f=${numValue(highpass)}`);
+    if (typeof lowpass === "number" && lowpass > 0) out.push(`lowpass=f=${numValue(lowpass)}`);
+    if (typeof frequency === "number" || typeof gain === "number") {
+      if (typeof frequency !== "number")
+        throw new MontashError("E_USAGE", "effect 'eq': frequency is required when gain is set", {
+          detail: { effect: "eq", param: "frequency" },
+        });
+      if (typeof gain !== "number")
+        throw new MontashError("E_USAGE", "effect 'eq': gain is required when frequency is set", {
+          detail: { effect: "eq", param: "gain" },
+        });
+      out.push(`equalizer=f=${numValue(frequency)}:t=q:w=${numValue(params.width as number)}:g=${numValue(gain)}`);
+    }
+    return out;
+  },
+});
+
+/**
+ * ダイナミクス圧縮（声の大小のばらつきを抑える）。`acompressor`。
+ *
+ * **`threshold` と `makeup` は dB で受け、線形振幅（`10^(dB/20)`）に直して渡す。**
+ * ffmpeg の `acompressor` はこの 2 つを線形で取る（docs/07 §8.3 の `sidechaincompress` と同じ事情）が、
+ * montash の音量はどこでも dB（`volume`、`gain_db`、ダッキングの `threshold_db`）なので単位を揃える。
+ * パラメータの範囲は **そのまま ffmpeg の受け付ける範囲に収まる**ように決めてある
+ * （-60dB → 0.001 ≧ 0.000976563、0dB → 1、makeup 36dB → 63.1 ≦ 64）ので、丸めは要らない。
+ *
+ * 既定（threshold -18dB / ratio 3 / attack 20ms / release 250ms / makeup 0dB）は「喋りを少し均す」程度。
+ * `detection` は既定の rms（声には peak より素直）、`knee` も既定のまま — 増やすほど良くなる類の
+ * つまみではないので出さない。
+ */
+export const compressEffect: EffectSpec = defineEffect({
+  name: "compress",
+  target: "audio",
+  summary: "even out loud and quiet parts (acompressor)",
+  requires: ["acompressor"],
+  params: {
+    threshold: { type: "number", describe: "compress above this level in dB", default: -18, min: -60, max: 0 },
+    ratio: { type: "number", describe: "compression ratio, 1 .. 20 (1 = off)", default: 3, min: 1, max: 20 },
+    attack: { type: "number", describe: "attack in ms", default: 20, min: 0.01, max: 2000 },
+    release: { type: "number", describe: "release in ms", default: 250, min: 0.01, max: 9000 },
+    makeup: { type: "number", describe: "make-up gain in dB, 0 .. 36", default: 0, min: 0, max: 36 },
+  },
+  build(params) {
+    const threshold = dbToAmplitude(params.threshold as number);
+    const makeup = dbToAmplitude(params.makeup as number);
+    return [
+      `acompressor=threshold=${numValue(threshold)}:ratio=${numValue(params.ratio as number)}` +
+        `:attack=${numValue(params.attack as number)}:release=${numValue(params.release as number)}` +
+        `:makeup=${numValue(makeup)}`,
+    ];
+  },
+});
+
 const BUILTIN_VIDEO_EFFECTS: Readonly<Record<string, EffectSpec>> = {
   [colorEffect.name]: colorEffect,
   [blurEffect.name]: blurEffect,
@@ -346,7 +497,11 @@ const BUILTIN_VIDEO_EFFECTS: Readonly<Record<string, EffectSpec>> = {
   [flipEffect.name]: flipEffect,
   [rotateEffect.name]: rotateEffect,
 };
-const BUILTIN_AUDIO_EFFECTS: Readonly<Record<string, EffectSpec>> = {};
+const BUILTIN_AUDIO_EFFECTS: Readonly<Record<string, EffectSpec>> = {
+  [denoiseEffect.name]: denoiseEffect,
+  [audioEqEffect.name]: audioEqEffect,
+  [compressEffect.name]: compressEffect,
+};
 
 export const videoEffects: Registry<EffectSpec> = createRegistry<EffectSpec>({
   label: "video effect",
