@@ -18,6 +18,7 @@ import { clipDelete, clipMove, clipSet, clipSplit, clipTrim } from "./clip-edit.
 import { commit } from "./commit.ts";
 import { diff } from "./diff.ts";
 import { doctor } from "./doctor.ts";
+import { fade } from "./fade.ts";
 import { fontsList } from "./fonts.ts";
 import { historyExport, historyImport, historyPrune, historyVerify } from "./history.ts";
 import { idsRebuild } from "./ids.ts";
@@ -37,6 +38,7 @@ import { tag, tagDelete, tagList } from "./tag.ts";
 import { textAdd, textList, textPresets, textRemove, textSet } from "./text.ts";
 import { timelineGaps, timelineShow } from "./timeline.ts";
 import { trackAdd, trackList, trackLock, trackMove, trackMute, trackRemove } from "./track.ts";
+import { transitionAdd, transitionList, transitionRemove, transitionSet } from "./transition.ts";
 import { undo } from "./undo.ts";
 import { validate } from "./validate.ts";
 
@@ -83,13 +85,19 @@ export const commands: ReadonlyArray<AnySpec> = [
   // タイムライン（docs/04 §7）
   spec(timelineShow),
   spec(timelineGaps),
+  // トランジション・フェード（docs/04 §8）
+  spec(transitionAdd),
+  spec(transitionSet),
+  spec(transitionRemove),
+  spec(transitionList),
+  spec(fade),
   // テキスト（docs/04 §9）
   spec(textAdd),
   spec(textSet),
   spec(textRemove),
   spec(textList),
   spec(textPresets),
-  // トランジション / オーバーレイ / 音声 / 字幕                        → M3/M4
+  // オーバーレイ / 音声 / 字幕                                        → M3/M4
   // プレビュー: serve, preview *                                      → M2
   spec(serve),
   spec(previewBuild),

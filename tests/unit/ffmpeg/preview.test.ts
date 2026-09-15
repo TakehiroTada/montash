@@ -4,7 +4,7 @@ import { copyFile, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProject, projectPaths } from "../../../src/core/project.ts";
-import { ClipSchema, type Project, VideoAssetSchema } from "../../../src/core/schema.ts";
+import { ClipSchema, type Project, TransitionSchema, VideoAssetSchema } from "../../../src/core/schema.ts";
 import { ensureFixtures } from "../../../src/ffmpeg/fixtures.ts";
 import { locateBinaries } from "../../../src/ffmpeg/locate.ts";
 import {
@@ -54,6 +54,38 @@ test("segment boundaries land on clip edges and merge spans shorter than the min
   project.tracks[1]!.clips.push(ClipSchema.parse({ id: "c4", asset: "a", start_f: 100, in_f: 0, out_f: 20 }));
   expect(segmentBoundaries(project, 160)).toEqual([0, 70, 160]);
 });
+
+test("a track fade window is never split across segments", () => {
+  const project = createProject({ name: "f", fps: { num: 30, den: 1 }, resolution: { width: 640, height: 360 } });
+  project.tracks[0]!.clips.push(
+    ClipSchema.parse({ id: "c1", asset: "a", start_f: 0, in_f: 0, out_f: 70 }),
+    ClipSchema.parse({ id: "c3", asset: "a", start_f: 70, in_f: 0, out_f: 90 }),
+  );
+  expect(segmentBoundaries(project, 160)).toEqual([0, 70, 160]);
+  // フェードイン 100 フレームの窓（0..100）の内側にある f:70 は境界にできない
+  project.tracks[0]!.fade = { in_f: 100, out_f: 0, color: "black" };
+  expect(segmentBoundaries(project, 160)).toEqual([0, 160]);
+});
+
+test("a transition that spans a segment boundary still builds an exact preview", async () => {
+  const { project, dir } = await setup([
+    { id: "c1", start_f: 0, in_f: 0, out_f: 70 },
+    { id: "c2", start_f: 70, in_f: 70, out_f: 140 },
+  ]);
+  project.transitions.push(
+    TransitionSchema.parse({ id: "t1", track: "V1", from: "c1", to: "c2", type: "fade", duration_f: 20 }),
+  );
+  const plan = await buildPreviewPlan(project, dir, { height: 90 });
+  expect(plan.segments.map((s) => [s.from_f, s.to_f])).toEqual([
+    [0, 70],
+    [70, 140],
+  ]);
+  expect(plan.segments[0]!.args("/tmp/x.mp4").join(" ")).toContain("xfade=transition=fade");
+  // buildPreview は最後に verifyRender で nb_read_frames == 140 を確認する
+  const built = await buildPreview(project, dir, { bins, height: 90 });
+  expect(built.built_segments).toBe(2);
+  expect(built.status.duration_f).toBe(140);
+}, 60000);
 
 test("splits the timeline into cached segments and re-encodes only what changed", async () => {
   const { project, dir } = await setup([

@@ -334,7 +334,8 @@ describe("M1 render", () => {
     await importMedia();
     await ok("clip", "add", "--asset", "red", "--duration", "f:20");
     const project = await loadProject(dir);
-    (project.tracks[0]!.clips[0] as any).video.opacity = 0.5;
+    // 不透明度・トランジション・速度は実装済み。LUT はまだ（graph/video.ts の unsupported）
+    (project.tracks[0]!.clips[0] as any).video.lut = "look.cube";
     await saveProject(dir, project);
     const result = await run("render", "-o", join(dir, "out", "effects.mp4"));
     expect(result.error.code).toBe("E_NOT_IMPLEMENTED");

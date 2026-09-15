@@ -1,10 +1,15 @@
-/** M1 renderer: frame-accurate cuts, concat, gaps and linked audio. */
+/**
+ * レンダー（docs/07 §9）。グラフの組み立ては `graph/` に任せ、ここは検証・プリセット・出力設定だけを持つ。
+ */
 import { stat } from "node:fs/promises";
 import { MontashError } from "../cli/errors.ts";
 import { timelineDurationF } from "../core/assets.ts";
-import { type Clip, clipDurationF, clipEndF, isMediaClip, type Project, type Resolution } from "../core/schema.ts";
-import { framesToSamples, framesToSeconds, framesToSecString } from "../core/time.ts";
+import type { Project, Resolution } from "../core/schema.ts";
+import { framesToSeconds } from "../core/time.ts";
 import { resolveAssetPath, validateProject } from "../core/validate.ts";
+import { buildGraph } from "./graph/builder.ts";
+import { serializeGraph } from "./graph/serialize.ts";
+import type { OutputSpec } from "./graph/types.ts";
 import type { Binaries } from "./locate.ts";
 import { runFfprobeJson } from "./run.ts";
 
@@ -30,12 +35,6 @@ export interface RenderPlan {
   warnings: Array<{ code: string; message: string }>;
 }
 
-function unsupported(what: string): never {
-  throw new MontashError("E_NOT_IMPLEMENTED", `M1 render does not support ${what}`, {
-    hint: "Use plain media clips with speed 1; transitions, text and effects arrive in later milestones.",
-  });
-}
-
 export function buildRenderPlan(project: Project, dir: string, output: string, opts: RenderOptions): RenderPlan {
   const validation = validateProject(project, { dir, checkFiles: true });
   if (!validation.ok)
@@ -43,144 +42,50 @@ export function buildRenderPlan(project: Project, dir: string, output: string, o
       detail: { errors: validation.errors },
       hint: "Run `montash validate --deep --json` and fix the reported issues.",
     });
-  const total = timelineDurationF(project);
-  if (!total)
-    throw new MontashError("E_EMPTY_TIMELINE", "cannot render an empty timeline", {
-      hint: "Use `montash clip add` first.",
-    });
-  if (project.transitions.length) unsupported("transitions");
-  if (project.audio.ducking.length) unsupported("audio ducking");
-  if (![1, 2].includes(project.settings.channels)) unsupported("more than two audio channels");
-  const active = project.tracks.filter((t) => !t.muted && t.clips.length);
-  const videos = active.filter((t) => t.kind === "video");
-  if (videos.length > 1) unsupported("multiple video layers");
-  for (const track of active) {
-    if (track.kind === "text") unsupported("text tracks");
-    if (track.fade.in_f || track.fade.out_f) unsupported("track fades");
-    for (const clip of track.clips) {
-      if (!isMediaClip(clip)) unsupported("text, subtitle or generator clips");
-      if (clip.speed !== 1 || clip.loop || clip.effects.length) unsupported("speed, loops or effects");
-      const v = clip.video;
-      if (v && (v.opacity !== 1 || v.transform || v.crop || v.color || v.lut || v.fade.in_f || v.fade.out_f))
-        unsupported("video transforms or fades");
-      const a = clip.audio;
-      if (a && (a.fade.in_f || a.fade.out_f || a.offset_smp)) unsupported("audio fades or offsets");
-    }
-  }
   const preset = RENDER_PRESETS[opts.preset];
-  const res = opts.resolution ?? preset.resolution;
-  if (res.width % 2 || res.height % 2) throw new MontashError("E_USAGE", "H.264 output width and height must be even");
+  const resolution = opts.resolution ?? preset.resolution;
   const fps = project.settings.fps;
-  const rate = `${fps.num}/${fps.den}`;
-  const sr = project.settings.sample_rate;
-  const layout = project.settings.channels === 1 ? "mono" : "stereo";
-  const samples = framesToSamples(total, fps, sr);
-  const duration = framesToSeconds(total, fps);
-  const args: string[] = [];
-  const graph: string[] = [];
-  let inputIndex = 0;
-  const input = (clip: Clip) => {
-    const asset = project.assets[clip.asset]!;
-    if (asset.type === "image") args.push("-loop", "1", "-framerate", rate);
-    args.push("-i", resolveAssetPath(dir, asset.path));
-    return inputIndex++;
+  const graph = buildGraph(project, {
+    resolution,
+    source: (asset) => resolveAssetPath(dir, asset.path),
+  });
+  const spec: OutputSpec = {
+    path: output,
+    format: "mp4",
+    video: {
+      codec: "libx264",
+      preset: opts.speed ?? preset.speed,
+      crf: opts.crf ?? preset.crf,
+      pixFmt: "yuv420p",
+      gop: Math.round((2 * fps.num) / fps.den),
+    },
+    audio: {
+      codec: "aac",
+      bitrate: preset.abitrate,
+      sampleRate: project.settings.sample_rate,
+      channels: project.settings.channels,
+    },
+    faststart: true,
+    ...(opts.threads !== undefined ? { threads: opts.threads } : {}),
   };
-  const labels: string[] = [];
-  const tb = `settb=expr=${fps.den}/${fps.num},setpts=N`;
-  const background = project.settings.background;
-  if (!/^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|[a-zA-Z]+)$/.test(background))
-    throw new MontashError("E_USAGE", "unsupported background color");
-  const blank = (frames: number) => {
-    if (frames <= 0) return;
-    const label = `v${labels.length}`;
-    graph.push(`color=c=${background}:s=${res.width}x${res.height}:r=${rate},trim=end_frame=${frames},${tb}[${label}]`);
-    labels.push(label);
-  };
-  let cursor = 0;
-  for (const c of [...(videos[0]?.clips ?? [])].sort((a, b) => a.start_f - b.start_f)) {
-    const clip = c as Clip;
-    blank(clip.start_f - cursor);
-    const index = input(clip);
-    const label = `v${labels.length}`;
-    // Normalize timestamps and FPS before selecting project-frame boundaries.
-    graph.push(
-      `[${index}:V:0]setpts=PTS-STARTPTS,fps=${rate},trim=start_frame=${clip.in_f}:end_frame=${clip.out_f},${tb},scale=${res.width}:${res.height}:force_original_aspect_ratio=decrease,pad=${res.width}:${res.height}:(ow-iw)/2:(oh-ih)/2:color=${background},setsar=1,format=yuv420p[${label}]`,
-    );
-    labels.push(label);
-    cursor = clipEndF(clip);
-  }
-  blank(total - cursor);
-  graph.push(
-    `${labels.map((l) => `[${l}]`).join("")}concat=n=${labels.length}:v=1:a=0,fps=${rate},trim=end_frame=${total},${tb}[Vout]`,
-  );
-
-  const audioLabels: string[] = [];
-  for (const track of active.filter((t) => t.kind === "audio")) {
-    for (const c of track.clips) {
-      const clip = c as Clip;
-      if (clip.audio?.muted) continue;
-      const index = input(clip);
-      const label = `a${audioLabels.length}`;
-      const start = framesToSamples(clip.in_f, fps, sr);
-      const length = framesToSamples(clipDurationF(clip), fps, sr);
-      const delay = framesToSamples(clip.start_f, fps, sr);
-      const gain = (clip.audio?.gain_db ?? 0) + (project.audio.track_gain_db[track.id] ?? 0);
-      graph.push(
-        `[${index}:a:0]asetpts=PTS-STARTPTS,aresample=${sr},aformat=sample_fmts=fltp:channel_layouts=${layout},atrim=start_sample=${start}:end_sample=${start + length},asetpts=PTS-STARTPTS,apad=whole_len=${length},atrim=end_sample=${length},volume=${gain}dB,adelay=${delay}S:all=1[${label}]`,
-      );
-      audioLabels.push(label);
-    }
-  }
-  if (audioLabels.length)
-    graph.push(
-      `${audioLabels.map((l) => `[${l}]`).join("")}amix=inputs=${audioLabels.length}:normalize=0:dropout_transition=0[Amix]`,
-    );
-  else graph.push(`anullsrc=r=${sr}:cl=${layout},atrim=end_sample=${samples}[Amix]`);
-  graph.push(
-    `[Amix]volume=${project.audio.master_gain_db}dB,apad=whole_len=${samples},atrim=end_sample=${samples},asetpts=PTS-STARTPTS[Aout]`,
-  );
-  const filter = graph.join(";");
-  args.push(
-    "-filter_complex_threads",
-    "1",
-    "-filter_complex",
-    filter,
-    "-map",
-    "[Vout]",
-    "-map",
-    "[Aout]",
-    "-c:v",
-    "libx264",
-    "-preset",
-    opts.speed ?? preset.speed,
-    "-crf",
-    String(opts.crf ?? preset.crf),
-    "-pix_fmt",
-    "yuv420p",
-    "-g",
-    String(Math.round((2 * fps.num) / fps.den)),
-    "-r",
-    rate,
-    "-frames:v",
-    String(total),
-    "-c:a",
-    "aac",
-    "-b:a",
-    preset.abitrate,
-    "-ar",
-    String(sr),
-    "-ac",
-    String(project.settings.channels),
-  );
-  if (opts.threads !== undefined) args.push("-threads", String(opts.threads));
-  args.push("-t", framesToSecString(total, fps), "-movflags", "+faststart", "-f", "mp4", output);
-  const warnings = [...validation.warnings.map((w) => ({ code: w.code, message: w.message }))];
+  const total = timelineDurationF(project);
+  const warnings = [
+    ...validation.warnings.map((w) => ({ code: w.code, message: w.message })),
+    ...graph.warnings.map((w) => ({ code: w.code, message: w.message })),
+  ];
   if (project.audio.normalize.enabled)
     warnings.push({
       code: "W_NORMALIZE_DEFERRED",
-      message: "M1 render preserves audio levels; loudness normalization is planned for M3.",
+      message: "render preserves audio levels; loudness normalization is planned for a later milestone.",
     });
-  return { args, filter_complex: filter, duration_f: total, duration, resolution: res, warnings };
+  return {
+    args: serializeGraph(graph, spec),
+    filter_complex: graph.filterComplex,
+    duration_f: total,
+    duration: framesToSeconds(total, fps),
+    resolution,
+    warnings,
+  };
 }
 
 interface ProbeStream {
