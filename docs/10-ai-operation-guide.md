@@ -90,6 +90,7 @@
 | 素材の尺 | `montash assets show clip_a --json | jq .duration` |
 | 実行前チェック | `montash validate --json` |
 | 何が変わるか | `<command> --dry-run --json` |
+| まとめて実行する前の行チェック | `montash batch <file.jsonl> --dry-run --json`（各行がどのコマンドに解決されるか） |
 
 ## 5. エラー対応表
 
@@ -112,6 +113,9 @@
 | `W_MULTIPLE_CHILDREN`（redo） | 候補の `summary` を提示して人間に選ばせる |
 | `E_NOTHING_TO_COMMIT` | 「記録すべき変更はありません」と報告 |
 | `E_REVERT_CONFLICT` | 対象が既に無い。`checkout` で該当時点を見せるか、手動で相当操作を提案 |
+| `E_BATCH_PARSE` | `detail.line` の行を直して `batch` をやり直す（1 行も実行されていない） |
+| `E_BATCH_FAILED` | `--atomic` なので**何も適用されていない**。`detail.lines` で失敗行と各行の hint を読み、その行だけ直して同じファイルを再実行する |
+| `E_BATCH_UNSUPPORTED` | その行はバッチの外で実行する（`checkout` / `commit` など）。一括適用を続けたいだけなら `--continue-on-error` |
 | `W_DIRTY_WORKTREE` | `project.json` が手編集された。人間に確認して `commit --from-worktree -m "手編集"` か `checkout HEAD` |
 
 ## 6. 報告テンプレート
@@ -164,6 +168,25 @@ montash transition add --between c2 c3 --type crossfade --duration 0.5
 montash commit -m "00:12.0〜00:15.0 の言い間違いをカットし、c2→c3 に 0.5s クロスフェード" \
   --body $'指示: 「12秒あたりの噛んだところ消して、繋ぎは自然に」\n影響: c2 を f:360 で分割、後半 c7 を削除（ripple）、t3 追加。全長 f:1335→f:1245（44.5→41.5s）'
 ```
+
+## 10. まとめて実行する（`montash batch`）
+
+1 指示に対してコマンドが 3 つ以上並ぶときは、1 行 1 コマンドの JSON Lines にして `montash batch` に渡す（04 章 §16、F-AI-5）。**既定は `--atomic`** なので、途中で 1 行でも失敗すれば開始前の状態に戻り、中途半端な編集が残らない。
+
+```bash
+montash batch - --json --yes -m "冒頭 3 カットを並べ、繋ぎに 0.5s クロスフェード" <<'EOF'
+{"args": ["clip", "add", "--asset", "a", "--in", "f:0", "--duration", "f:90", "--at", "end"]}
+{"args": ["clip", "add", "--asset", "b", "--at", "end"]}
+{"args": ["transition", "add", "--track", "V1", "--all-cuts", "--type", "crossfade", "--duration", "0.5"]}
+EOF
+```
+
+- **前に ID が分からない操作は入れない**。`clip split` の結果 ID（`created.id`）を次の行で使う、のような依存があるときは、そこでバッチを切って通常のコマンドで実行し、返った ID を見てから次のバッチを組む。
+- 出力の `result.lines[]` に行番号・解決されたコマンド・`ok` / `failed` / `skipped`・各行の `result` が並ぶ。失敗時は `error.detail.lines` に同じものが入る（`rolled_back: true` なら何も適用されていない）。
+- 行ごとに `-m` は付けない（`--atomic` では無視され `W_BATCH_MESSAGE_IGNORED`）。コミットしたいときは `montash batch` 自体に `-m` を付ける。バッチ全体が 1 op・1 コミットになる（11 章 §3.2）。
+- 「一部でも通せるものは通したい」ときだけ `--continue-on-error`。このときは各行が個別の op になり、終了コードは 1 でも成功行は適用済みなので、人間には**どこまで適用されたか**を必ず報告する。
+- `checkout` / `undo` / `commit` などの履歴操作はバッチに入れられない（`E_BATCH_UNSUPPORTED`）。バッチの前後で実行する。
+- 巻き戻るのはタイムラインの状態だけ。`render` の出力ファイルは消えない。
 
 ## 8. `montash schema` をツール定義として使う
 

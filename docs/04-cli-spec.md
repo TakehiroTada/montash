@@ -158,8 +158,12 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_ID_EXISTS` | `--id` が既存 ID と衝突 | 別 ID |
 | `E_TRACK_LOCKED` | ロック中トラックへの編集 | `track unlock` |
 | `E_SPLIT_AT_EDGE` | 分割位置がクリップ端 | trim / delete |
+| `E_BATCH_PARSE` | `batch` の行が JSON Lines としても bash 行としても読めない | 受理形式（`detail.line` に行番号） |
+| `E_BATCH_EMPTY` | `batch` の入力に実行できる行が無い | 1 行 1 コマンドの書き方 |
+| `E_BATCH_UNSUPPORTED` | バッチの中で実行できないコマンド（`batch`/`serve`/`init`、`--atomic` では `checkout`/`undo`/`redo`/`revert`/`reset`/`commit` など HEAD を動かすもの） | バッチの外で実行する、または `--continue-on-error` |
+| `E_BATCH_FAILED` | `--atomic` のバッチが途中で失敗（開始前へ巻き戻し済み） | 失敗した行の hint、`detail.lines` に各行の結果 |
 
-警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満））。
+警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満）, `W_BATCH_MESSAGE_IGNORED`（`--atomic` のバッチの行に付いた `-m` は無視した））。
 
 ### 1.8 履歴への記録
 
@@ -176,10 +180,9 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `clip show` | §6 | `clip list --json` で代替中 |
 | `clip link` / `clip unlink` | §11 | `clip move/trim/split/set --unlink` は実装済み |
 | `snapshot save|restore|list|delete` | §15 | `tag` / `checkout` を使う。互換別名は後回し |
-| `batch` | §16 | 未着手 |
 | `serve stop` / `serve status` | §13 | `--daemon` 自体は実装済み |
 
-**M4 で実装済みになったもの**（旧「未実装」から移動）: `render batch` / `render still` / `render gif` / `render audio`、`blame` / `revert` / `reset --hard`、`history prune|export|import`、`help`（docs/13 D-11）。
+**M4 で実装済みになったもの**（旧「未実装」から移動）: `render batch` / `render still` / `render gif` / `render audio`、`blame` / `revert` / `reset --hard`、`history prune|export|import`、`help`（docs/13 D-11）、`batch`（§16）。
 
 **未実装のオプション**
 
@@ -740,9 +743,63 @@ montash render -o <path> [--preset <name>] [--from <t>] [--to <t>]
 
 ## 16. AI 支援
 
-### `montash batch <file.jsonl|-> [--atomic] [--continue-on-error]` — 未実装（§1.9）
+### `montash batch <file.jsonl|-> [--atomic] [--continue-on-error]` — W-20
 
-1 行 1 コマンドの JSON Lines（`{"args": ["clip","add","--asset","clip_a","--at","end"]}`）または素の bash 行を順次実行。`--atomic`（既定）は途中失敗で開始前状態へ巻き戻し、全体を 1 op として記録。`-m` を付ければそのままコミット。
+1 行 1 コマンドの JSON Lines を順次実行する（F-AI-5）。`<file>` が `-` なら標準入力から読む。
+
+**行の書き方**（3 通り。どれでも混ぜてよい）
+
+```jsonl
+# 空行と # で始まる行は読み飛ばす
+{"args": ["clip", "add", "--asset", "clip_a", "--in", "f:0", "--duration", "f:90", "--at", "end"]}
+["clip", "add", "--asset", "clip_b", "--at", "end"]
+clip add --asset clip_c --at end
+```
+
+素の bash 行は `'...'` / `"..."` と `\` エスケープだけを解釈する（変数展開・グロブ・パイプは扱わない。batch はシェルではない）。先頭の `montash` は付けても付けなくてもよい。**構文エラーは 1 行も実行する前に `E_BATCH_PARSE` で落とす**（行番号は `detail.line`）。
+
+**実行**: 各行は同じプロセス内で、通常の CLI とまったく同じコマンド定義・同じ引数解釈で実行される（`montash` を子プロセスとして起動し直さない）。行に付けたグローバルオプション（`--dry-run` など）も効く。`-C` はバッチ側のものを引き継ぐ。
+
+**モード**
+
+| モード | 途中で失敗したら | 履歴 |
+|--------|------------------|------|
+| `--atomic`（既定） | **開始前の状態へ巻き戻して** `E_BATCH_FAILED`。以降の行は `skipped` | 全行まとめて **1 op**（`command` は `["batch", ...]`、`changes` に全差分。docs/11 §3.2） |
+| `--continue-on-error` | 失敗を記録して次の行へ進む。終了コードは 1 | **各行が通常どおり op を積む**（部分適用がどこまで進んだかを op 単位で戻せるように） |
+| `--no-atomic`（`--continue-on-error` 無し） | その行で止まる。適用済みの行はそのまま残る | 同上 |
+
+`--atomic` と `--continue-on-error` の同時指定は `E_USAGE`。
+
+**巻き戻しの範囲**: 戻るのは **タイムラインの状態（`project.json`）だけ**。`render` / `proxy build` が書いたファイルは消さない。ID カウンタ（`.montash/ids.json`）も戻さない（失敗した試行の ID を再利用しないため。docs/05 §2.3）。
+
+**バッチの中で実行できないコマンド**（`E_BATCH_UNSUPPORTED`）: `batch`（入れ子）・`serve`・`init`。加えて `--atomic` では HEAD を動かす／自分で op を積むもの（`checkout` `undo` `redo` `revert` `reset` `commit` `history import` `history prune`）。
+
+**`-m`**: `montash batch ... -m "<メッセージ>"` で、実行後にそのままコミットする（`--atomic` なら 1 op = 1 コミット）。`--atomic` のバッチでは**行に付けた `-m` は無視**され `W_BATCH_MESSAGE_IGNORED` を返す（op が 1 つしか無いため）。
+
+**`--dry-run`**: 何も実行せず、各行が**どのコマンドに解決されるか**だけを返す（打ち間違いの検出用）。行の中身の検証まではしない。
+
+**`--json`**（AI 向け。どの行が成功しどこで失敗したかが分かる形）
+
+```jsonc
+{
+  "ok": true, "command": "batch",
+  "result": {
+    "source": "/path/edits.jsonl",
+    "mode": "atomic",            // atomic | continue-on-error
+    "dry_run": false,
+    "total": 3, "succeeded": 3, "failed": 0, "skipped": 0,
+    "rolled_back": false,
+    "lines": [
+      { "line": 2, "index": 1, "args": ["clip","add", "..."], "command": "clip add",
+        "status": "ok", "ok": true, "op": null, "summary": "add c1 (clip_a) on V1 at f:0",
+        "change_count": 3, "result": { "clip": { "id": "c1" } } }
+    ]
+  },
+  "op": "o_0007", "commit": null, "head": { "op": "o_0007", "pending": 3, "detached": false }
+}
+```
+
+失敗時、`--atomic` は `ok: false` + `error.code = E_BATCH_FAILED` で、`error.detail` に上と同じ `lines` と `rolled_back` / `rollback` が入る。`--continue-on-error` は `ok: true` のまま `result.failed > 0` と終了コード 1 を返す（一部は実際に適用されているため。`import` / `proxy build` と同じ扱い）。`lines[].error` が `code` / `message` / `hint` を持つ。
 
 ### `montash explain (<id> | timeline | render) [--json]`
 
@@ -784,5 +841,6 @@ c2 — media clip on track V1 (video)
 | `serve`, `preview *` | W-02, W-04, W-16, W-17 | F-PV-1〜16 |
 | `render *` | W-09, W-11, W-12 | F-RD-1〜9 |
 | `status`, `log`, `show`, `diff`, `blame`, `commit`, `-m`, `checkout`, `undo`, `redo`, `revert`, `reset`, `tag`, `history *` | W-10, W-11, W-15, W-16 | F-PRJ-3, F-PRJ-5, F-HIS-1〜8, N-13 |
-| `schema`, `batch` | 全般 | F-AI-1〜5 |
+| `schema` | 全般 | F-AI-1〜3 |
+| `batch` | W-20 | F-AI-5 |
 | `explain` | W-21 | F-AI-4, F-EXT-4 |

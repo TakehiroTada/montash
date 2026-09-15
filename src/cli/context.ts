@@ -5,6 +5,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { errors } from "./errors.ts";
+import type { MutationRecorder } from "./mutate.ts";
 
 export type Actor = "ai" | "human" | "web" | "system";
 
@@ -35,6 +36,11 @@ export interface CommandContext {
   requireProjectDir(): string;
   /** プロジェクトディレクトリ（無ければ null） */
   findProjectDir(): string | null;
+  /**
+   * 付いていれば `runMutation` は op を記録せず、変更内容をここへ渡す（`montash batch --atomic`）。
+   * 通常のコマンド実行では undefined。
+   */
+  mutationRecorder?: MutationRecorder;
   stdout: (text: string) => void;
   stderr: (text: string) => void;
 }

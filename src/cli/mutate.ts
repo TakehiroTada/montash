@@ -46,6 +46,29 @@ export interface HeadSummary {
   detached: boolean;
 }
 
+/** 記録を横取りされた 1 回の状態変更（`montash batch --atomic` が集める） */
+export interface MutationRecord {
+  /** 実行された引数（ctx.argv） */
+  command: string[];
+  /** op の 1 行要約 */
+  summary: string;
+  affects?: Affects;
+  changes: unknown[];
+  warnings: Warning[];
+}
+
+/**
+ * op の記録だけを横取りする受け皿（`cli/commands/batch.ts` が渡す）。
+ *
+ * これが `ctx` に付いていると `runMutation` は **project.json は通常どおり書く**が op を記録しない。
+ * batch はこうして集めた変更をまとめて 1 op にする（docs/11 §3.2「batch --atomic は 1 op」）。
+ * 途中で失敗したときは op が 1 つも積まれていないので、`checkout HEAD`（既存の履歴機構）で
+ * 開始前の状態に戻せる。
+ */
+export interface MutationRecorder {
+  record(entry: MutationRecord): void;
+}
+
 export function headSummary(state: HeadState): HeadSummary {
   return { op: state.head, pending: state.pending.length, detached: state.detached };
 }
@@ -111,6 +134,30 @@ export async function runMutation<R>(
     const changes = diffJson(before, working);
     return {
       result: { ...(out.result as object), dry_run: true },
+      changes,
+      warnings,
+      op: null,
+      commit: null,
+      head: null,
+      timeline: timelineSummary(working),
+      human: out.human,
+    };
+  }
+
+  // batch --atomic の最中は op を積まず、変更内容だけを batch に渡す（docs/11 §3.2）。
+  // project.json は書くので、後続の行は前の行の結果を見られる。
+  if (ctx.mutationRecorder) {
+    await saveProject(dir, working);
+    const changes = diffJson(before, working);
+    ctx.mutationRecorder.record({
+      command: ctx.argv,
+      summary: out.summary,
+      ...(out.affects !== undefined ? { affects: out.affects } : {}),
+      changes,
+      warnings,
+    });
+    return {
+      result: out.result,
       changes,
       warnings,
       op: null,

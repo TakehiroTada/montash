@@ -26,6 +26,7 @@ import {
   audioOffset,
   audioShow,
 } from "./audio.ts";
+import { batch } from "./batch.ts";
 import { blame } from "./blame.ts";
 import { checkout } from "./checkout.ts";
 import { clipAdd, clipList } from "./clip.ts";
@@ -182,6 +183,7 @@ export const commands: ReadonlyArray<AnySpec> = [
   spec(historyExport),
   spec(historyImport),
   spec(idsRebuild),
-  // AI 支援: batch, explain                                           → M4
+  // AI 支援（docs/04 §16）: batch / explain
+  spec(batch),
   spec(explain),
 ];
