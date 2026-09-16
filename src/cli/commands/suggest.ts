@@ -17,7 +17,7 @@
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { timelineDurationF } from "../../core/assets.ts";
 import {
   HIGHLIGHT_DEFAULTS,
@@ -29,6 +29,7 @@ import { loadProject } from "../../core/project.ts";
 import type { Asset, Project } from "../../core/schema.ts";
 import type { TranscriptToken } from "../../core/subtitle-format.ts";
 import { type Fps, framesToSeconds, framesToTimecode, secondsToFrames } from "../../core/time.ts";
+import { applyReplacements } from "../../core/transcript.ts";
 import { resolveAssetPath } from "../../core/validate.ts";
 import { type AudioAnalysis, analyzeAudioFile } from "../../ffmpeg/audio-analysis.ts";
 import { locateBinaries } from "../../ffmpeg/locate.ts";
@@ -41,9 +42,16 @@ import {
 } from "../../ffmpeg/transcribe.ts";
 import { type ExtractAudioResult, extractFileAudio, extractTimelineAudio } from "../../ffmpeg/transcribe-audio.ts";
 import { defineCommand } from "../define-command.ts";
-import { ExitCode, errors, MontashError } from "../errors.ts";
+import { ExitCode, errors, MontashError, type Warning } from "../errors.ts";
 import { currentHead } from "../mutate.ts";
 import { parseTimeInput } from "../time-input.ts";
+import {
+  collectReplaceRules,
+  loadTranscript,
+  saveTranscript,
+  TRANSCRIPT_OPTIONS,
+  unusedRulesWarning,
+} from "../transcript-input.ts";
 
 type Args = Record<string, unknown>;
 
@@ -213,7 +221,7 @@ export const suggestHighlightsCommand = defineCommand({
     "(pause length, lexical shift, speech ratio, distinctive terms, the opening sentence of the transcript). " +
     "No LLM is involved — `lead` is the transcript's own first sentence and `keywords` are tf-idf terms, " +
     "so the output is material for a decision, not the decision. You place what you pick with `clip add`.",
-  workflows: ["W-23"],
+  workflows: ["W-23", "W-24"],
   mutates: false,
   options: {
     asset: { type: "string", describe: "analyze this video/audio asset (default: the timeline mix)" },
@@ -249,6 +257,7 @@ export const suggestHighlightsCommand = defineCommand({
     },
     lang: { type: "string", describe: "spoken language (ISO 639-1, or `auto`)", default: "ja" },
     vocabulary: { type: "array", describe: 'proper nouns to bias the engine, comma separated ("多面観察,総括次長")' },
+    ...TRANSCRIPT_OPTIONS,
     engine: { type: "string", describe: "engine executable name (default: whisper-cli, whisper-cpp, whisper)" },
     "engine-path": { type: "string", describe: "engine executable path (also MONTASH_TRANSCRIBER)" },
     model: { type: "string", describe: "model file (also MONTASH_TRANSCRIBER_MODEL)" },
@@ -267,6 +276,10 @@ export const suggestHighlightsCommand = defineCommand({
       cmd: "montash suggest highlights --asset rec --min-length 45 --count 6",
       note: "fewer, longer blocks; then place the ones you want with `clip add`",
     },
+    {
+      cmd: 'montash suggest highlights --asset rec --from-transcript subs/rec.json --replace "フロント演動=フロントエンド運用"',
+      note: "reuse the transcript written by `subtitle generate --save-transcript` (no engine run) and fix a misheard term",
+    },
   ],
   async handler(ctx, args: Args) {
     const dir = ctx.requireProjectDir();
@@ -275,16 +288,30 @@ export const suggestHighlightsCommand = defineCommand({
     const assetId = optString(args, "asset");
     const source = resolveSource(project, dir, assetId);
 
-    const wantTranscript = option(args, "transcribe") !== false;
+    // --- 書き起こしの出どころ（エンジン / 保存済み）と置換規則（W-24） ---
+    const warnings: Warning[] = [];
+    const replaceFile = optString(args, "replace-file");
+    const rules = await collectReplaceRules({
+      replace: option(args, "replace"),
+      replaceFile: replaceFile === undefined ? undefined : resolve(ctx.cwd, replaceFile),
+    });
+    const fromTranscriptOpt = optString(args, "from-transcript");
+    const fromTranscript = fromTranscriptOpt === undefined ? undefined : resolve(ctx.cwd, fromTranscriptOpt);
+    const saveTranscriptOpt = optString(args, "save-transcript");
+    const saveTo = saveTranscriptOpt === undefined ? undefined : resolve(ctx.cwd, saveTranscriptOpt);
+    // 保存済みを読むなら書き起こしはすでにある（エンジンは要らない。無音解析だけ走る）
+    const saved = fromTranscript === undefined ? null : await loadTranscript(fromTranscript);
+    const wantTranscript = saved !== null || option(args, "transcribe") !== false;
+    const runEngine = saved === null && wantTranscript;
     // エンジンとモデルは何より先に確かめる（無ければ ffmpeg を走らせる前に終わる）
-    const engine = wantTranscript
+    const engine = runEngine
       ? requireTranscriber({
           enginePath: optString(args, "engine-path"),
           engine: optString(args, "engine"),
           env: ctx.env,
         })
       : null;
-    const model = wantTranscript ? requireModel({ model: optString(args, "model"), env: ctx.env }) : null;
+    const model = runEngine ? requireModel({ model: optString(args, "model"), env: ctx.env }) : (saved?.model ?? null);
 
     const lang = String(option(args, "lang") ?? "ja");
     const vocabulary = parseVocabulary(option(args, "vocabulary") as string | string[] | undefined);
@@ -313,11 +340,19 @@ export const suggestHighlightsCommand = defineCommand({
           asset: assetId ?? null,
           duration_s: source.duration,
           transcribe: wantTranscript,
-          engine: engine === null ? null : { path: engine.path, source: engine.source },
+          from_transcript: fromTranscript ?? null,
+          engine: engine === null ? (saved?.engine ?? null) : { path: engine.path, source: engine.source },
           model,
+          replacements: rules.map((r) => ({ ...r, count: null })),
           options,
         },
-        human: `would analyze ${source.path ?? "the timeline mix"}${wantTranscript ? ` and transcribe it with ${engine?.path}` : " (silence only)"}`,
+        human: `would analyze ${source.path ?? "the timeline mix"}${
+          saved !== null
+            ? ` and reuse ${saved.tokens.length} tokens from ${fromTranscript}`
+            : wantTranscript
+              ? ` and transcribe it with ${engine?.path}`
+              : " (silence only)"
+        }`,
       };
     }
 
@@ -351,7 +386,8 @@ export const suggestHighlightsCommand = defineCommand({
         ? await hooks.analyze({ audio: wav, duration: source.duration })
         : await analyzeAudioFile(bins, wav, source.duration || Number.POSITIVE_INFINITY, analyzeOpts);
 
-      if (wantTranscript) {
+      if (saved !== null) tokens = saved.tokens;
+      if (runEngine) {
         const timeout = optNumber(args, "timeout");
         transcribed = hooks?.transcribe
           ? await hooks.transcribe({
@@ -379,6 +415,22 @@ export const suggestHighlightsCommand = defineCommand({
       await rm(tmp, { recursive: true, force: true }).catch(() => {});
     }
 
+    // --- 置換（人が書いた規則をそのまま当てる。lead / keywords が読めるようになる。W-24） ---
+    const replaced = applyReplacements(tokens, rules);
+    tokens = replaced.tokens;
+    const unused = unusedRulesWarning(replaced.applied);
+    if (unused !== null) warnings.push(unused);
+    if (saveTo !== undefined && tokens.length > 0)
+      await saveTranscript(saveTo, tokens, {
+        engine: engine === null ? (saved?.engine ?? null) : { path: engine.path, source: engine.source },
+        model,
+        language: lang,
+        vocabulary,
+        source: source.path ?? "timeline",
+        asset: assetId ?? null,
+        replacements: replaced.applied,
+      });
+
     // 素材の長さが分からないときは解析結果から埋める
     const duration = source.duration > 0 ? source.duration : (analysis.silence.at(-1)?.to ?? 0);
 
@@ -399,15 +451,18 @@ export const suggestHighlightsCommand = defineCommand({
         fps: `${fps.num}/${fps.den}`,
         signals: found.signals,
         transcript:
-          transcribed === null
+          transcribed === null && saved === null
             ? null
             : {
-                engine: { path: (engine as { path: string }).path, source: (engine as { source: string }).source },
+                engine: engine === null ? (saved?.engine ?? null) : { path: engine.path, source: engine.source },
                 model,
                 language: lang,
                 vocabulary,
                 tokens: tokens.length,
-                command: [(engine as { path: string }).path, ...transcribed.args],
+                from_transcript: fromTranscript ?? null,
+                saved_transcript: saveTo ?? null,
+                replacements: replaced.applied,
+                command: transcribed === null ? null : [(engine as { path: string }).path, ...transcribed.args],
               },
         ffmpeg_command: extracted.args,
         candidates: found.candidates.map((c) => describe(c, assetId ?? null, fps)),
@@ -418,6 +473,7 @@ export const suggestHighlightsCommand = defineCommand({
         applied: false,
       },
       head: await currentHead(dir),
+      warnings,
       human: humanLines(found, assetId ?? null, fps, found.signals.transcript),
     };
   },
