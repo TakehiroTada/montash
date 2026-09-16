@@ -171,7 +171,7 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_REPLACE_FILE_NOT_FOUND` | `--replace-file` が無い | 1 行 1 規則（`誤=正`）の書き方 |
 | `E_BATCH_FAILED` | `--atomic` のバッチが途中で失敗（開始前へ巻き戻し済み） | 失敗した行の hint、`detail.lines` に各行の結果 |
 
-警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満）, `W_BATCH_MESSAGE_IGNORED`（`--atomic` のバッチの行に付いた `-m` は無視した）, `W_REPLACE_UNUSED`（`--replace` の規則が 1 度も当たらなかった））。
+警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_TEXT_FIT_CLAMPED`（`--fit-width` が下限サイズでも指定幅に収まらなかった）, `W_TEXT_FIT_ESTIMATED`（`--measure` で測れず概算に落ちた行がある）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満）, `W_BATCH_MESSAGE_IGNORED`（`--atomic` のバッチの行に付いた `-m` は無視した）, `W_REPLACE_UNUSED`（`--replace` の規則が 1 度も当たらなかった））。
 
 ### 1.8 履歴への記録
 
@@ -520,6 +520,7 @@ montash transition add (--between <clipA> <clipB> | --track <t> --all-cuts | --a
 montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) --at <t> (--duration <t> | --until <t>) [--track T1]
                [--preset <name>] [--font <family>] [--size <px>] [--color <hex[aa]>] [--bg <hex[aa]|none>] [--bg-padding <px>]
                [--position <preset|x,y|x%,y%>] [--align left|center|right] [--line-spacing <px>] [--wrap|--no-wrap]
+               [--fit-width <pct|px>] [--max-size <px>] [--min-size <px>] [--measure]
                [--fade-in <t>] [--fade-out <t>] [--shadow <x,y,color>] [--outline <px,color>] [--bold] [--italic]
                [--markup plain|ass] [--id <id>]
 ```
@@ -530,6 +531,23 @@ montash text add (--text <str> | --text-file <path> | --asset <text-asset-id>) -
 - `--markup ass` で本文中の ASS オーバーライドタグ（`{\b1}強調{\b0}`、`{\c&H00FFFF&}` 等）をそのまま通す。既定 `plain` は `{ } \` をエスケープ。
 - `--line-spacing` は `style.line_spacing` に保存されるが、**現状 ASS には反映されない**（ASS の Style に行間の指定が無く、`Spacing` は字間のため。libass の制約）。将来、行ごとの Dialogue 分割で対応する可能性がある。
 - `--fade-in/--fade-out` はフレームに丸めて保存（`fade.in_f`）。
+
+**`--fit-width`（幅の自動フィット）**
+
+`--size` が「決め打ちのサイズ」なのに対し、`--fit-width` は「**この幅に収まる最大のサイズ**」を頼む。切り抜き動画のテロップのように、短い一言は大きく・長い一言は小さくして**常に 1 行で画面幅いっぱい**にしたいときに使う（一言ごとに人や AI が文字数からサイズを逆算せずに済む）。
+
+```
+montash text add --text "まじで神ゲーになった" --at 30 --duration 2.5 --position bottom-center --fit-width 92%
+```
+
+- `--fit-width <pct|px>`: 収めたい幅。`92%` はプロジェクト解像度の横幅に対する割合、`1152` は px。
+- `--max-size <px>`: 上限。既定は**同じコマンドで `--size` か `--preset` を渡していればそのサイズ**、無ければ画面高の 10%（1080p で 108px）。`text set --fit-width` を繰り返しても前回の結果が上限にならないので、縮み続けることはない。
+- `--min-size <px>`: 下限。既定は画面高の 4%（1080p で 43px）。下限でも収まらないときは下限のサイズで置き、`W_TEXT_FIT_CLAMPED` で知らせる（黙って溢れさせない）。
+- `--measure`: 幅を **libass に実際に描かせて測る**（`ffmpeg` を 1 パス、1 行につき 1 回だけ余分に回す）。既定は外部プロセスを使わない概算。
+- 複数行（`\n`）のときは**いちばん幅の要る行**が全体のサイズを決める。
+- `--wrap` / `--no-wrap` を明示していなければ `wrap: false` にする（1 行に押し込むのが目的なので、libass が左右マージンで折り返さないようにする）。
+- 決まったサイズは `style.size` に**ただの数値として**保存される。レンダー時の挙動は `--size` で指定した場合とまったく同じで、グラフ側には何も足さない。結果は `result.fit`（`size` / `target_width` / `max_size` / `min_size` / `line` / `em` / `width` / `source` / `size_scale` / `clamped`）で返る。
+- 幅の見積もりの精度: 全角は 1em、ラテン・数字は字ごとの advance（Helvetica の AFM 値を土台にした概算）で足し、そこに**フォントの `unitsPerEm / (usWinAscent + usWinDescent)`** を掛ける（ASS の `Fontsize` は em の大きさではなく、libass はこの比で字を縮めるため。CJK フォントでは 0.8 前後）。日本語主体の文字列なら指定幅の 87〜95% 程度に収まり、`--measure` なら 97〜99%。欧文の極太ウェイト・カーニングの強い書体・`--markup ass` でタグを書いた本文では概算がずれるので `--measure` を使う。
 - 複数行は `\n` を受理。`--text-file <path>` でファイルから読む。`--asset <id>` は `type: text` の素材を参照（テキストクリップに `text` ではなく `asset` を保持し、レンダー時に本文を読む。W-17）。
 - 既定フォントは `doctor` が検出した CJK 対応フォント（Noto Sans CJK JP → Hiragino → Yu Gothic → DejaVu の順）。
 
