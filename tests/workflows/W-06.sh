@@ -85,6 +85,66 @@ assert_exit 2 "a missing duration is a usage error"
 out=$(montash -C "$proj" text list --json)
 assert_json "$out" '.result.clips[1].id' 'x2' "failed commands changed nothing"
 
+section "W-06 step 5b: --fit-width sizes the font so the line fits"
+# 640x360 なので、既定の上限は画面高の 10% = 36px、下限は 4% = 14px。
+# 実寸はフォントのメトリクスで変わるので、サイズそのものではなく「収まったか」を見る。
+out=$(montash -C "$proj" text add --text "うわ" --at 4 --duration 1 --position bottom-center --fit-width 90% --id fit1 --json)
+assert_exit 0 "text add --fit-width (short line)"
+assert_json "$out" '.result.fit.target_width' '576' "90% of 640 is 576px"
+assert_json "$out" '.result.fit.max_size' '36' "the default upper bound is 10% of the height"
+assert_json "$out" '.result.fit.min_size' '14' "the default lower bound is 4% of the height"
+assert_json "$out" '.result.fit.size' '36' "a short line is capped at the upper bound"
+assert_json "$out" '.result.fit.clamped' 'max' "and reports that it was capped"
+assert_json "$out" '.result.fit.source' 'estimate' "the width is estimated by default (no extra ffmpeg pass)"
+assert_json "$out" '.result.clip.style.size' '36' "the size is stored as a plain number"
+assert_json "$out" '.result.clip.style.wrap' 'false' "--fit-width turns wrapping off so the line stays on one row"
+
+out=$(montash -C "$proj" text add --text "アプデでほぼ完成したって言っていいと思うんだよなこれは" --at 5 --duration 1 \
+  --position bottom-center --fit-width 90% --id fit2 --json)
+assert_exit 0 "text add --fit-width (long line)"
+long_size=$(json_get "$out" '.result.fit.size')
+long_width=$(json_get "$out" '.result.fit.width')
+assert_json "$out" '.result.fit.clamped' 'null' "a 27 character line still fits between the bounds"
+if [ "$long_size" -lt 36 ] && [ "$long_size" -ge 14 ]; then
+  pass "the longer line gets a smaller size than the short one ($long_size < 36)"
+else
+  fail "the longer line gets a smaller size" "size: $long_size"
+fi
+if [ "$long_width" -le 576 ]; then
+  pass "the estimated width fits the requested 576px ($long_width)"
+else
+  fail "the estimated width fits the requested width" "width: $long_width"
+fi
+
+# 下限でも収まらない一言は、下限のサイズで置いたうえで警告する（黙って溢れさせない）
+out=$(montash -C "$proj" text add --text "いやーこれはさすがに厳しいんじゃないですかねって話をずっとしてたんですけど結局どうなったんでしたっけ" \
+  --at 6 --duration 1 --position bottom-center --fit-width 90% --id fit3 --json)
+assert_exit 0 "text add --fit-width (a line that cannot fit)"
+assert_json "$out" '.result.fit.size' '14' "it falls back to the lower bound"
+assert_json "$out" '.result.fit.clamped' 'min' "and reports that it did not fit"
+assert_json "$out" '.warnings[0].code' 'W_TEXT_FIT_CLAMPED' "W_TEXT_FIT_CLAMPED"
+
+# --measure は libass に描かせて実測する。libass の無いビルドでは概算のまま
+out=$(montash -C "$proj" text set fit2 --fit-width 90% --measure --json)
+assert_exit 0 "text set --fit-width --measure"
+case "$(json_get "$out" '.result.fit.source')" in
+  '"measure"'|measure) pass "--measure reports the libass-measured width" ;;
+  '"estimate"'|estimate) skip "libass is missing; --measure fell back to the estimate" ;;
+  *) fail "--measure reports where the width came from" "source: $(json_get "$out" '.result.fit.source')" ;;
+esac
+assert_json "$out" '.result.fit.max_size' '36' "repeating --fit-width does not ratchet the upper bound down"
+
+# 幅の指定が壊れていれば使い方エラー
+out=$(montash -C "$proj" text add --text "x" --at 7 --duration 1 --fit-width "wide" --json)
+assert_exit 2 "a malformed --fit-width is a usage error"
+
+# 足したテロップは消して、以降の手順（レンダー）の前提を元に戻す
+for id in fit1 fit2 fit3; do
+  montash -C "$proj" text remove "$id" --json >/dev/null || exit 1
+done
+out=$(montash -C "$proj" text list --json)
+assert_json "$out" '.result.clips[2]' 'null' "the timeline is back to the two original telops"
+
 section "W-06 step 6: render burns the text into the picture"
 # タイムラインは x2（f:360..450）まで伸びているので 450 フレーム。素材の後ろは背景色になる。
 out=$(montash -C "$proj" timeline show --json)

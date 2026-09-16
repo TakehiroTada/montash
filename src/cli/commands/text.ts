@@ -10,7 +10,7 @@
  */
 import { resolve } from "node:path";
 import { assertIdAvailable, nextId, readIds } from "../../core/ids.ts";
-import { loadProject } from "../../core/project.ts";
+import { loadProject, projectPaths } from "../../core/project.ts";
 import {
   isTextClip,
   type Project,
@@ -21,11 +21,17 @@ import {
   type Track,
   TrackSchema,
 } from "../../core/schema.ts";
+import { defaultFitBounds, estimateLineEm, fitFontSize, parseFitWidth } from "../../core/text-fit.ts";
 import { BUILTIN_TEXT_PRESETS, requireTextPreset, resolveTextPresets } from "../../core/text-presets.ts";
 import { framesToSeconds } from "../../core/time.ts";
 import { assertPlacement, nextTrackId, requireTrack, trackEnd } from "../../core/timeline.ts";
-import { assColor, findFontEntry, pickCjkFallback, suggestFamilies } from "../../ffmpeg/ass.ts";
+import { resolveAssetPath } from "../../core/validate.ts";
+import { assColor, findFontEntry, pickCjkFallback, prepareFontsDir, suggestFamilies } from "../../ffmpeg/ass.ts";
+import { fontSizeScale } from "../../ffmpeg/font-metrics.ts";
 import { type FontEntry, listFonts } from "../../ffmpeg/fonts.ts";
+import { locateBinaries } from "../../ffmpeg/locate.ts";
+import { measureLineEms } from "../../ffmpeg/text-measure.ts";
+import { detectTextEngine } from "../../ffmpeg/text-prepare.ts";
 import { isPositionName, POSITION_NAMES } from "../../registry/positions.ts";
 import type { CommandContext } from "../context.ts";
 import { defineCommand } from "../define-command.ts";
@@ -83,6 +89,30 @@ const STYLE_OPTIONS = {
     type: "string" as const,
     describe: "plain escapes { } \\; ass passes override tags through",
     choices: ["plain", "ass"] as const,
+  },
+};
+
+/**
+ * 幅の自動フィット（docs/04 §9）。`--size` が「決め打ちのサイズ」なのに対し、
+ * こちらは「**この幅に収まる最大のサイズ**」を頼む。切り抜きテロップの
+ * 「短い一言は大きく、長い一言は小さく、常に 1 行」を 1 発で書けるようにするためのもの。
+ */
+const FIT_OPTIONS = {
+  "fit-width": {
+    type: "string" as const,
+    describe: 'auto-size the font so the longest line fits this width ("90%" or px)',
+  },
+  "max-size": {
+    type: "number" as const,
+    describe: "upper bound for --fit-width in px (default: --size / the preset size, else 10% of the height)",
+  },
+  "min-size": {
+    type: "number" as const,
+    describe: "lower bound for --fit-width in px (default: 4% of the project height)",
+  },
+  measure: {
+    type: "boolean" as const,
+    describe: "measure the real glyph widths with libass instead of estimating them (one extra ffmpeg pass)",
   },
 };
 
@@ -306,6 +336,184 @@ function unescapeNewlines(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// 幅の自動フィット（docs/04 §9 `--fit-width`）
+// ---------------------------------------------------------------------------
+
+/** `--fit-width` の結果（コマンドの `result.fit` に載せて、AI が何が起きたか読めるようにする） */
+export interface FitReport {
+  /** 収めるよう頼まれた幅（px） */
+  target_width: number;
+  /** 決まったサイズ（px） */
+  size: number;
+  max_size: number;
+  min_size: number;
+  /** 幅を決めた行 */
+  line: string;
+  /** その行の em 幅（サイズ 1px あたりの描画幅） */
+  em: number;
+  /** `size` で描いたときのその行の幅（px。縁取りを含む） */
+  width: number;
+  /** 幅の出どころ。`measure` は libass に描かせて測った値 */
+  source: "estimate" | "measure";
+  /** ASS の Fontsize 1px あたりに出る em 数（フォントのメトリクスから読む。実測時は 1） */
+  size_scale: number;
+  /** 上限・下限で頭打ちになったか */
+  clamped: "min" | "max" | null;
+}
+
+/** フィットに使う本文を決める（`--asset` 参照なら素材ファイルを読む） */
+async function fitBody(ctx: CommandContext, project: Project, body: BodyResult, current?: TextClip): Promise<string> {
+  if (body.text !== undefined) return body.text;
+  const assetId = body.asset ?? (body.asset === null ? null : (current?.asset ?? null));
+  if (assetId !== null && assetId !== undefined) {
+    const asset = requireAsset(project, assetId);
+    const path = resolveAssetPath(ctx.requireProjectDir(), asset.path);
+    try {
+      return await Bun.file(path).text();
+    } catch (cause) {
+      throw new MontashError("E_ASSET_MISSING", `text asset "${assetId}" could not be read (${path})`, {
+        hint: "Use `montash assets relink` to point it at the file again, or pass --text for --fit-width.",
+        detail: { asset: assetId, path },
+        cause,
+      });
+    }
+  }
+  return current?.text ?? "";
+}
+
+/**
+ * `--fit-width` を解いて `style.size` を決める。
+ *
+ * 幅の見積もりは既定で**概算**（外部依存ゼロの純関数）。`--measure` を付けたときだけ
+ * libass に 1 フレーム描かせて実測する（I/O はここで閉じ、`style.size` という**値**だけを
+ * project.json に注入する。docs/08 の作法）。
+ *
+ * 1 行に押し込むのがこの機能の目的なので、`--wrap` / `--no-wrap` を明示していなければ
+ * `style.wrap = false`（ASS の `\q2`）にする。そうしないと libass が左右マージンで折り返してしまう。
+ */
+async function applyFitWidth(
+  ctx: CommandContext,
+  args: Args,
+  project: Project,
+  style: TextStyle,
+  body: BodyResult,
+  warnings: Warning[],
+  current?: TextClip,
+): Promise<FitReport | null> {
+  if (!has(args, "fit-width")) return null;
+  const res = project.settings.resolution;
+  const targetWidth = parseFitWidth(String(option(args, "fit-width")), res.width);
+
+  // `--size` / `--preset` を**このコマンドで**指定したときだけ、それを上限として扱う。
+  // `text set --fit-width` を繰り返すたびに前回の結果が上限になって縮み続ける、という事故を避ける。
+  const explicitSize = has(args, "size") || has(args, "preset") ? style.size : undefined;
+  const bounds = defaultFitBounds(res.height, explicitSize);
+  let maxSize = bounds.maxSize;
+  let minSize = bounds.minSize;
+  if (has(args, "max-size")) {
+    maxSize = Number(option(args, "max-size"));
+    if (!Number.isFinite(maxSize) || maxSize <= 0) throw errors.usage("--max-size must be a positive number of px");
+  }
+  if (has(args, "min-size")) {
+    minSize = Number(option(args, "min-size"));
+    if (!Number.isFinite(minSize) || minSize <= 0) throw errors.usage("--min-size must be a positive number of px");
+  }
+  if (minSize > maxSize) throw errors.usage(`--min-size ${minSize} is larger than --max-size ${maxSize}`);
+
+  const text = await fitBody(ctx, project, body, current);
+  const lines = text.split("\n");
+  let measure = estimateLineEm;
+  let source: "estimate" | "measure" = "estimate";
+  // 概算は「em の合計」なので、ASS の Fontsize から実際に出る大きさへの係数を掛ける必要がある
+  // （libass は winAscent + winDescent = Fontsize に縮める。`font-metrics.ts` の注記）
+  let sizeScale = 1;
+  const family = style.font ?? project.settings.default_font;
+  if (family !== undefined) {
+    const entry = findFontEntry(await systemFonts(ctx), family);
+    if (entry) sizeScale = await fontSizeScale(entry.path);
+  }
+  if (option(args, "measure") === true) {
+    const bins = locateBinaries({ ...ctx.globals, env: ctx.env });
+    const engine = await detectTextEngine(bins);
+    if (engine === "libass") {
+      const dir = ctx.requireProjectDir();
+      const tmpDir = projectPaths(dir).tmpDir;
+      const fonts = await systemFonts(ctx);
+      const fontsDir = await prepareFontsDir(family ? [family] : [], tmpDir, fonts.length > 0 ? { fonts } : {});
+      const measured = await measureLineEms(
+        lines,
+        {
+          ...(family !== undefined ? { font: family } : {}),
+          ...(style.bold !== undefined ? { bold: style.bold } : {}),
+          ...(style.italic !== undefined ? { italic: style.italic } : {}),
+          ...(has(args, "markup") ? { markup: String(option(args, "markup")) as "plain" | "ass" } : {}),
+        },
+        { bins, tmpDir, fontsDir },
+      );
+      const byLine = new Map(lines.map((line, i) => [i, measured.ems[i] ?? estimateLineEm(line)]));
+      let index = 0;
+      measure = (line: string): number => {
+        const value = byLine.get(index) ?? estimateLineEm(line);
+        index += 1;
+        return value;
+      };
+      source = measured.exact ? "measure" : "estimate";
+      // 実測値には縮尺が織り込み済みなので、概算用の係数は掛けない
+      if (measured.exact) sizeScale = 1;
+      if (!measured.exact) {
+        warnings.push({
+          code: "W_TEXT_FIT_ESTIMATED",
+          message: "some lines could not be measured with libass; their width was estimated instead",
+          hint: "Check that the font family exists (`montash fonts list`).",
+        });
+      }
+    } else {
+      warnings.push({
+        code: "W_TEXT_ENGINE_LIMITED",
+        message: "--measure needs libass; the width was estimated instead",
+        hint: "Install an ffmpeg with libass (`bash scripts/install-deps.sh --static`).",
+        detail: { engine },
+      });
+    }
+  }
+
+  const fit = fitFontSize({
+    text,
+    maxWidth: targetWidth,
+    maxSize,
+    minSize,
+    ...(style.outline ? { outlineWidth: style.outline.width } : {}),
+    sizeScale,
+    measure,
+  });
+  style.size = fit.size;
+  // 1 行に押し込むのが目的なので、明示が無ければ折り返しを切る
+  if (!has(args, "wrap")) style.wrap = false;
+
+  if (fit.clamped === "min") {
+    warnings.push({
+      code: "W_TEXT_FIT_CLAMPED",
+      message: `"${fit.line}" does not fit ${Math.round(targetWidth)}px at the minimum size ${minSize}px`,
+      hint: "Shorten the line, lower --min-size, or split it with \\n.",
+      detail: { line: fit.line, target_width: targetWidth, min_size: minSize, width: Math.round(fit.width) },
+    });
+  }
+
+  return {
+    target_width: Math.round(targetWidth),
+    size: fit.size,
+    max_size: maxSize,
+    min_size: minSize,
+    line: fit.line,
+    em: Math.round(fit.em * 1000) / 1000,
+    width: Math.round(fit.width),
+    source,
+    size_scale: Math.round(sizeScale * 1000) / 1000,
+    clamped: fit.clamped,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // トラック・クリップの取得
 // ---------------------------------------------------------------------------
 
@@ -385,11 +593,16 @@ export const textAdd = defineCommand({
     until: { type: "string", describe: "end position instead of --duration", time: true },
     track: { type: "string", describe: "text track (default: the first text track, else a new T1)" },
     ...STYLE_OPTIONS,
+    ...FIT_OPTIONS,
     id: { type: "string", describe: "explicit clip ID (default: the next x<N>)" },
   },
   examples: [
     { cmd: 'montash text add --text "Summer Trip 2026" --at 0 --duration 3 --preset title-center' },
     { cmd: 'montash text add --text "福岡到着" --at 12 --duration 3 --preset lower-third --size 48' },
+    {
+      cmd: 'montash text add --text "まじで神ゲーになった" --at 30 --duration 2.5 --position bottom-center --fit-width 92%',
+      note: "one line, as large as it fits (telop style)",
+    },
   ],
   async handler(ctx, args: Args) {
     if (has(args, "duration") && has(args, "until")) throw errors.usage("use either --duration or --until");
@@ -431,6 +644,7 @@ export const textAdd = defineCommand({
       const { style, fade } = buildStyle(args, project, {}, { in_f: 0, out_f: 0 }, warnings);
       const font = await resolveFontFamily(ctx, project, style.font);
       if (font !== undefined) style.font = font;
+      const fit = await applyFitWidth(ctx, args, project, style, body, warnings);
 
       assertPlacement(track, startF, startF + durationF);
       const explicitId = option(args, "id");
@@ -457,11 +671,14 @@ export const textAdd = defineCommand({
       track.clips.sort((a, b) => a.start_f - b.start_f);
 
       return {
-        result: { clip: describeTextClip(clip, track.id, fps), track_created: created ? track.id : null },
+        result: { clip: describeTextClip(clip, track.id, fps), track_created: created ? track.id : null, fit },
         summary: `add text ${clip.id} on ${track.id} at f:${startF}`,
         affects: { clips: [clip.id], range_f: [startF, startF + durationF] as [number, number] },
         warnings,
-        human: `${clip.id}  ${track.id}  f:${startF}..f:${startF + durationF}  ${preview(clip)}${created ? `\n  (created text track ${track.id})` : ""}`,
+        human:
+          `${clip.id}  ${track.id}  f:${startF}..f:${startF + durationF}  ${preview(clip)}` +
+          `${fit ? `\n  (fit-width ${fit.target_width}px -> size ${fit.size}px, ${fit.source})` : ""}` +
+          `${created ? `\n  (created text track ${track.id})` : ""}`,
       };
     });
   },
@@ -483,8 +700,12 @@ export const textSet = defineCommand({
     duration: { type: "string", describe: "new duration", time: true },
     until: { type: "string", describe: "new end position", time: true },
     ...STYLE_OPTIONS,
+    ...FIT_OPTIONS,
   },
-  examples: [{ cmd: 'montash text set x1 --text "福岡に到着" --position 5%,85%' }],
+  examples: [
+    { cmd: 'montash text set x1 --text "福岡に到着" --position 5%,85%' },
+    { cmd: "montash text set x1 --fit-width 92% --measure", note: "re-fit with the real libass glyph widths" },
+  ],
   async handler(ctx, args: Args) {
     if (has(args, "duration") && has(args, "until")) throw errors.usage("use either --duration or --until");
     const id = String(args.id);
@@ -527,6 +748,7 @@ export const textSet = defineCommand({
         const font = await resolveFontFamily(ctx, project, style.font);
         if (font !== undefined) style.font = font;
       }
+      const fit = await applyFitWidth(ctx, args, project, style, body, warnings, clip);
       clip.style = style;
       clip.fade = fade;
 
@@ -539,12 +761,14 @@ export const textSet = defineCommand({
 
       const changed = JSON.stringify(clip) !== before;
       return {
-        result: { clip: describeTextClip(clip, track.id, fps) },
+        result: { clip: describeTextClip(clip, track.id, fps), fit },
         changed,
         summary: `set text ${clip.id}`,
         affects: { clips: [clip.id], range_f: [startF, startF + durationF] as [number, number] },
         warnings,
-        human: `${clip.id}  ${track.id}  f:${startF}..f:${startF + durationF}  ${preview(clip)}`,
+        human:
+          `${clip.id}  ${track.id}  f:${startF}..f:${startF + durationF}  ${preview(clip)}` +
+          `${fit ? `\n  (fit-width ${fit.target_width}px -> size ${fit.size}px, ${fit.source})` : ""}`,
       };
     });
   },

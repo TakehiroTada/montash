@@ -333,3 +333,137 @@ test("text presets は組み込みとプロジェクト定義を返す", async (
   expect((await clipsOf())[0]?.style.size).toBe(24);
   await expect(call(textAdd, { text: "b", at: "f:60", duration: "f:30", preset: "nope" })).rejects.toThrow(/not found/);
 });
+
+// ---------------------------------------------------------------------------
+// --fit-width（幅の自動フィット。docs/04 §9）
+// ---------------------------------------------------------------------------
+
+test("--fit-width は指定した幅に収まる最大サイズを選び、1 行に押し込む", async () => {
+  // 1920 の 90% = 1728px。全角 24 文字 = 24em なので 72px まで入る
+  const res = (await call(textAdd, {
+    text: "あいうえおかきくけこさしすせそたちつてとなにぬね",
+    at: "f:0",
+    duration: "f:30",
+    fitWidth: "90%",
+  })) as any;
+  expect(res.result.fit.target_width).toBe(1728);
+  expect(res.result.fit.size).toBe(72);
+  expect(res.result.fit.line).toBe("あいうえおかきくけこさしすせそたちつてとなにぬね");
+  expect(res.result.fit.clamped).toBeNull();
+  const [clip] = await clipsOf();
+  expect(clip?.style.size).toBe(72);
+  // 明示が無ければ折り返しを切る（1 行に押し込むのがこの機能の目的）
+  expect(clip?.style.wrap).toBe(false);
+});
+
+test("--fit-width の既定の上限は画面高の 10%、下限は 4%", async () => {
+  const short = (await call(textAdd, { text: "うわ", at: "f:0", duration: "f:30", fitWidth: "90%" })) as any;
+  expect(short.result.fit.max_size).toBe(108);
+  expect(short.result.fit.min_size).toBe(43);
+  expect(short.result.fit.size).toBe(108);
+  expect(short.result.fit.clamped).toBe("max");
+});
+
+test("--size / --preset を同時に渡すとそれが上限になる", async () => {
+  const res = (await call(textAdd, {
+    text: "うわ",
+    at: "f:0",
+    duration: "f:30",
+    fitWidth: "90%",
+    size: 60,
+  })) as any;
+  expect(res.result.fit.max_size).toBe(60);
+  expect(res.result.fit.size).toBe(60);
+});
+
+test("--max-size / --min-size で上限・下限を明示できる", async () => {
+  const res = (await call(textAdd, {
+    text: "うわ",
+    at: "f:0",
+    duration: "f:30",
+    fitWidth: "90%",
+    maxSize: 200,
+    minSize: 20,
+  })) as any;
+  expect(res.result.fit.size).toBe(200);
+  const err = await call(textAdd, {
+    text: "うわ",
+    at: "f:120",
+    duration: "f:30",
+    fitWidth: "90%",
+    maxSize: 40,
+    minSize: 80,
+  }).catch((e) => e);
+  expect((err as MontashError).code).toBe("E_USAGE");
+});
+
+test("下限でも収まらない長い一言は W_TEXT_FIT_CLAMPED で知らせる", async () => {
+  const res = (await call(textAdd, {
+    text: "あ".repeat(80),
+    at: "f:0",
+    duration: "f:30",
+    fitWidth: "90%",
+  })) as any;
+  expect(res.result.fit.clamped).toBe("min");
+  expect(res.result.fit.size).toBe(43);
+  expect(res.warnings?.map((w: any) => w.code)).toContain("W_TEXT_FIT_CLAMPED");
+});
+
+test("--no-wrap / --wrap を明示したときはそちらが勝つ", async () => {
+  await call(textAdd, { text: "あいうえお", at: "f:0", duration: "f:30", fitWidth: "90%", wrap: true });
+  const [clip] = await clipsOf();
+  expect(clip?.style.wrap).toBe(true);
+});
+
+test("複数行はいちばん幅の要る行がサイズを決める", async () => {
+  const res = (await call(textAdd, {
+    text: "あい\nあいうえおかきくけこさしすせそたちつてとなにぬね\nあ",
+    at: "f:0",
+    duration: "f:30",
+    fitWidth: "90%",
+  })) as any;
+  expect(res.result.fit.line).toBe("あいうえおかきくけこさしすせそたちつてとなにぬね");
+  expect(res.result.fit.size).toBe(72);
+});
+
+test("--fit-width は --asset の本文も読んで測る", async () => {
+  const res = (await call(textAdd, { asset: "title_main", at: "f:0", duration: "f:30", fitWidth: "50%" })) as any;
+  expect(res.result.fit.line).toBe("Summer Trip 2026");
+  expect(res.result.fit.size).toBeGreaterThan(0);
+});
+
+test("text set --fit-width は本文を変えたあとのサイズを測り直す", async () => {
+  await call(textAdd, { text: "うわ", at: "f:0", duration: "f:30", fitWidth: "90%" });
+  const res = (await call(textSet, {
+    id: "x1",
+    text: "あいうえおかきくけこさしすせそたちつてとなにぬね",
+    fitWidth: "90%",
+  })) as any;
+  expect(res.result.fit.size).toBe(72);
+  // 上限は前回の結果ではなく解像度基準の既定に戻る（繰り返しても縮み続けない）
+  expect(res.result.fit.max_size).toBe(108);
+});
+
+test("text set --fit-width は本文を変えなければ今の本文で測り直す", async () => {
+  await call(textAdd, { text: "あいうえおかきくけこさし", at: "f:0", duration: "f:30", size: 200 });
+  const res = (await call(textSet, { id: "x1", fitWidth: "50%" })) as any;
+  expect(res.result.fit.line).toBe("あいうえおかきくけこさし");
+  expect(res.result.fit.size).toBe(80);
+});
+
+test("--fit-width は縁取りの太さを差し引く", async () => {
+  const res = (await call(textAdd, {
+    text: "あいうえおかきくけこさしすせそたちつてとなにぬね",
+    at: "f:0",
+    duration: "f:30",
+    fitWidth: "90%",
+    outline: "12,#000000",
+  })) as any;
+  expect(res.result.fit.size).toBe(71);
+  expect(res.result.fit.width).toBeLessThanOrEqual(1728);
+});
+
+test("--fit-width の書式違いは E_USAGE", async () => {
+  const err = await call(textAdd, { text: "a", at: "f:0", duration: "f:30", fitWidth: "wide" }).catch((e) => e);
+  expect((err as MontashError).code).toBe("E_USAGE");
+});
