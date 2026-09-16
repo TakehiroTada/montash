@@ -304,3 +304,175 @@ test("知らない素材は E_ASSET_NOT_FOUND", async () => {
   const err = await failure({ asset: "nope" });
   expect(err.code).toBe("E_ASSET_NOT_FOUND");
 });
+
+// ---------------------------------------------------------------------------
+// 誤認識を直して焼き直す（W-24）
+// ---------------------------------------------------------------------------
+
+/** 「フロント演動」のように語が 2 トークンに割れて誤認識された形 */
+const MISHEARD: TranscriptToken[] = (
+  [
+    ["テーマ", 0, 500],
+    ["は", 500, 700],
+    ["大規模", 700, 1200],
+    ["プロジェクト", 1200, 1900],
+    ["を", 1900, 2000],
+    ["支える", 2000, 2500],
+    ["フロント", 2500, 3000],
+    ["演動", 3000, 3300],
+    ["の", 3300, 3400],
+    ["リアル", 3400, 3900],
+    ["です", 3900, 4300],
+    ["。", 4300, 4400],
+  ] as const
+).map(([text, startMs, endMs]) => ({ text, startMs, endMs }));
+
+test("--save-transcript が整形前のトークンを残す", async () => {
+  const path = join(dir, "t.json");
+  const out = await call({ saveTranscript: path, add: false, output: join(dir, "a.srt") });
+  expect((out.result as Record<string, unknown>).saved_transcript).toBe(path);
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  expect(saved.format).toBe("montash.transcript");
+  expect(saved.tokens).toEqual(TOKENS);
+  expect(saved.text).toBe("今日は事前ガイダンスの話です。多面観察は総括次長がまとめます。");
+  expect(saved.engine.path).toBe(engine);
+  expect(saved.language).toBe("ja");
+});
+
+test("--from-transcript はエンジンを呼ばずに整形だけやり直す", async () => {
+  const path = join(dir, "t.json");
+  await call({ saveTranscript: path, add: false, output: join(dir, "a.srt") });
+  seen = { audio: null, vocabulary: [], lang: undefined, source: null };
+
+  const out = await call({
+    fromTranscript: path,
+    add: false,
+    output: join(dir, "b.srt"),
+    enginePath: join(dir, "does-not-exist"),
+    model: join(dir, "no-model.bin"),
+  });
+  // エンジンもモデルも無くても通る（音声の書き出しもしない）
+  expect(seen.audio).toBeNull();
+  expect(seen.source).toBeNull();
+  const result = out.result as Record<string, any>;
+  expect(result.from_transcript).toBe(path);
+  expect(result.command).toBeNull();
+  expect(result.ffmpeg_command).toBeNull();
+  expect(await readFile(join(dir, "b.srt"), "utf8")).toBe(await readFile(join(dir, "a.srt"), "utf8"));
+});
+
+test("--replace は整形の前に当たり、折り返しがやり直される（W-24）", async () => {
+  __setTranscribeHooks(hooks(MISHEARD));
+  const wrong = join(dir, "wrong.srt");
+  await call({ add: false, output: wrong });
+  expect(await readFile(wrong, "utf8")).toContain("フロント演動");
+
+  const fixed = join(dir, "fixed.srt");
+  const out = await call({
+    add: false,
+    output: fixed,
+    replace: ["フロント演動=フロントエンド運用"],
+  });
+  const body = await readFile(fixed, "utf8");
+  expect(body).toContain("フロントエンド運用");
+  expect(body).not.toContain("フロント演動");
+  // 語が 2 文字伸びても 1 行 20 字・2 行を超えない
+  for (const line of body.split("\n")) {
+    if (line === "" || /^\d+$/.test(line) || line.includes("-->")) continue;
+    expect([...line].length).toBeLessThanOrEqual(21);
+  }
+  expect((out.result as Record<string, unknown>).replacements).toEqual([
+    { from: "フロント演動", to: "フロントエンド運用", count: 1 },
+  ]);
+  // 置換で語が伸びても、字幕の出る時刻は動かない
+  expect(await readFile(fixed, "utf8")).toContain("00:00:00,000 --> ");
+});
+
+test("--replace-file の規則も当たる（人が育てる用語ファイル）", async () => {
+  __setTranscribeHooks(hooks(MISHEARD));
+  const rules = join(dir, "rules.txt");
+  writeFileSync(rules, "# 朝ミの用語\nフロント演動=フロントエンド運用\n\n");
+  const output = join(dir, "from-file.srt");
+  await call({ replaceFile: rules, add: false, output });
+  expect(await readFile(output, "utf8")).toContain("フロントエンド運用");
+});
+
+test("当たらなかった置換規則は W_REPLACE_UNUSED で知らせる", async () => {
+  const out = await call({ add: false, output: join(dir, "w.srt"), replace: ["存在しない語=なにか"] });
+  expect(out.warnings?.[0]?.code).toBe("W_REPLACE_UNUSED");
+  expect(out.warnings?.[0]?.message).toContain("存在しない語");
+});
+
+test("置換したトークンを保存し直せる（次はそこから続けられる）", async () => {
+  __setTranscribeHooks(hooks(MISHEARD));
+  const first = join(dir, "first.json");
+  await call({ saveTranscript: first, add: false, output: join(dir, "c.srt") });
+  const second = join(dir, "second.json");
+  await call({
+    fromTranscript: first,
+    saveTranscript: second,
+    replace: ["フロント演動=フロントエンド運用"],
+    add: false,
+    output: join(dir, "d.srt"),
+  });
+  const saved = JSON.parse(await readFile(second, "utf8"));
+  expect(saved.text).toContain("フロントエンド運用");
+  expect(saved.replacements).toEqual([{ from: "フロント演動", to: "フロントエンド運用", count: 1 }]);
+});
+
+test("--from-transcript で書き起こした字幕もタイムラインに置ける", async () => {
+  const path = join(dir, "t.json");
+  await call({ saveTranscript: path, add: false, output: join(dir, "a.srt") });
+  const out = await call({ fromTranscript: path, output: join(dir, "placed.srt") });
+  const result = out.result as Record<string, any>;
+  expect(result.clip.mode).toBe("burn");
+  const project = await loadProject(dir);
+  expect(project.assets[result.asset.id]?.type).toBe("subtitle");
+});
+
+test("--dry-run は --from-transcript でもエンジンを要求しない", async () => {
+  const path = join(dir, "t.json");
+  await call({ saveTranscript: path, add: false, output: join(dir, "a.srt") });
+  const out = await call(
+    { fromTranscript: path, enginePath: join(dir, "nope"), model: join(dir, "nope.bin") },
+    { dryRun: true },
+  );
+  const result = out.result as Record<string, any>;
+  expect(result.dry_run).toBe(true);
+  expect(result.command).toBeNull();
+  expect(result.tokens).toBe(TOKENS.length);
+});
+
+test("--from-transcript と --asset は同時に使えない", async () => {
+  const path = join(dir, "t.json");
+  await call({ saveTranscript: path, add: false, output: join(dir, "a.srt") });
+  const err = await failure({ fromTranscript: path, asset: "a" });
+  expect(err.code).toBe("E_USAGE");
+});
+
+test("壊れた --replace は E_USAGE（エンジンを呼ぶ前に弾く）", async () => {
+  const err = await failure({ replace: ["イコールが無い"] });
+  expect(err.code).toBe("E_USAGE");
+  expect(err.message).toContain("wrong=right");
+  expect(existsSync(join(dir, "subtitles"))).toBe(false);
+});
+
+test("無い書き起こしは E_TRANSCRIPT_NOT_FOUND、montash の形でなければ E_TRANSCRIPT_INVALID", async () => {
+  const missing = await failure({ fromTranscript: join(dir, "nope.json") });
+  expect(missing.code).toBe("E_TRANSCRIPT_NOT_FOUND");
+
+  const bogus = join(dir, "bogus.json");
+  writeFileSync(bogus, '{"transcription":[]}');
+  const invalid = await failure({ fromTranscript: bogus });
+  expect(invalid.code).toBe("E_TRANSCRIPT_INVALID");
+
+  const broken = join(dir, "broken.json");
+  writeFileSync(broken, "{not json");
+  const unreadable = await failure({ fromTranscript: broken });
+  expect(unreadable.code).toBe("E_TRANSCRIPT_INVALID");
+});
+
+test("無い --replace-file は E_REPLACE_FILE_NOT_FOUND", async () => {
+  const err = await failure({ replaceFile: join(dir, "nope.txt") });
+  expect(err.code).toBe("E_REPLACE_FILE_NOT_FOUND");
+});

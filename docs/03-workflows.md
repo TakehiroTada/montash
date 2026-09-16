@@ -42,6 +42,7 @@
 | W-19 | プラグインを導入して使う | 拡張 | S |
 | W-22 | 音声から字幕を起こす | 演出 | S |
 | W-23 | 長い録画からハイライト候補を出す | 編集 | S |
+| W-24 | 書き起こしの誤認識を直して字幕を焼き直す | 演出 | S |
 
 ---
 
@@ -502,7 +503,7 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 | 2 | 人 | 無ければ導入する（**AI は導入しない**。数百 MB のモデルを取りに行くため） | `brew install whisper-cpp` + ggml モデルを `~/.local/share/montash/whisper/` に置く |
 | 3 | AI | タイムラインの音声を書き起こし、整形して SRT にし、字幕クリップとして置く | `montash subtitle generate --lang ja` |
 | 4 | AI | 固有名詞が化けていたら用語リストを渡してやり直す | `montash subtitle generate --lang ja --vocabulary "多面観察,総括次長" --overwrite` |
-| 5 | AI | できた字幕を確認する（必要なら SRT を直接直す） | `montash subtitle list --json` / `montash explain s1 --json` |
+| 5 | AI | できた字幕を確認する（誤認識が残っていれば W-24 でトークンから直す） | `montash subtitle list --json` / `montash explain s1 --json` |
 | 6 | AI | 見た目を整える（フォント・大きさ・位置） | `montash subtitle set s1 --size 40 --margin-bottom 60` |
 | 7 | AI | 書き出して確認する | `montash render -o out/final.mp4` |
 
@@ -520,12 +521,13 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
     `--model` / `MONTASH_TRANSCRIBER_MODEL` を提示する。
   - **認識精度が低い**（固有名詞が化ける・社内用語が別の語になる） → `--vocabulary "多面観察,総括次長"` に
     正しい表記を並べて `--overwrite` でやり直す。実地ではこれで結果が大きく変わった。
-    それでも直らない語は SRT を直接直してから `montash subtitle add` で付け直す。
+    **それでも拾わない語は W-24**（`--save-transcript` / `--from-transcript` / `--replace`）でトークンの段階から直す。
+    SRT を手で直すのは避ける（SRT は整形の結果なので、語を直すと 2 行 × 20 字の折り返しが崩れ、やり直せない）。
   - 何も認識できなかった → `E_TRANSCRIPT_EMPTY`。`--lang` が実際の言語と合っているか、
     そもそも音声があるか（`montash audio show`）を確認する。
   - エンジンが失敗した → `E_TRANSCRIBER_FAILED`。`detail.stderr_tail` を読む（モデルとビルドの不一致が多い）。
   - 書き起こしに時間が掛かる → `--asset <id>` で 1 素材だけ、`--threads`、より小さいモデルを使う。`--timeout` で打ち切れる。
-- **派生コマンド**: `subtitle generate`, `subtitle list|set`, `doctor`
+- **派生コマンド**: `subtitle generate`, `subtitle list|set`, `doctor`（誤認識を直す経路は W-24）
 
 ---
 
@@ -563,11 +565,53 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
   - 候補が細かすぎる／粗すぎる → `--min-length` / `--max-length` / `--threshold` で調整する。
   - 書き起こしエンジンが無い → `--no-transcribe`（無音区間だけ）で出せる。ただし `lead` / `keywords` は空になる。
   - 固有名詞が化けて `keywords` が読めない → W-22 と同じく `--vocabulary "多面観察,総括次長"` を渡す。
+    それでも拾わない語は W-24 と同じ `--replace "山傘=山笠"` で直せる（`--from-transcript` なら書き起こしを回し直さずに済む）。
 - **やってはいけないこと**: **候補をそのままタイムラインに流し込まない。** このコマンドが候補を出すのは
   「AI が独断で区間を選んで重要な話題を落とした」（docs/13 D-23）をもう一度やらないためで、
   `score` の順位は「まとまって喋っているか」の目安にすぎない（実素材では人の選択と 76% しか一致しない）。
   **候補のリストは人が選んだ区間をほぼ取りこぼさない**ので、リストとして人に見せることに価値がある。
 - **派生コマンド**: `suggest highlights`, `clip add`, `timeline show`, `audio analyze`, `subtitle generate`
+
+---
+
+## W-24. 書き起こしの誤認識を直して字幕を焼き直す
+
+- **目的**: 書き起こしが固有名詞を外したとき、**整形前のトークン列**で直してから字幕を作り直す。
+- **起点**: 「字幕の『フロント演動』は『フロントエンド運用』の間違い」「『山傘』じゃなくて『山笠』」
+- **事前条件**: W-22 で字幕を起こしてある（`--save-transcript` でトークンを残してあると速い。無ければ起こし直す）。
+- **なぜ SRT を直さないのか**: SRT は「2 行 × 20 字に折り返し、1.2〜5.5 秒に割り付けた」**整形の結果**。
+  そこで語を 1 つ直すと行の長さが崩れ、**折り返しをやり直す手段が無い**（実地で「フロント演動」→「フロントエンド運用」の
+  2 文字で 1 行があふれた）。直すのは整形の**前**、トークン列の段階にする。
+- **手順**:
+
+| # | 誰 | 何をする | コマンド |
+|---|----|----------|----------|
+| 1 | AI | 字幕を起こし、**整形前のトークンも残す** | `montash subtitle generate --lang ja --save-transcript subs/rec.json` |
+| 2 | AI | 書き起こしを読む（トークンを繋いだ本文が `text` に入っている） | `cat subs/rec.json`（`.text` を読む）/ `montash subtitle list --json` |
+| 3 | 人 | 誤認識を見つけ、**何を何に直すかを決める**（montash は判断しない） | 「フロント演動 → フロントエンド運用」 |
+| 4 | AI | トークンの段階で直し、**整形からやり直す**（エンジンは回さない） | `montash subtitle generate --from-transcript subs/rec.json --replace "フロント演動=フロントエンド運用" --replace "山傘=山笠" --overwrite` |
+| 5 | AI | 直った字幕を確かめる（折り返しはやり直されている） | SRT を読む / `montash subtitle list --json` |
+| 6 | AI | 直す語が増えたら規則をファイルに溜めて当て直す | `montash subtitle generate --from-transcript subs/rec.json --replace-file subs/terms.txt --overwrite` |
+| 7 | AI | 書き出す | `montash render -o out/final.mp4` |
+
+- **規則の書き方**: `誤=正`。最初の `=` で割るので置換後に `=` が入ってもよい。右辺が空なら語を落とす（`えーと=`）。
+  `--replace` は繰り返し指定（カンマでは割らない。置換後にカンマが入りうるため）、`--replace-file` は 1 行 1 規則で `#` がコメント。
+  **トークンをまたぐ語も直せる**（whisper は「フロント」「演動」のように語を割って返すので、これができないと役に立たない）。
+- **置換したトークンの時刻**: 置き換えた文字たちが占めていた時間をそのまま引き継ぐ（開始 = 消えた最初の文字の開始、
+  終了 = 消えた最後の文字の終了）。**文字数が変わっても話している時刻は動かない**ので、字幕の出るタイミングは
+  置換の前後で変わらず、変わるのは折り返しだけになる。触れなかったトークンは 1 つも書き換えない。
+- **完了条件**: 直した語が SRT に入っていて、**1 字幕 = 最大 2 行 × 20 字と語境界が保たれている**
+  （語が伸びても `formatTranscript()` が折り返しをやり直すため）。字幕の開始・終了時刻は直す前と同じ。
+- **失敗と対処**:
+  - 規則が 1 度も当たらない → `W_REPLACE_UNUSED`。**書き起こしの本文**（保存した JSON の `text`）と綴りを突き合わせる。
+    字幕（SRT）の表記ではなくトークンの表記に合わせること（整形で空白や改行が入っている）。
+  - 保存した書き起こしが無い → `E_TRANSCRIPT_NOT_FOUND`。`--save-transcript` を付けて起こし直す（エンジンとモデルが要る）。
+  - 書き起こしが読めない → `E_TRANSCRIPT_INVALID`。`--save-transcript` が書いた形（`format: "montash.transcript"`）か確かめる。
+  - 語彙で直せるならそのほうが良い → まず `--vocabulary`（W-22 step 4）を試す。**それでも拾わない語**がこの手順の対象。
+- **やってはいけないこと**: **montash が「これは誤認識だろう」と推測して直さない。** 置換規則を作るのは人
+  （または人の指示を受けた AI）で、montash は辞書も推測も持たない（`suggest highlights` と同じ線引き。docs/13 D-23）。
+  SRT を手で書き換えてから焼き直すのも避ける（折り返しがやり直せないので、直した語の周りだけ行があふれる）。
+- **派生コマンド**: `subtitle generate --save-transcript|--from-transcript|--replace|--replace-file`, `suggest highlights`（同じ書き起こしを使い回せる）, `render`
 
 ---
 
@@ -585,7 +629,7 @@ M1実装: 全区間のカット結合と画像・空白区間・音声ミック�
 | テキスト | `text add|set|remove|list|presets` | W-06 |
 | オーバーレイ | `overlay add|set|remove|list` | W-08 |
 | 音声 | `audio gain|fade|duck|normalize|analyze|show` | W-07 |
-| 字幕 | `subtitle add|set|remove|list|generate` | W-14, W-22 |
+| 字幕 | `subtitle add|set|remove|list|generate` | W-14, W-22, W-24 |
 | 候補提示 | `suggest highlights` | W-23 |
 | プレビュー | `serve`, `preview build|status` | W-02, W-04 |
 | 出力 | `render`, `render verify|presets|batch` | W-09, W-11, W-12 |

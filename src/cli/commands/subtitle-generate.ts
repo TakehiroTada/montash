@@ -13,6 +13,14 @@
  *   - 生成した SRT は**素材として取り込み、字幕クリップとして置く**ところまでやる（`--no-add` で SRT だけ）。
  *
  * 字幕スタイルの調整は `subtitle set` に任せる（このコマンドは起こすことに集中する）。
+ *
+ * **誤認識を直す経路**（W-24）: エンジンは固有名詞を外す。`--vocabulary` でも拾わないことがある
+ * （実地で「フロントエンド運用」→「フロント演動」）。直すのは **SRT ではなくトークン列**で、
+ *   - `--save-transcript <path>` で整形前のトークンを JSON に残す
+ *   - `--from-transcript <path>` でそれを読み直す（**エンジンを再実行しない**ので速い）
+ *   - `--replace "フロント演動=フロントエンド運用"` を**整形の前**に当てる
+ * 整形はやり直されるので、語が長くなっても 2 行 x 20 字の折り返しは崩れない。
+ * **何が誤りかは montash が決めない**（規則を書くのは人。docs/13 D-23 の線引きと同じ）。
  */
 import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,6 +37,7 @@ import {
 } from "../../core/schema.ts";
 import { formatTranscript, SUBTITLE_FORMAT_DEFAULTS, type TranscriptToken, toSrt } from "../../core/subtitle-format.ts";
 import { nextTrackId, requireTrack } from "../../core/timeline.ts";
+import { applyReplacements } from "../../core/transcript.ts";
 import { resolveAssetPath } from "../../core/validate.ts";
 import { pickCjkFallback } from "../../ffmpeg/ass.ts";
 import { listFonts } from "../../ffmpeg/fonts.ts";
@@ -39,6 +48,7 @@ import {
   requireTranscriber,
   runTranscriber,
   type TranscribeResult,
+  type TranscriberLocation,
   whisperArgs,
 } from "../../ffmpeg/transcribe.ts";
 import { type ExtractAudioResult, extractFileAudio, extractTimelineAudio } from "../../ffmpeg/transcribe-audio.ts";
@@ -47,6 +57,13 @@ import { defineCommand } from "../define-command.ts";
 import { ExitCode, errors, MontashError, type Warning } from "../errors.ts";
 import { runMutation } from "../mutate.ts";
 import { parseTimeInput } from "../time-input.ts";
+import {
+  collectReplaceRules,
+  loadTranscript,
+  saveTranscript,
+  TRANSCRIPT_OPTIONS,
+  unusedRulesWarning,
+} from "../transcript-input.ts";
 
 type Args = Record<string, unknown>;
 
@@ -166,11 +183,14 @@ export const subtitleGenerate = defineCommand({
   description:
     "Runs an external transcription engine (whisper.cpp `whisper-cli` by default; montash never downloads it), " +
     "turns its token level timestamps into readable cues (sentence first, never mid-word, Japanese kinsoku, " +
-    "max 2 lines x 20 chars, 1.2-5.5s), writes an SRT, imports it and adds a subtitle clip.",
-  workflows: ["W-22"],
+    "max 2 lines x 20 chars, 1.2-5.5s), writes an SRT, imports it and adds a subtitle clip. " +
+    "Misheard words are fixed on the tokens, not on the SRT: --save-transcript keeps them, --from-transcript " +
+    "reads them back without the engine, and --replace rewrites words before formatting so the wrapping is redone.",
+  workflows: ["W-22", "W-24"],
   mutates: true,
   options: {
     asset: { type: "string", describe: "transcribe this video/audio asset (default: the timeline mix)" },
+    ...TRANSCRIPT_OPTIONS,
     lang: { type: "string", describe: "spoken language (ISO 639-1, or `auto`)", default: "ja" },
     vocabulary: {
       type: "array",
@@ -233,27 +253,65 @@ export const subtitleGenerate = defineCommand({
       note: "a term list changes the accuracy a lot on proper nouns",
     },
     { cmd: "montash subtitle generate --no-add -o subs/draft.srt", note: "only write the SRT, review it by hand" },
+    {
+      cmd: "montash subtitle generate --save-transcript subs/talk.json --no-add -o subs/draft.srt",
+      note: "keep the tokens so the formatting can be redone without transcribing again",
+    },
+    {
+      cmd: 'montash subtitle generate --from-transcript subs/talk.json --replace "フロント演動=フロントエンド運用" --overwrite',
+      note: "fix a misheard word and re-format from the tokens (no engine, so the line wrapping is redone)",
+    },
   ],
   async handler(ctx, args: Args) {
     const dir = ctx.requireProjectDir();
     const project = await loadProject(dir);
     const warnings: Warning[] = [];
 
-    // --- エンジンとモデル（何より先に確かめる。無ければ何も書き出さずに終わる） ---
-    const engine = requireTranscriber({
-      enginePath: optString(args, "engine-path"),
-      engine: optString(args, "engine"),
-      env: ctx.env,
+    // --- 置換規則（規則を書くのは人。montash は何が誤りかを判断しない。W-24） ---
+    const replaceFile = optString(args, "replace-file");
+    const rules = await collectReplaceRules({
+      replace: option(args, "replace"),
+      replaceFile: replaceFile === undefined ? undefined : resolve(ctx.cwd, replaceFile),
     });
-    const model = requireModel({ model: optString(args, "model"), env: ctx.env });
+    const fromTranscriptOpt = optString(args, "from-transcript");
+    const fromTranscript = fromTranscriptOpt === undefined ? undefined : resolve(ctx.cwd, fromTranscriptOpt);
+    const saveTranscriptOpt = optString(args, "save-transcript");
+    const saveTo = saveTranscriptOpt === undefined ? undefined : resolve(ctx.cwd, saveTranscriptOpt);
 
-    // --- 入力（素材 1 つ / タイムライン全体） ---
+    // --- 入力（素材 1 つ / タイムライン全体 / 保存済みの書き起こし） ---
     const assetId = optString(args, "asset");
-    const source = audioSource(project, dir, assetId);
+    if (fromTranscript !== undefined && assetId !== undefined)
+      throw errors.usage(
+        "--from-transcript and --asset cannot be combined",
+        "The saved transcript already says what was transcribed; --asset would have nothing to do.",
+      );
+    // 保存済みを読むなら、エンジンもモデルも音声も要らない（整形をやり直すだけ）
+    const saved = fromTranscript === undefined ? null : await loadTranscript(fromTranscript);
+
+    // --- エンジンとモデル（何より先に確かめる。無ければ何も書き出さずに終わる） ---
+    const engine =
+      saved !== null
+        ? null
+        : requireTranscriber({
+            enginePath: optString(args, "engine-path"),
+            engine: optString(args, "engine"),
+            env: ctx.env,
+          });
+    const model =
+      saved !== null ? (saved.model ?? null) : requireModel({ model: optString(args, "model"), env: ctx.env });
+    const engineInfo = engine !== null ? { path: engine.path, source: engine.source } : (saved?.engine ?? null);
+
+    const source = saved !== null ? { asset: null, path: null } : audioSource(project, dir, assetId);
+    const sourceLabel =
+      saved !== null
+        ? saved.source === ""
+          ? fromTranscript
+          : (saved.source ?? fromTranscript)
+        : (source.path ?? "timeline");
 
     // --- 出力先 ---
     const lang = String(option(args, "lang") ?? "ja");
-    const stem = assetId ?? project.name ?? basename(dir);
+    const stem = assetId ?? saved?.asset ?? project.name ?? basename(dir);
     const output = has(args, "output")
       ? resolve(ctx.cwd, String(option(args, "output")))
       : join(dir, SRT_DIR, `${stem}.${lang}.srt`);
@@ -280,9 +338,27 @@ export const subtitleGenerate = defineCommand({
     };
 
     // --- --dry-run: 何が起きるかだけ返す ---
+    if (ctx.globals.dryRun && saved !== null) {
+      return {
+        result: {
+          dry_run: true,
+          from_transcript: fromTranscript,
+          engine: engineInfo,
+          model,
+          language: lang,
+          vocabulary,
+          replacements: rules.map((r) => ({ ...r, count: null })),
+          source: sourceLabel,
+          output,
+          tokens: saved.tokens.length,
+          command: null,
+        },
+        human: `would re-format ${saved.tokens.length} saved tokens from ${fromTranscript}${rules.length ? ` with ${rules.length} replacement(s)` : ""} and write ${output}`,
+      };
+    }
     if (ctx.globals.dryRun) {
       const plan = whisperArgs({
-        model,
+        model: model as string,
         audio: "<16kHz mono wav>",
         outPrefix: "<tmp>/transcript",
         lang: lang === "auto" ? undefined : lang,
@@ -292,97 +368,146 @@ export const subtitleGenerate = defineCommand({
       return {
         result: {
           dry_run: true,
-          engine: { path: engine.path, source: engine.source },
+          from_transcript: null,
+          engine: engineInfo,
           model,
           language: lang,
           vocabulary,
-          source: source.path ?? "timeline",
+          replacements: rules.map((r) => ({ ...r, count: null })),
+          source: sourceLabel,
           output,
-          command: [engine.path, ...plan],
+          command: [(engine as TranscriberLocation).path, ...plan],
         },
-        human: `would transcribe ${source.path ?? "the timeline mix"} with ${engine.path} and write ${output}`,
+        human: `would transcribe ${source.path ?? "the timeline mix"} with ${(engine as TranscriberLocation).path} and write ${output}`,
       };
     }
 
-    // --- 音声の書き出し → 書き起こし ---
-    const tmp = await mkdtemp(join(tmpdir(), "montash-transcribe-"));
-    let transcribed: TranscribeResult;
-    let extracted: ExtractAudioResult;
-    try {
-      const wav = join(tmp, "audio.wav");
-      if (hooks?.extractAudio) {
-        extracted = await hooks.extractAudio({ dir, project, output: wav, source: source.path });
-      } else {
-        const bins = locateBinaries({ ...ctx.globals, env: ctx.env });
-        extracted =
-          source.path === null
-            ? await extractTimelineAudio(bins, dir, project, wav, {
-                cwd: dir,
-                ...(ctx.globals.verbose ? { log: (l: string) => ctx.stderr(`${l}\n`) } : {}),
-              })
-            : await extractFileAudio(bins, source.path, wav, {
-                cwd: dir,
-                ...(ctx.globals.verbose ? { log: (l: string) => ctx.stderr(`${l}\n`) } : {}),
-              });
+    // --- 音声の書き出し → 書き起こし（保存済みを読むならどちらもやらない） ---
+    let transcribed: TranscribeResult | null = null;
+    let extracted: ExtractAudioResult | null = null;
+    let rawTokens: TranscriptToken[] = saved?.tokens ?? [];
+    if (saved === null) {
+      const engineFound = engine as TranscriberLocation;
+      const tmp = await mkdtemp(join(tmpdir(), "montash-transcribe-"));
+      try {
+        const wav = join(tmp, "audio.wav");
+        if (hooks?.extractAudio) {
+          extracted = await hooks.extractAudio({ dir, project, output: wav, source: source.path });
+        } else {
+          const bins = locateBinaries({ ...ctx.globals, env: ctx.env });
+          extracted =
+            source.path === null
+              ? await extractTimelineAudio(bins, dir, project, wav, {
+                  cwd: dir,
+                  ...(ctx.globals.verbose ? { log: (l: string) => ctx.stderr(`${l}\n`) } : {}),
+                })
+              : await extractFileAudio(bins, source.path, wav, {
+                  cwd: dir,
+                  ...(ctx.globals.verbose ? { log: (l: string) => ctx.stderr(`${l}\n`) } : {}),
+                });
+        }
+        const outPrefix = join(tmp, "transcript");
+        const timeout = optNumber(args, "timeout");
+        transcribed = hooks?.transcribe
+          ? await hooks.transcribe({
+              engine: engineFound.path,
+              model: model as string,
+              audio: wav,
+              outPrefix,
+              lang: lang === "auto" ? undefined : lang,
+              vocabulary,
+            })
+          : await runTranscriber({
+              engine: engineFound.path,
+              model: model as string,
+              audio: wav,
+              outPrefix,
+              ...(lang === "auto" ? {} : { lang }),
+              vocabulary,
+              ...(optNumber(args, "threads") !== undefined ? { threads: optNumber(args, "threads") as number } : {}),
+              ...(timeout !== undefined ? { timeoutMs: timeout * 1000 } : {}),
+              ...(ctx.globals.verbose ? { log: (l: string) => ctx.stderr(`${l}\n`) } : {}),
+            });
+      } finally {
+        await rm(tmp, { recursive: true, force: true }).catch(() => {});
       }
-      const outPrefix = join(tmp, "transcript");
-      const timeout = optNumber(args, "timeout");
-      transcribed = hooks?.transcribe
-        ? await hooks.transcribe({
-            engine: engine.path,
-            model,
-            audio: wav,
-            outPrefix,
-            lang: lang === "auto" ? undefined : lang,
-            vocabulary,
-          })
-        : await runTranscriber({
-            engine: engine.path,
-            model,
-            audio: wav,
-            outPrefix,
-            ...(lang === "auto" ? {} : { lang }),
-            vocabulary,
-            ...(optNumber(args, "threads") !== undefined ? { threads: optNumber(args, "threads") as number } : {}),
-            ...(timeout !== undefined ? { timeoutMs: timeout * 1000 } : {}),
-            ...(ctx.globals.verbose ? { log: (l: string) => ctx.stderr(`${l}\n`) } : {}),
-          });
-    } finally {
-      await rm(tmp, { recursive: true, force: true }).catch(() => {});
+      rawTokens = transcribed.tokens;
     }
 
+    // --- 置換（整形の**前**に当てる。ここで直せば折り返しがやり直される。純関数） ---
+    const replaced = applyReplacements(rawTokens, rules);
+    const unused = unusedRulesWarning(replaced.applied);
+    if (unused !== null) warnings.push(unused);
+    const tokens: TranscriptToken[] = replaced.tokens;
+
     // --- 整形（ここが本体の価値。純関数） ---
-    const tokens: TranscriptToken[] = transcribed.tokens;
     const cues = formatTranscript(tokens, format);
     if (cues.length === 0)
-      throw new MontashError("E_TRANSCRIPT_EMPTY", "the engine returned no speech for this audio", {
-        hint: "Check that the timeline (or --asset) actually has speech, and that --lang matches it. A larger model helps on noisy audio.",
-        exitCode: ExitCode.EXTERNAL,
-        detail: { tokens: tokens.length, engine: engine.path, model, language: lang },
-      });
+      throw new MontashError(
+        "E_TRANSCRIPT_EMPTY",
+        saved === null ? "the engine returned no speech for this audio" : `${fromTranscript} has no usable speech`,
+        {
+          hint:
+            saved === null
+              ? "Check that the timeline (or --asset) actually has speech, and that --lang matches it. A larger model helps on noisy audio."
+              : "Check the `text` field of the transcript, and that the replacements did not delete everything.",
+          exitCode: ExitCode.EXTERNAL,
+          detail: { tokens: tokens.length, engine: engineInfo?.path ?? null, model, language: lang },
+        },
+      );
     await mkdir(dirname(output), { recursive: true });
     await atomicWrite(output, toSrt(cues));
 
+    // --- 整形前のトークンを残す（次はエンジンを回さずにここから直せる） ---
+    if (saveTo !== undefined)
+      await saveTranscript(saveTo, tokens, {
+        engine: engineInfo,
+        model,
+        language: lang,
+        vocabulary,
+        source: sourceLabel,
+        asset: assetId ?? saved?.asset ?? null,
+        replacements: replaced.applied,
+      });
+
     const transcript = {
-      engine: { path: engine.path, source: engine.source },
+      engine: engineInfo,
       model,
       language: lang,
       vocabulary,
-      source: source.path ?? "timeline",
+      source: sourceLabel,
       srt: output,
       cues: cues.length,
       tokens: tokens.length,
       duration_s: Math.round((cues.at(-1) as (typeof cues)[number]).endMs) / 1000,
-      command: [engine.path, ...transcribed.args],
-      ffmpeg_command: extracted.args,
+      command: transcribed === null ? null : [(engine as TranscriberLocation).path, ...transcribed.args],
+      ffmpeg_command: extracted === null ? null : extracted.args,
+      from_transcript: fromTranscript ?? null,
+      saved_transcript: saveTo ?? null,
+      replacements: replaced.applied,
     };
+
+    const engineLine =
+      saved === null
+        ? `engine ${engineInfo?.path ?? "(none)"}  model ${model === null ? "(none)" : basename(model)}  lang ${lang}` +
+          `${vocabulary.length ? `  vocabulary ${vocabulary.length}` : ""}`
+        : `from ${fromTranscript} (${tokens.length} tokens, no engine run)  lang ${lang}`;
+    const replacedLine =
+      replaced.applied.length === 0
+        ? null
+        : `replaced ${replaced.applied.map((r) => `${r.from}→${r.to || "(nothing)"} x${r.count}`).join(", ")}`;
 
     // --- SRT だけ欲しいとき ---
     if (option(args, "add") === false) {
       return {
         result: { ...transcript, asset: null, clip: null },
         warnings,
-        human: `wrote ${output} (${cues.length} cues)`,
+        human: [
+          `wrote ${output} (${cues.length} cues)`,
+          `  ${engineLine}`,
+          ...(replacedLine === null ? [] : [`  ${replacedLine}`]),
+          ...(saveTo === undefined ? [] : [`  transcript ${saveTo}`]),
+        ].join("\n"),
       };
     }
 
@@ -444,13 +569,14 @@ export const subtitleGenerate = defineCommand({
 
       return {
         result: { ...transcript, asset, clip: { ...clip, track: track.id }, track_created: created ? track.id : null },
-        summary: `generate subtitles from ${transcript.source === "timeline" ? "the timeline" : (assetId as string)} (${cues.length} cues)`,
+        summary: `generate subtitles from ${transcript.source === "timeline" ? "the timeline" : (assetId ?? basename(String(transcript.source)))} (${cues.length} cues)`,
         affects: { clips: [clip.id], range_f: null },
         warnings,
         human: [
           `wrote ${output} (${cues.length} cues, ${tokens.length} tokens)`,
           `  asset ${asset.id}  clip ${clip.id}  ${track.id}  ${mode}${created ? `  (created text track ${track.id})` : ""}`,
-          `  engine ${engine.path}  model ${basename(model)}  lang ${lang}${vocabulary.length ? `  vocabulary ${vocabulary.length}` : ""}`,
+          `  ${engineLine}`,
+          ...(replacedLine === null ? [] : [`  ${replacedLine}`]),
         ].join("\n"),
       };
     });
