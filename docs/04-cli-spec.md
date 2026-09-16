@@ -166,9 +166,12 @@ JSON 出力の時間フィールドは常に次の 3 つを併記する。
 | `E_TRANSCRIBER_FAILED` | エンジンが非 0 終了 / JSON を書かなかった | `detail.stderr_tail`（モデルとビルドの不一致が多い） |
 | `E_TRANSCRIBER_TIMEOUT` / `E_TRANSCRIBER_CANCELLED` | `--timeout` 超過 / 中断 | 小さいモデル、`--asset` で範囲を絞る |
 | `E_TRANSCRIPT_EMPTY` | 音声から 1 つも字幕が作れなかった | `--lang` の確認、音声の有無（`audio show`） |
+| `E_TRANSCRIPT_NOT_FOUND` | `--from-transcript` の書き起こしが無い | `subtitle generate --save-transcript <path>` で作る |
+| `E_TRANSCRIPT_INVALID` | `--from-transcript` が montash の書き起こしとして読めない | `detail.problem`、`--save-transcript` が書いた形 |
+| `E_REPLACE_FILE_NOT_FOUND` | `--replace-file` が無い | 1 行 1 規則（`誤=正`）の書き方 |
 | `E_BATCH_FAILED` | `--atomic` のバッチが途中で失敗（開始前へ巻き戻し済み） | 失敗した行の hint、`detail.lines` に各行の結果 |
 
-警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満）, `W_BATCH_MESSAGE_IGNORED`（`--atomic` のバッチの行に付いた `-m` は無視した））。
+警告は `W_` プレフィックス（`W_ASSET_MISMATCH`, `W_BEYOND_TIMELINE`, `W_CLIP_SHORTER_THAN_REQUESTED`, `W_GAP_CREATED`, `W_LEAVING_PENDING`, `W_MULTIPLE_CHILDREN`, `W_DETACHED_HEAD`, `W_COMMIT_MESSAGE_STYLE`, `W_DIRTY_WORKTREE`, `W_SNAPPED`（時間入力をフレームに丸めた）, `W_FPS_RESNAPPED`（fps 変更で全時間を再スナップ）, `W_RESOLUTION_RESCALED`, `W_TEXT_ENGINE_LIMITED`（libass 無しで drawtext フォールバック）, `W_ID_REUSED`, `W_RIPPLE_SPAN_NOT_EXTENDED`（リップル挿入で跨ぎクリップを伸ばせなかった）, `W_TRANSITION_REMOVED`（編集点を跨ぐトランジションを削除）, `W_FFMPEG_BEST_EFFORT`（ffmpeg 6.0 未満）, `W_BATCH_MESSAGE_IGNORED`（`--atomic` のバッチの行に付いた `-m` は無視した）, `W_REPLACE_UNUSED`（`--replace` の規則が 1 度も当たらなかった））。
 
 ### 1.8 履歴への記録
 
@@ -666,7 +669,7 @@ montash overlay add --asset <id> --track <Vn> --at <t> (--duration <t>|--until <
 
 ASS 素材（`.ass` / `.ssa`）を `burn` するときは素材自身の Style が勝つので、スタイル指定は `W_SUBTITLE_STYLE_IGNORED` で無視を知らせる。
 
-### `montash subtitle generate [--asset <id>] [--lang ja] [--vocabulary <語,語>] [--engine <name>] [--engine-path <p>] [--model <p>] [--threads N] [--timeout <s>] [-o <path.srt>] [--overwrite] [--no-add] [--mode burn|soft] [--track <t>] [--at <t>] [--font <family>] [--asset-id <id>] [--id <id>] [--max-chars 20] [--max-lines 2] [--min-duration 1.2] [--max-duration 5.5] [--pause 0.5]` — W-22
+### `montash subtitle generate [--asset <id>] [--lang ja] [--vocabulary <語,語>] [--engine <name>] [--engine-path <p>] [--model <p>] [--threads N] [--timeout <s>] [--save-transcript <p.json>] [--from-transcript <p.json>] [--replace "誤=正"] [--replace-file <p>] [-o <path.srt>] [--overwrite] [--no-add] [--mode burn|soft] [--track <t>] [--at <t>] [--font <family>] [--asset-id <id>] [--id <id>] [--max-chars 20] [--max-lines 2] [--min-duration 1.2] [--max-duration 5.5] [--pause 0.5]` — W-22, W-24
 
 音声を書き起こして字幕にする。1 コマンドで「音声の書き出し → 書き起こし → 整形 → SRT → `import` → `subtitle add`」までをやる。
 
@@ -686,8 +689,23 @@ ASS 素材（`.ass` / `.ssa`）を `burn` するときは素材自身の Style �
   かつ本文もそこで切れそうなとき（敬体の語尾・呼びかけ・読点のあと、または接続表現の手前）だけ切る。時間だけ・言葉だけでは切らない
   （エンジンの時刻は語の中でも飛ぶため。実測で「33 | 回目」の間に 730ms あった）。`--max-len` のようなエンジン側の設定には頼らない。
 - 出力は既定で `<project>/subtitles/<name>.<lang>.srt`。`--no-add` を付けると SRT を書くだけで `project.json` は変えない。
-- `result` は `srt` / `cues` / `tokens` / `engine` / `model` / `language` / `vocabulary` / `command`（エンジンの引数）/ `asset` / `clip`。
+- `result` は `srt` / `cues` / `tokens` / `engine` / `model` / `language` / `vocabulary` / `command`（エンジンの引数）/ `asset` / `clip` /
+  `from_transcript` / `saved_transcript` / `replacements`（`{from, to, count}` の配列）。
 - 見た目（サイズ・色・位置）の調整は `subtitle set` に任せる。
+
+**誤認識を直す（W-24）。** `--vocabulary` を渡してもエンジンが固有名詞を外すことはある（実地で「フロントエンド運用」→「フロント演動」、「山笠」→「山傘」）。
+直すのは **SRT ではなく整形前のトークン列**にする。SRT は「2 行 × 20 字に折り返し、1.2〜5.5 秒に割り付けた」後の形なので、そこで語を 1 つ直すと行があふれ、折り返しをやり直す手段が無い（実地で「フロント演動」→「フロントエンド運用」の 2 文字で崩れた）。
+
+- `--save-transcript <path.json>`: **整形前のトークン**を JSON で残す（`{format: "montash.transcript", version, tokens: [{text, startMs, endMs}], text, engine, model, language, vocabulary, source, asset, replacements}`）。
+  `text` はトークンを繋いだ本文で、**誤認識を探すのはここを読む**。保存されるのは置換を当てた後のトークン（次はその続きから直せる）。特殊トークン（`[_BEG_]`）は落としてある。
+- `--from-transcript <path.json>`: そのトークンを読み直して**整形からやり直す**。エンジンもモデルも音声の書き出しも要らないので速い（21 分の会議で whisper は分の単位、これは秒の単位）。`--asset` とは併用できない（`E_USAGE`）。
+- `--replace "フロント演動=フロントエンド運用"`: **整形の前**にトークンを書き換える。複数指定できる（繰り返す。カンマでは割らない: 置換後にカンマが入りうるため）。`--replace-file <path>` は 1 行 1 規則（`#` はコメント）。
+  区切りは**最初の `=`**。右辺が空なら語を落とす。規則は書いた順に当たり、`--replace-file` の中身 → `--replace` の順。
+- **トークンをまたぐ語も置換できる**（whisper は「フロント」「演動」のように語を割って返す）。**置換したトークンの時刻は、置き換えた文字たちが占めていた時間をそのまま引き継ぐ**（開始 = 消えた最初の文字の開始、終了 = 消えた最後の文字の終了）。
+  文字数が変わっても話している時刻は動かないので、**字幕の出るタイミングは置換の前後で変わらず、変わるのは折り返しだけ**になる。触れなかったトークンは 1 つも書き換えない。
+- 1 度も当たらなかった規則は `W_REPLACE_UNUSED` で知らせる（綴り違いを黙って捨てない）。当たった回数は `result.replacements[].count`。
+- **何を誤りと見なすかは montash が判断しない。** 規則を作るのは人（または人の指示を受けた AI）で、montash は辞書も推測も持たない（`suggest highlights` と同じ線引き。docs/13 D-23）。
+- 保存した書き起こしが読めなければ `E_TRANSCRIPT_NOT_FOUND` / `E_TRANSCRIPT_INVALID`、規則ファイルが無ければ `E_REPLACE_FILE_NOT_FOUND`。
 
 ---
 
@@ -891,7 +909,8 @@ c2 — media clip on track V1 (video)
   **枠に入らなかった候補もリストから消さない**（`selected: false` になるだけ）。枠は提案であって決定ではない。
 - `--min-length` / `--max-length` は 1 候補の長さの下限・上限（既定 30 秒 / 180 秒）。上限を超える塊は中で一番強い切れ目で割る。
 - `--no-transcribe` は書き起こしエンジンを呼ばず、無音区間だけで区切る（whisper もモデルも要らないが `lead` / `keywords` は空になる）。
-- 書き起こしまわりのオプション（`--lang` `--vocabulary` `--engine` `--engine-path` `--model` `--threads` `--timeout`）は `subtitle generate`（§12）と同じ。エンジンとモデルは**人の手で**導入する（montash は取得しない）。
+- 書き起こしまわりのオプション（`--lang` `--vocabulary` `--engine` `--engine-path` `--model` `--threads` `--timeout` `--save-transcript` `--from-transcript` `--replace` `--replace-file`）は `subtitle generate`（§12）と同じ。エンジンとモデルは**人の手で**導入する（montash は取得しない）。
+  `--from-transcript <path>` は `subtitle generate --save-transcript` が書いたトークンを読み直し、**エンジンを回さずに**候補を出す（無音解析は走るので音声の書き出しはする）。`--replace` は `lead` / `keywords` に効く（固有名詞が化けたまま tf-idf を見ても読めない。W-24）。
 - 候補ごとに `command`（`montash clip add --asset <id> --in <tc> --out <tc>`）を添えるが、**montash は実行しない**。`--asset` を省いた（タイムラインのミックスを見た）ときは `null`。
 
 ```

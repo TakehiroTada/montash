@@ -253,3 +253,35 @@ test("発話が見つからなければ E_NO_HIGHLIGHTS（勝手に何かを提�
   expect(err.code).toBe("E_NO_HIGHLIGHTS");
   expect(err.hint).toContain("--min-length");
 });
+
+// ---------------------------------------------------------------------------
+// 保存した書き起こしの使い回し（W-24）
+// ---------------------------------------------------------------------------
+
+test("--save-transcript / --from-transcript でエンジンを 1 度しか回さない", async () => {
+  const path = join(dir, "rec.json");
+  await call({ saveTranscript: path });
+  expect(seen.transcribed).toBe(true);
+
+  seen.transcribed = false;
+  const out = await call({ fromTranscript: path, enginePath: join(dir, "nope"), model: join(dir, "nope.bin") });
+  // 書き起こしは読み直すだけ（無音解析は走る）
+  expect(seen.transcribed).toBe(false);
+  const transcript = (out.result as Record<string, any>).transcript;
+  expect(transcript.from_transcript).toBe(path);
+  expect(transcript.command).toBeNull();
+  expect((out.result as Record<string, any>).signals.transcript).toBe(true);
+});
+
+test("--replace は lead / keywords に効く（誤認識のままでは読めない）", async () => {
+  const out = await call({ replace: ["山笠=博多祇園山笠"] });
+  const result = out.result as Record<string, any>;
+  const text = JSON.stringify(result.candidates);
+  expect(text).toContain("博多祇園山笠");
+  expect(result.transcript.replacements).toEqual([{ from: "山笠", to: "博多祇園山笠", count: 6 }]);
+});
+
+test("当たらなかった置換規則は warnings に出る", async () => {
+  const out = await call({ replace: ["存在しない語=なにか"] });
+  expect(out.warnings?.[0]?.code).toBe("W_REPLACE_UNUSED");
+});
