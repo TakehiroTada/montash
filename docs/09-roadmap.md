@@ -2,18 +2,32 @@
 
 作業手順開発の原則に従い、**手順（W-xx）単位で縦に切って** 実装する。各マイルストーンは「その手順が bash スクリプトで通しで動く」ことを完了条件とする。
 
-## 実装状況（2026-09-15 / M3 完了）
+## 実装状況（2026-09-16 / M0〜M4・M6・M7 完了）
 
-**完了: M0 / M1 / M2 / M3**（W-01〜W-10, W-13〜W-17）。**進行中: M4**（W-11 / W-12）。
+**完了: M0 / M1 / M2 / M3 / M4 / M6 / M7**（手順 W-01〜W-23 の 23 本が `tests/workflows/` にあり、`bun run verify` で全部通る）。
+**残っているのは M5（v1.0）の 3 件だけ**: npm 公開、`install-deps.sh` からのバイナリ取得、10 章 AI 操作ガイドの実運用検証。
+
+> この節は **2026-09-16 に `montash schema --json`（101 コマンド）と `--help` の実行結果で突き合わせて書き直した**。
+> montash は AI が操作する道具なので、**ここが腐ると AI の前提がそのまま腐る**。更新するときは推測で書かず、必ず実機で確かめること。
 
 - **M0**: CLI 骨格（yargs + `defineCommand`）、`--json`／エラー／終了コード、`doctor` / `schema` / `init` / `project show` / `validate`、履歴基盤（op / commit / object / HEAD）、`Bun.serve` 最小サーバ、CI。
 - **M1**: `import` → `proxy build|status` → `assets list|show` → `clip add|list` → `timeline show` → `render` / `render verify|presets`、履歴コマンド群（`status` / `log` / `show` / `diff` / `commit` / `checkout` / `undo` / `redo` / `tag` / `history verify|prune|export|import` / `ids rebuild`）。30 / 29.97 / 59.94fps の厳密フレーム数・カット位置テストを常設。
 - **M2**: `serve`（静的 + `/api/*` + WS + `POST /api/cli` 許可リスト）、`preview build|status`（映像セグメントキャッシュ + 音声 1 パス + mux、`--from/--to`・`--audio-only`・`--height`・`--force`）、`GET /preview/timeline.mp4`（Range・`ETag`=project_hash）、`clip move|trim|split|delete|set` と `track add|list|remove|mute|lock|move`、`timeline gaps`、Web のプレイヤー・トランスポート・編集タイムライン canvas・Inspector・History タイムライン（クリック / `[` `]`）。
 - **M3**: フィルタグラフを `src/ffmpeg/graph/`（types / video / transitions / audio / overlay / text / builder / serialize）の純関数に切り出し、`render` と `preview build` が同じ `buildGraph()` を使う。`transition add|set|remove|list` と `fade`、`text add|set|remove|list|presets` と `fonts list`（ASS 生成 + libass、`drawtext` フォールバック）、`subtitle add|set|remove|list`（burn / soft）、`audio gain|fade|duck|normalize|analyze|show|offset`（amix / sidechaincompress / loudnorm 2 パス）、`overlay add|set|remove|list`、`proxy build --thumbs --waveform` と Web の波形・サムネイル表示、`assets set|new-text|set-text|remove|relink` と Web Assets タブの操作系（`POST /api/upload`）。速度変更（`setpts` + `atempo`）と音声オフセット（`offset_smp`）も対応。
 - **ゴールデンテスト**: 30 / 29.97 / 59.94fps で `duration_f` 厳密一致、xfade 前後フレームの PSNR 照合、テロップ焼き込みを常設（`tests/unit/ffmpeg/transition-golden.test.ts`, `text-render.test.ts`, `audio-render.test.ts`）。
-- **M4（進行中）**: `revert` / `blame` / `reset --hard` / `commit --amend`、`render --last|--from|--to|--hwaccel|--reframe`・全プリセット・`render batch`、W-11 / W-12 の E2E。
-- **未実装**: `clip show`、`clip link|unlink`、`clip add --loop`、`render still|gif|audio`、`batch`、`explain`、`schema --format *-tools` 以外の AI 支援、`serve --allow|--deny|--max-upload` と `serve stop|status`、`log --since`、`project set fps|resolution`、LUT、キーフレームアニメーション、ぼかし／モザイク。コマンド単位の差分は 04 章 §1.9 を正とする。
-- **CI**: 費用抑制のため一時的に Ubuntu のみ（macOS runner は停止中。13 章 D-6）。3 OS マトリクスは再開後の目標。
+- **M4 ✅ 完了**: `revert` / `blame` / `reset --hard`、`log --graph`、`history prune|verify|export|import`、Web History の右クリック操作（W-11）。`render --last|--hwaccel|--reframe|--two-pass`・プリセット 10 種・`render batch|still|gif|audio`（W-12）。`batch`（PR #62 / W-20）と `explain`（PR #61 / W-21）。`commit --amend` と `render --from|--to` は**この範囲に入らなかった**（下の「未実装」を参照）。
+- **M6 ✅ 完了 / M7 ✅ 完了**: レジストリ化と外部プラグイン（PR #41〜#47）、入出力レジストリと Web の spec 駆動フォーム（PR #49〜#52）。詳細は下のマイルストーン節。
+- **直近の成果（2026-09-16）**: PR #65 組み込み音声エフェクト 3 種（`denoise` / `eq` / `compress`）／ PR #66 字幕のスタイル指定（縁取り・背景ボックス・影・位置・太さ）／ PR #67 `subtitle generate`（W-22。whisper.cpp 連携。**エンジンとモデルは取得しない**）／ PR #69・#71 字幕整形の語境界・話者の間・行折り返し（D-21 / D-22。実素材で 2 行字幕の語割れが 15/132 → 0/133）／ PR #70 `suggest highlights`（W-23 / D-23）。
+- **未実装**（2026-09-16 に実機で確認。コマンド単位の差分は 04 章 §1.9 を正とする）:
+  - **コマンド**: `clip show`（`clip list --json` で代替）、`clip link` / `clip unlink`、`serve stop` / `serve status`（`serve --daemon` も `E_NOT_IMPLEMENTED`）、`snapshot *`（`tag` / `checkout` で代替）
+  - **オプション**: `clip add --loop`（レンダラも `E_UNSUPPORTED`）、`render --from` / `--to` / `--skip-validate`、`log --since`、`commit --amend` / `--body-file` / `--from-worktree`、`import --thumbs` / `--waveform`（`proxy build` 側は実装済み）、`assets show --keyframes`、`project set fps` / `resolution` / `sample_rate` / `channels`（`E_NOT_IMPLEMENTED`。全 `_f` / `_smp` の再スナップが要るため。他のキーは実装済み）
+  - **機能**: キーフレームアニメーション（F-FX-8。`EffectSchema.keyframes` は受け皿だけ）、ネスト（F-TL-9）、レンダーキャッシュ（F-RD-10）、クロマキー、画面分割、`crop` を設定する CLI（スキーマとレンダラにはあるが設定コマンドが無い）、`suggest`（F-AI-6 = 「次に取り得る操作」の提案。**`suggest highlights` とは別物**）
+- **「未実装」と書いていたが実際には実装済みだったもの**（2026-09-16 に実機確認して上の一覧から削除。腐りの実例として残す）:
+  - `render still` / `render gif` / `render audio` — `montash render --help` にサブコマンドとして出る（`schema --json` の `render still` / `render gif` / `render audio`）
+  - `batch`（PR #62 / W-20）/ `explain`（PR #61 / W-21）— `montash batch --help` / `montash explain --help` が専用のヘルプを返す
+  - `serve --allow` / `--deny` / `--max-upload` — `montash serve --help` に出る（P3-3 / A-5。`--max-upload` の既定は 2G）
+  - **LUT・ぼかし・モザイク** — M6 Phase 1 の組み込みエフェクト。`montash effect presets` が映像 6 種（`blur` / `color` / `flip` / `lut3d` / `mosaic` / `rotate`）と音声 3 種（`compress` / `denoise` / `eq`）を返す
+- **CI**: 費用抑制のため **GitHub Actions は自動実行しない**（`ci.yml` は残し `workflow_dispatch` のみ。13 章 D-6 で決定）。検証はローカルの `bun run verify`（`check` + 手順の E2E）が正。3 OS マトリクスは再開できたときの目標。
 
 ## 1. マイルストーン
 
@@ -68,10 +82,10 @@
     失敗時は `History.checkout` で開始前の状態へ戻す（新しいロールバック機構は作っていない）
   - **`explain`**（PR #61）: 要素・`timeline`・`render` を自然言語 + JSON で説明。派生値の計算は
     既存関数をそのまま呼び、複製していない
-- 完了条件: 全 W-xx.sh が通る（**W-01〜W-21 の 21 本すべて pass**）。3 OS の CI は D-6 で
+- 完了条件: 全 W-xx.sh が通る（M4 完了時点で **W-01〜W-21 の 21 本すべて pass**。2026-09-16 現在は W-22 / W-23 を足して **23 本**）。3 OS の CI は D-6 で
   動かさない方針にしたため、ローカルの `bun run verify` が正とする
 
-### M5. v1.0 — 11〜12 週目
+### M5. v1.0 — 11〜12 週目 🚧 残り 3 件
 
 - **Phase 0: カーネル整備 ✅ 完了**（PR #35〜#39。詳細は `docs/plans/2026-09-15-plugin-architecture.md`）
   - D-14 クリップ種別の開放（`type` 必須 + 未知種別は `OpaqueClip` として保持、判別を 1 実装に統合、`schema_version` 3）
@@ -84,8 +98,10 @@
   - **N-4**（プレビュー 1 分以内）: 10 分 / 10 クリップ・キャッシュヒット 0 で 42 秒（B-8）
   - **N-5**（レンダー速度）: 入力 100・filter_complex 28,485 文字で 5.2 秒、中間ファイル無し（B-7）
 - **OS 別単一バイナリのビルドは実装済み**（`bun run release` = `scripts/release-build.ts`）。macOS arm64 のホストから **4 ターゲットすべてをクロスコンパイルできることを実測**（linux-x64 93MB / linux-arm64 92MB / darwin-x64 69MB / darwin-arm64 63MB、各 0.1〜0.2 秒）。WSL は linux バイナリを使う
-- 残り: npm 公開（`bunx montash`）と `install-deps.sh` からのバイナリ取得オプション。**公開操作なので実行前に判断が要る**
-- 10 章の AI 操作ガイドを実運用で検証（実際に LLM に指示して W-01〜W-14 を通す）
+- **残り（v1.0 までに片付けるのはこの 3 件だけ）**:
+  1. **npm 公開**（`bunx montash`）。**公開操作なので実行前に人の判断が要る**
+  2. **`install-deps.sh` からのバイナリ取得**（`bun run release` で作った 4 ターゲットを配布物として取りに行く口）
+  3. **10 章の AI 操作ガイドを実運用で検証**（実際に LLM に指示して W-01〜W-23 を通す）
 
 ### M6. プラグイン — 13〜15 週目 ✅ 完了
 
@@ -115,7 +131,7 @@
 
 - キーフレームアニメーション（F-FX-8）、ネスト（F-TL-9）
 - レンダーキャッシュ（F-RD-10）
-- `suggest`（F-AI-6）
+- `suggest`（F-AI-6 = 「次に取り得る操作」の提案）。**`suggest highlights`（W-23 / F-AI-4・F-AU-4）は PR #70 で実装済みだが、これとは別物**
 - MCP サーバとしての公開（CLI と同じコマンド定義から自動生成）
 
 ## 2. トレーサビリティ表（手順 ⇄ 要件 ⇄ コマンド ⇄ ffmpeg ⇄ 実装 ⇄ テスト）
@@ -132,14 +148,20 @@
 | W-08 | F-FX-2 | `overlay *`, `track move` | `clips.video.transform` | §5 | `cli/commands/overlay.ts`, `ffmpeg/graph/overlay.ts` | `tests/workflows/W-08.sh`, `unit/ffmpeg/graph-overlay.test.ts`, `unit/cli/overlay.test.ts` | M3 ✅（M4 から前倒し） |
 | W-09 | F-RD-1〜7 | `render`, `render verify/presets` | `render/last.json` | §9 | `cli/commands/render.ts`, `ffmpeg/render.ts`, `ffmpeg/graph/builder.ts` | `tests/workflows/W-09.sh`, `unit/ffmpeg/graph-build.test.ts` | M1 ✅（コーデック個別指定・部分レンダーは M4） |
 | W-10 | F-PRJ-3,5 / F-HIS-3,4 | `status`, `log`, `undo`, `redo`, `checkout`, `tag` | `.montash/history/*`（11 章） | — | `cli/commands/{status,log,undo,redo,checkout,tag,show,diff,history}.ts`, `core/history/*` | `tests/workflows/W-10.sh`, `unit/core/history/*.test.ts`, `unit/cli/history-commands.test.ts` | M1 ✅（`revert` は M4） |
-| W-11 | F-RD-1 / F-HIS-5,6 | `render --last`, `diff`, `show`, `blame`, `revert` | `meta.last_render`, `commits.jsonl` | §9 | `cli/commands/{diff,show}.ts`（`blame`/`revert` は未実装） | `tests/workflows/W-11.sh`（未作成） | M4 🚧 |
-| W-12 | F-RD-2,8 | `render batch`, `--reframe` | `render_presets` | §9 | `ffmpeg/render.ts`（未実装） | `tests/workflows/W-12.sh`（未作成） | M4 🚧 |
+| W-11 | F-RD-1 / F-HIS-5,6 | `render --last`, `diff`, `show`, `blame`, `revert`, `reset --hard`, `history prune\|verify\|export\|import` | `meta.last_render`, `commits.jsonl` | §9 | `cli/commands/{diff,show,blame,revert,reset,history}.ts`, `core/history/*` | `tests/workflows/W-11.sh`, `unit/cli/history-m4.test.ts` | M4 ✅ |
+| W-12 | F-RD-2,8 | `render batch\|still\|gif\|audio`, `--reframe`, `--hwaccel`, プリセット 10 種 | `render_presets` | §9 | `cli/commands/render.ts`, `ffmpeg/{render,presets}.ts` | `tests/workflows/W-12.sh`, `unit/ffmpeg/{render-variants,presets}.test.ts` | M4 ✅ |
 | W-13 | F-AST-6 | `assets relink` | `assets.hash_head` | — | `cli/commands/assets.ts`, `core/assets.ts` | `tests/workflows/W-13.sh`, `unit/cli/assets-manage.test.ts` | M3 ✅（M4 から前倒し） |
 | W-14 | F-FX-6 / F-AST-5 | `subtitle *` | subtitle clips | §7 | `cli/commands/subtitle.ts`, `ffmpeg/{ass,text-prepare}.ts`, `ffmpeg/graph/text.ts` | `tests/workflows/W-14.sh`, `unit/ffmpeg/ass-burn.test.ts`, `unit/cli/subtitle.test.ts` | M3 ✅（M4 から前倒し） |
 | W-15 | F-HIS-1,2,7 / N-13 | `commit`, `-m`, `status`, `log`, `show`, `diff`, `tag` | `ops.jsonl`, `commits.jsonl`, `objects/` | — | `cli/commands/commit.ts`, `cli/mutate.ts`, `core/history/{store,history,diff,hash,dag}.ts` | `tests/workflows/W-15.sh`, `unit/core/history/{store,history,property}.test.ts`, `unit/cli/mutate.test.ts` | M1 ✅ |
 | W-16 | F-PV-11〜13 / F-HIS-3,4 / F-PV-10,16 | `checkout`, `undo`, `redo`, `tag`（Web → `POST /api/cli`） | `HEAD`, `moves.jsonl` | §11（キャッシュ concat） | `server/{cli-exec,history}.ts`, `web/src/components/History/HistoryStrip.tsx` | `tests/workflows/W-16.sh` + `scripts/e2e-history.ts`（Playwright）, `unit/server/{cli-exec,history}.test.ts` | M2 ✅ |
 | W-17 | F-PV-14,15 / F-AST-7,8 | `import`, `assets set\|new-text\|set-text\|remove\|relink`, `proxy build`, `text add --asset` | `assets.*.label/tags/owned`, `assets/text/`, text clip `asset` | §6, §10 | `core/assets.ts`, `server/assets.ts`, `web/src/components/Assets/*` | `tests/workflows/W-17.sh`（`serve` + curl で Web と同じ API 経路を検証）, `unit/server/{assets-api,assets-derived,upload}.test.ts` | M3 ✅ |
-| 全般 | F-AI-1〜5 | `schema`, `--json`, `--dry-run`（`batch` / `explain` は未実装） | — | §12 | `cli/{output,errors,define-command,context}.ts`, `cli/commands/schema.ts` | `unit/cli/{output,define-command,time-input}.test.ts` | M0〜M3 ✅ |
+| W-18 | F-EXT-1,2 / F-FX-3,4,7 | `effect add\|set\|remove\|list\|presets` | `clips.effects`, `project.effects` | §3a | `cli/commands/effect.ts`, `registry/effects.ts`, `ffmpeg/{effect-files,effect-analysis}.ts`, `ffmpeg/graph/{video,audio}.ts` | `tests/workflows/W-18.sh`, `unit/cli/effect.test.ts`, `unit/registry/{effects,builtin-effects,builtin-audio-effects}.test.ts`, `unit/ffmpeg/{graph-builtin-effects,effect-files}.test.ts` | M6 ✅ |
+| W-19 | F-EXT-3,4 | `plugin list\|install\|remove\|doctor` | `project.plugins.requires[]`, opaque clip | — | `cli/commands/plugin.ts`, `plugins/{loader,manifest,command-host,types}.ts`, `registry/*` | `tests/workflows/W-19.sh`, `unit/plugins/{loader,commands,capabilities}.test.ts`, `unit/registry/registry.test.ts` | M6 ✅ |
+| W-20 | F-AI-5 | `batch`（`--atomic` / `--continue-on-error`） | `ops.jsonl`（1 op にまとめる） | — | `cli/commands/batch.ts`, `cli/mutate.ts`, `core/history/history.ts` | `tests/workflows/W-20.sh`, `unit/cli/batch.test.ts` | M4 ✅（PR #62） |
+| W-21 | F-AI-4 / F-EXT-4 | `explain <target>` | —（`mutates: false`） | §12 | `cli/commands/explain.ts` | `tests/workflows/W-21.sh`, `unit/cli/explain.test.ts` | M4 ✅（PR #61） |
+| W-22 | F-FX-1 / N-2 | `subtitle generate`（`--vocabulary` / `--max-chars` / `--pause` ほか） | subtitle clips, `assets`（SRT） | §7, §8 | `cli/commands/subtitle-generate.ts`, `core/subtitle-format.ts`, `ffmpeg/{transcribe,transcribe-audio}.ts` | `tests/workflows/W-22.sh`, `unit/core/subtitle-format.test.ts`, `unit/cli/subtitle-generate.test.ts`, `unit/ffmpeg/transcribe.test.ts` | ✅（PR #67 / #69 / #71） |
+| W-23 | F-AI-4 / F-AU-4 / N-2 | `suggest highlights` | —（`mutates: false`。op も作らない） | §8（`silencedetect`） | `cli/commands/suggest.ts`, `core/highlights.ts`, `ffmpeg/transcribe.ts` | `tests/workflows/W-23.sh`, `unit/core/highlights.test.ts`, `unit/cli/suggest.test.ts` | ✅（PR #70 / D-23） |
+| 全般 | F-AI-1〜5 | `schema`, `help`, `--json`, `--dry-run` | — | §12 | `cli/{output,errors,define-command,context}.ts`, `cli/commands/{schema,help}.ts`, `registry/commands.ts` | `unit/cli/{output,define-command,time-input,help,command-registry}.test.ts` | M0〜M4 ✅ |
 
 `tests/unit/**` はリポジトリ直下 `tests/` からの相対、実装モジュールは `src/` からの相対。プレビューの実ブラウザ検証は `scripts/e2e-preview.ts`（`W-04.sh` から呼ぶ。chromium があるときのみ）。
 
